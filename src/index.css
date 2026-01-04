@@ -1,0 +1,238 @@
+:root {
+  /* Default Dark Theme */
+  --bg: #0b0f14;
+  --panel: #0f1620;
+  --panel-2: #0c121a;
+  --fg: #e6edf3;
+  --muted: #9fb0c0;
+  --subtle: #7a8a9e;
+  --border: #223043;
+  --focus: #96cdff;
+  --accent: #5a9cff;
+  --accent-2: #4a8aef;
+  --danger: rgba(255, 84, 84, 0.95);
+
+  --surface: rgba(18, 26, 36, 0.92);
+  --surface2: rgba(20, 30, 42, 0.92);
+  --ring: rgba(150, 205, 255, 0.28);
+  --shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+  --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.18);
+
+  --radius: 10px;
+  --radius-sm: 8px;
+
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: dark;
+  color: var(--fg);
+  background: radial-gradient(1200px circle at 85% 0%, rgba(36, 78, 122, 0.22), transparent 55%),
+              radial-gradient(900px circle at 0% 100%, rgba(31, 42, 56, 0.22), transparent 60%),
+              var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html[data-theme='dark'] {
+  --bg: #0b0f14;
+  --panel: #0f1620;
+  --panel-2: #0c121a;
+  --fg: #e6edf3;
+  --muted: #9fb0c0;
+  --subtle: #7a8a9e;
+  --border: #223043;
+  --focus: #96cdff;
+  --accent: #5a9cff;
+  --accent-2: #4a8aef;
+  --danger: rgba(255, 84, 84, 0.95);
+  --surface: rgba(18, 26, 36, 0.92);
+  --surface2: rgba(20, 30, 42, 0.92);
+  --ring: rgba(150, 205, 255, 0.28);
+  --shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+  --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.18);
+  color-scheme: dark;
+}
+
+html[data-theme='light'] {
+  --bg: #f6f8fb;
+  --panel: #ffffff;
+  --panel-2: #f1f5f9;
+  --fg: #0b1220;
+  --muted: #56667a;
+  --subtle: #6b7a8e;
+  --border: #d7dee8;
+  --focus: #4a8aef;
+  --accent: #244e7a;
+  --accent-2: #1e3f65;
+  --danger: rgba(210, 34, 34, 0.95);
+  --surface: rgba(255, 255, 255, 0.92);
+  --surface2: rgba(241, 245, 249, 0.92);
+  --ring: rgba(36, 78, 122, 0.22);
+  --shadow: 0 10px 24px rgba(2, 6, 23, 0.10);
+  --shadow-soft: 0 4px 12px rgba(2, 6, 23, 0.06);
+  background: radial-gradient(1200px circle at 85% 0%, rgba(36, 78, 122, 0.08), transparent 55%),
+              radial-gradient(900px circle at 0% 100%, rgba(31, 42, 56, 0.08), transparent 60%),
+              var(--bg);
+  color-scheme: light;
+}
+
+html[data-theme='midnight'] {
+  --bg: #0d1020;
+  --panel: #11162a;
+  --panel-2: #0c1020;
+  --fg: #e8ecff;
+  --muted: #9aa7d1;
+  --subtle: #808cb8;
+  --border: #1f2945;
+  --focus: #5a8cff;
+  --accent: #5a8cff;
+  --accent-2: #4a7cef;
+  --danger: rgba(255, 110, 110, 0.95);
+  --surface:  rgba(21, 24, 34, 0.94) ; 
+  /* --surface: rgba(20, 26, 48, 0.94); */
+  --surface2: rgba(24, 32, 56, 0.94);
+  --ring: rgba(90, 140, 255, 0.28);
+  --shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
+  --shadow-soft: 0 6px 16px rgba(0, 0, 0, 0.22);
+  background: radial-gradient(1200px circle at 85% 0%, rgba(47, 79, 146, 0.25), transparent 55%),
+              radial-gradient(900px circle at 0% 100%, rgba(31, 41, 64, 0.25), transparent 60%),
+              var(--bg);
+  color-scheme: dark;
+}
+
+html[data-theme='forest'] {
+  --bg: #0c1612;
+  --panel: #11211a;
+  --panel-2: #0f1c16;
+  --fg: #e7f2e8;
+  --muted: #95b3a1;
+  --subtle: #7a9985;
+  --border: #1c2f25;
+  --focus: #54bc81;
+  --accent: #3f9966;
+  --accent-2: #2f7f52;
+  --danger: rgba(223, 95, 95, 0.94);
+  --surface: rgba(20, 34, 28, 0.94);
+  --surface2: rgba(24, 40, 33, 0.94);
+  --ring: rgba(84, 188, 129, 0.24);
+  --shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+  --shadow-soft: 0 6px 16px rgba(0, 0, 0, 0.18);
+  background: radial-gradient(1200px circle at 85% 0%, rgba(47, 95, 70, 0.22), transparent 55%),
+              radial-gradient(900px circle at 0% 100%, rgba(28, 47, 37, 0.22), transparent 60%),
+              var(--bg);
+  color-scheme: dark;
+}
+
+html[data-theme='solarized'] {
+  --bg: #fdf6e3;
+  --panel: #fefbf1;
+  --panel-2: #f3e9d2;
+  --fg: #073642;
+  --muted: #657b83;
+  --subtle: #546772;
+  --border: #e0d6bd;
+  --focus: #b58900;
+  --accent: #b58900;
+  --accent-2: #9a7300;
+  --danger: rgba(220, 50, 47, 0.92);
+  --surface: rgba(254, 251, 241, 0.96);
+  --surface2: rgba(243, 233, 210, 0.96);
+  --ring: rgba(181, 137, 0, 0.25);
+  --shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.08);
+  background: radial-gradient(1200px circle at 85% 0%, rgba(181, 137, 0, 0.08), transparent 55%),
+              radial-gradient(900px circle at 0% 100%, rgba(101, 123, 131, 0.08), transparent 60%),
+              var(--bg);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #f6f8fb;
+    --panel: #ffffff;
+    --panel-2: #f1f5f9;
+    --fg: #0b1220;
+    --muted: #56667a;
+    --subtle: #6b7a8e;
+    --border: #d7dee8;
+    --focus: #4a8aef;
+    --accent: #244e7a;
+    --accent-2: #1e3f65;
+    --danger: rgba(210, 34, 34, 0.95);
+    --surface: rgba(255, 255, 255, 0.92);
+    --surface2: rgba(241, 245, 249, 0.92);
+    --ring: rgba(36, 78, 122, 0.22);
+    --shadow: 0 10px 24px rgba(2, 6, 23, 0.10);
+    --shadow-soft: 0 4px 12px rgba(2, 6, 23, 0.06);
+    background: radial-gradient(1200px circle at 85% 0%, rgba(36, 78, 122, 0.08), transparent 55%),
+                radial-gradient(900px circle at 0% 100%, rgba(31, 42, 56, 0.08), transparent 60%),
+                var(--bg);
+    color-scheme: light;
+  }
+}
+
+a {
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent-2);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+button,
+select,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+}
+
+button:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button:focus,
+button:focus-visible,
+select:focus,
+select:focus-visible,
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
