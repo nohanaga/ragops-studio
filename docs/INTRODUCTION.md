@@ -1,5 +1,7 @@
 # RAGOps Studio — for Azure AI Search
 
+> **📖 [詳しい日本語紹介記事](https://qiita.com/nohanaga/items/f5d6ec340f238c8220be)**
+
 **RAGOps, from query to quality.**
 
 In production RAG (Retrieval-Augmented Generation) systems, continuous improvement of search quality is one of the most critical challenges. However, when attempting to leverage the advanced features of Azure AI Search, developers face numerous technical hurdles, including complex REST API parameter configurations, optimization of vector and hybrid search, and implementation of the Knowledge Retrieval API (Agentic retrieval).
