@@ -347,10 +347,13 @@ Revolutionary UI/UX for synonym management.
 ## 4. Attention to UI/UX Details
 
 - 3-pane structure with drag resizing support
-- 6 themes (System, Dark, Light, Midnight, Forest, Solarized)
 - Multi-language support (Japanese/English)
-
-![image.png](./images/screenshot20_en.png)
+- 6 themes (System, Dark, Light, Midnight, Forest, Solarized)
+    ![image.png](./images/screenshot20_en.png)
+- Filter Query Builder: Easily Build Complex Filter Expressions
+    ![image.png](./images/screenshot22_en.png)
+- Accelerate learning of the latest features with ⓘ Info Tooltip for all parameters
+    ![image.png](./images/screenshot23_en.png)
 
 # GitHub
 https://github.com/nohanaga/ragops-studio
