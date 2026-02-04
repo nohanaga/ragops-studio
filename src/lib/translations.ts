@@ -18,9 +18,28 @@ export const translations = {
     toolsCategoryBuilders: 'ビルダー',
     toolsCategoryVisualizers: '可視化',
     searchPipelineVisualizer: 'Search Pipeline Visualizer',
+    skillPipelineBuilder: 'Skill Pipeline Builder',
     textToVector: 'Text to Vector',
     vectorOptimizer: 'Vector Optimizer',
     searchParameterAutoTuning: 'Search Parameter AutoTuning',
+
+    // Skill Pipeline Builder
+    spbIntro: 'スキルセット(JSON)を、左→右のノードで組み立てます。ノードをクリックすると右ペインでスキル定義(JSON)を編集できます。',
+    spbSkillsetName: 'skillset name',
+    spbSkillsetDescription: 'description (optional)',
+    spbAddSkill: 'Add skill',
+    spbDeleteSkill: 'Delete skill',
+    spbCopySkillsetJson: 'Copy skillset JSON',
+    spbSave: 'Save',
+    spbSaveAs: 'Save as',
+    spbSavedSkillsets: 'Saved skillsets',
+    spbNoSavedSkillsets: '(no saved skillsets)',
+    spbLoad: 'Load',
+    spbDelete: 'Delete',
+    spbSelectedSkillJson: 'Selected skill JSON',
+    spbApply: 'Apply',
+    spbInvalidJson: 'JSON parse error: {error}',
+    spbGeneratedJson: 'Generated skillset JSON',
 
     // Search Parameter AutoTuning (UI labels/messages)
     atIntro:
@@ -628,6 +647,7 @@ export const translations = {
     restErrorKnowledgeBaseNameUnset: 'knowledgeBaseName が未設定です',
     restErrorKnowledgeSourceNameUnset: 'knowledgeSourceName が未設定です',
     restErrorSynonymMapNameUnset: 'synonymMapName が未設定です',
+    restErrorSkillsetNameUnset: 'skillsetName が未設定です',
     restErrorApiKeyUnset: 'apiKey が未設定です',
     restErrorBearerTokenUnset: 'bearerToken が未設定です',
     restErrorAuthTypeUnsupported: '未対応の authType です',
@@ -690,9 +710,28 @@ export const translations = {
     toolsCategoryBuilders: 'Builders',
     toolsCategoryVisualizers: 'Visualizers',
     searchPipelineVisualizer: 'Search Pipeline Visualizer',
+    skillPipelineBuilder: 'Skill Pipeline Builder',
     textToVector: 'Text to Vector',
     vectorOptimizer: 'Vector Optimizer',
     searchParameterAutoTuning: 'Search Parameter AutoTuning',
+
+    // Skill Pipeline Builder
+    spbIntro: 'Build a skillset (JSON) as left-to-right nodes. Click a node to edit the skill definition (JSON) in the right pane.',
+    spbSkillsetName: 'skillset name',
+    spbSkillsetDescription: 'description (optional)',
+    spbAddSkill: 'Add skill',
+    spbDeleteSkill: 'Delete skill',
+    spbCopySkillsetJson: 'Copy skillset JSON',
+    spbSave: 'Save',
+    spbSaveAs: 'Save as',
+    spbSavedSkillsets: 'Saved skillsets',
+    spbNoSavedSkillsets: '(no saved skillsets)',
+    spbLoad: 'Load',
+    spbDelete: 'Delete',
+    spbSelectedSkillJson: 'Selected skill JSON',
+    spbApply: 'Apply',
+    spbInvalidJson: 'JSON parse error: {error}',
+    spbGeneratedJson: 'Generated skillset JSON',
 
     // Search Parameter AutoTuning (UI labels/messages)
     atIntro:
@@ -1298,6 +1337,7 @@ export const translations = {
     restErrorKnowledgeBaseNameUnset: 'knowledgeBaseName is not set',
     restErrorKnowledgeSourceNameUnset: 'knowledgeSourceName is not set',
     restErrorSynonymMapNameUnset: 'synonymMapName is not set',
+    restErrorSkillsetNameUnset: 'skillsetName is not set',
     restErrorApiKeyUnset: 'apiKey is not set',
     restErrorBearerTokenUnset: 'bearerToken is not set',
     restErrorAuthTypeUnsupported: 'Unsupported authType',

@@ -1,0 +1,261 @@
+{
+  "@odata.etag": "\"0x8DE3C38B45102B4\"",
+  "name": "multimodal-rag-1748436265624-skillset",
+  "skills": [
+    {
+      "@odata.type": "#Microsoft.Skills.Util.DocumentExtractionSkill",
+      "name": "#1",
+      "context": "/document",
+      "parsingMode": "default",
+      "dataToExtract": "contentAndMetadata",
+      "inputs": [
+        {
+          "name": "file_data",
+          "source": "/document/file_data",
+          "inputs": []
+        }
+      ],
+      "outputs": [
+        {
+          "name": "content",
+          "targetName": "extracted_content"
+        },
+        {
+          "name": "normalized_images",
+          "targetName": "normalized_images"
+        }
+      ],
+      "configuration": {
+        "imageAction": "generateNormalizedImages",
+        "normalizedImageMaxWidth@odata.type": "#Int64",
+        "normalizedImageMaxWidth": 2000,
+        "normalizedImageMaxHeight@odata.type": "#Int64",
+        "normalizedImageMaxHeight": 2000
+      }
+    },
+    {
+      "@odata.type": "#Microsoft.Skills.Text.SplitSkill",
+      "name": "#2",
+      "context": "/document",
+      "defaultLanguageCode": "en",
+      "textSplitMode": "pages",
+      "maximumPageLength": 2000,
+      "pageOverlapLength": 200,
+      "maximumPagesToTake": 0,
+      "unit": "characters",
+      "inputs": [
+        {
+          "name": "text",
+          "source": "/document/extracted_content",
+          "inputs": []
+        }
+      ],
+      "outputs": [
+        {
+          "name": "textItems",
+          "targetName": "pages"
+        }
+      ]
+    },
+    {
+      "@odata.type": "#Microsoft.Skills.Custom.ChatCompletionSkill",
+      "name": "#3",
+      "context": "/document/normalized_images/*",
+      "uri": "https://openai-eastus-hana1.openai.azure.com/openai/deployments/gpt-4o-global1/chat/completions?api-version=2025-01-01-preview",
+      "httpMethod": "POST",
+      "timeout": "PT30S",
+      "batchSize": 1,
+      "apiKey": "<redacted>",
+      "inputs": [
+        {
+          "name": "systemMessage",
+          "source": "='You are tasked with generating concise, accurate descriptions of images, figures, diagrams, or charts in documents. The goal is to capture the key information and meaning conveyed by the image without including extraneous details like style, colors, visual aesthetics, or size.\n\nInstructions:\nContent Focus: Describe the core content and relationships depicted in the image.\n\nFor diagrams, specify the main elements and how they are connected or interact.\nFor charts, highlight key data points, trends, comparisons, or conclusions.\nFor figures or technical illustrations, identify the components and their significance.\nClarity & Precision: Use concise language to ensure clarity and technical accuracy. Avoid subjective or interpretive statements.\n\nAvoid Visual Descriptors: Exclude details about:\n\nColors, shading, and visual styles.\nImage size, layout, or decorative elements.\nFonts, borders, and stylistic embellishments.\nContext: If relevant, relate the image to the broader content of the technical document or the topic it supports.\n\nExample Descriptions:\nDiagram: \"A flowchart showing the four stages of a machine learning pipeline: data collection, preprocessing, model training, and evaluation, with arrows indicating the sequential flow of tasks.\"\n\nChart: \"A bar chart comparing the performance of four algorithms on three datasets, showing that Algorithm A consistently outperforms the others on Dataset 1.\"\n\nFigure: \"A labeled diagram illustrating the components of a transformer model, including the encoder, decoder, self-attention mechanism, and feedforward layers.\"'",
+          "inputs": []
+        },
+        {
+          "name": "userMessage",
+          "source": "='Please describe this image.'",
+          "inputs": []
+        },
+        {
+          "name": "image",
+          "source": "/document/normalized_images/*/data",
+          "inputs": []
+        }
+      ],
+      "outputs": [
+        {
+          "name": "response",
+          "targetName": "verbalizedImage"
+        }
+      ],
+      "httpHeaders": {}
+    },
+    {
+      "@odata.type": "#Microsoft.Skills.Text.AzureOpenAIEmbeddingSkill",
+      "name": "#4",
+      "context": "/document/pages/*",
+      "resourceUri": "https://openai-eastus-hana1.openai.azure.com",
+      "apiKey": "<redacted>",
+      "deploymentId": "text-embedding-3-small",
+      "dimensions": 1536,
+      "modelName": "text-embedding-3-small",
+      "inputs": [
+        {
+          "name": "text",
+          "source": "/document/pages/*",
+          "inputs": []
+        }
+      ],
+      "outputs": [
+        {
+          "name": "embedding",
+          "targetName": "text_vector"
+        }
+      ]
+    },
+    {
+      "@odata.type": "#Microsoft.Skills.Text.AzureOpenAIEmbeddingSkill",
+      "name": "#5",
+      "context": "/document/normalized_images/*",
+      "resourceUri": "https://openai-eastus-hana1.openai.azure.com",
+      "apiKey": "<redacted>",
+      "deploymentId": "text-embedding-3-small",
+      "dimensions": 1536,
+      "modelName": "text-embedding-3-small",
+      "inputs": [
+        {
+          "name": "text",
+          "source": "/document/normalized_images/*/verbalizedImage",
+          "inputs": []
+        }
+      ],
+      "outputs": [
+        {
+          "name": "embedding",
+          "targetName": "verbalizedImage_vector"
+        }
+      ]
+    },
+    {
+      "@odata.type": "#Microsoft.Skills.Util.ShaperSkill",
+      "name": "#6",
+      "context": "/document/normalized_images/*",
+      "inputs": [
+        {
+          "name": "normalized_images",
+          "source": "/document/normalized_images/*",
+          "inputs": []
+        },
+        {
+          "name": "imagePath",
+          "source": "='img1/'+$(/document/normalized_images/*/imagePath)",
+          "inputs": []
+        },
+        {
+          "name": "locationMetadata",
+          "sourceContext": "/document/normalized_images/*",
+          "inputs": [
+            {
+              "name": "pageNumber",
+              "source": "/document/normalized_images/*/pageNumber",
+              "inputs": []
+            },
+            {
+              "name": "boundingPolygons",
+              "source": "/document/normalized_images/*/boundingPolygon",
+              "inputs": []
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "targetName": "new_normalized_images"
+        }
+      ]
+    }
+  ],
+  "knowledgeStore": {
+    "storageConnectionString": "<redacted>",
+    "projections": [
+      {
+        "tables": [],
+        "objects": [],
+        "files": [
+          {
+            "storageContainer": "img1",
+            "generatedKeyName": "img1Key",
+            "source": "/document/normalized_images/*",
+            "inputs": []
+          }
+        ]
+      }
+    ],
+    "parameters": {
+      "synthesizeGeneratedKeyName": true
+    }
+  },
+  "indexProjections": {
+    "selectors": [
+      {
+        "targetIndexName": "multimodal-rag-1748436265624",
+        "parentKeyFieldName": "text_document_id",
+        "sourceContext": "/document/pages/*",
+        "mappings": [
+          {
+            "name": "content_text",
+            "source": "/document/pages/*",
+            "inputs": []
+          },
+          {
+            "name": "content_embedding",
+            "source": "/document/pages/*/text_vector",
+            "inputs": []
+          },
+          {
+            "name": "document_title",
+            "source": "/document/document_title",
+            "inputs": []
+          }
+        ]
+      },
+      {
+        "targetIndexName": "multimodal-rag-1748436265624",
+        "parentKeyFieldName": "image_document_id",
+        "sourceContext": "/document/normalized_images/*",
+        "mappings": [
+          {
+            "name": "content_embedding",
+            "source": "/document/normalized_images/*/verbalizedImage_vector",
+            "inputs": []
+          },
+          {
+            "name": "content_path",
+            "source": "/document/normalized_images/*/new_normalized_images/imagePath",
+            "inputs": []
+          },
+          {
+            "name": "document_title",
+            "source": "/document/document_title",
+            "inputs": []
+          },
+          {
+            "name": "locationMetadata",
+            "source": "/document/normalized_images/*/new_normalized_images/locationMetadata",
+            "inputs": []
+          },
+          {
+            "name": "content_text",
+            "source": "/document/normalized_images/*/verbalizedImage",
+            "inputs": []
+          }
+        ]
+      }
+    ],
+    "parameters": {
+      "projectionMode": "skipIndexingParentDocuments"
+    }
+  }
+}

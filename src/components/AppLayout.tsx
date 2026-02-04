@@ -17,6 +17,8 @@ import {
   KnowledgeSourceBuilder,
   LeftPane,
   RightJsonViewerPane,
+  SkillPipelineBuilder,
+  SkillPipelineRightPane,
   SearchParameterAutoTuning,
   SearchPipelineVisualizer,
   SynonymMapBuilder,
@@ -207,6 +209,8 @@ export function AppLayout(props: {
     setIsSynonymMapBuilderOpen,
     isIndexBuilderOpen,
     setIsIndexBuilderOpen,
+    isSkillPipelineBuilderOpen,
+    setIsSkillPipelineBuilderOpen,
     isVectorOptimizerOpen,
     setIsVectorOptimizerOpen,
   } = useModalState()
@@ -406,6 +410,10 @@ export function AppLayout(props: {
         onOpenSynonymMapBuilder={() => {
           setIsSynonymMapBuilderOpen(true)
           setCenterTab('synonym-map-builder')
+        }}
+        onOpenSkillPipelineBuilder={() => {
+          setIsSkillPipelineBuilderOpen(true)
+          setCenterTab('skill-pipeline-builder')
         }}
         onOpenSearchPipelineVisualizer={() => {
           setIsSearchPipelineVisualizerOpen(true)
@@ -688,6 +696,33 @@ export function AppLayout(props: {
               </div>
             )}
 
+            {isSkillPipelineBuilderOpen && (
+              <div className="tabWrapper">
+                <button
+                  type="button"
+                  className={'tab ' + (centerTab === 'skill-pipeline-builder' ? 'tab--active' : '')}
+                  onClick={() => setCenterTab('skill-pipeline-builder')}
+                >
+                  <span className="tab__label">🧩 {t('skillPipelineBuilder')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="tab__closeBtn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setIsSkillPipelineBuilderOpen(false)
+                    if (centerTab === 'skill-pipeline-builder') {
+                      setCenterTab('builder')
+                    }
+                  }}
+                  aria-label="Close tab"
+                  title="Close tab"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
             {resultViews.map((view) => {
               const isRunTab = typeof view.id === 'string' && view.id.startsWith('run:')
               const runTypeClass = view.runType ? `tab--${view.runType}` : ''
@@ -877,6 +912,19 @@ export function AppLayout(props: {
             </div>
           )}
 
+          {isSkillPipelineBuilderOpen && (
+            <div className="tabPane" hidden={centerTab !== 'skill-pipeline-builder'}>
+              <SkillPipelineBuilder
+                t={t}
+                language={language}
+                theme={theme}
+                copyToClipboard={copyToClipboard}
+                profile={activeProfile}
+                apiVersion={effectiveApiVersion}
+              />
+            </div>
+          )}
+
           {isSearchPipelineVisualizerOpen && (
             <div className="tabPane" hidden={centerTab !== 'search-pipeline-visualizer'}>
               <SearchPipelineVisualizer
@@ -914,6 +962,7 @@ export function AppLayout(props: {
             centerTab !== 'knowledge-base-builder' &&
             centerTab !== 'synonym-map-builder' &&
             centerTab !== 'index-builder' &&
+            centerTab !== 'skill-pipeline-builder' &&
             centerTab !== 'search-pipeline-visualizer' && (
               <div className="pane__centerContent">
                 <div className="resultGrid" style={{ gridTemplateColumns: `repeat(${resultViews.length}, minmax(0, 1fr))` }}>
@@ -961,16 +1010,26 @@ export function AppLayout(props: {
         </div>
 
         {!isRightPaneCollapsed && (
-          <RightJsonViewerPane
-            activeResultView={activeResultView}
-            jsonViewerMode={jsonViewerMode}
-            setJsonViewerMode={setJsonViewerMode}
-            jsonViewerRequestData={jsonViewerRequestData}
-            jsonViewerResponseData={jsonViewerResponseData}
-            jsonViewerFacets={jsonViewerFacets}
-            onCollapse={() => setIsRightPaneCollapsed(true)}
-            t={t}
-          />
+          centerTab === 'skill-pipeline-builder' ? (
+            <SkillPipelineRightPane
+              t={t}
+              language={language}
+              theme={theme}
+              copyToClipboard={copyToClipboard}
+              onCollapse={() => setIsRightPaneCollapsed(true)}
+            />
+          ) : (
+            <RightJsonViewerPane
+              activeResultView={activeResultView}
+              jsonViewerMode={jsonViewerMode}
+              setJsonViewerMode={setJsonViewerMode}
+              jsonViewerRequestData={jsonViewerRequestData}
+              jsonViewerResponseData={jsonViewerResponseData}
+              jsonViewerFacets={jsonViewerFacets}
+              onCollapse={() => setIsRightPaneCollapsed(true)}
+              t={t}
+            />
+          )
         )}
       </div>
 

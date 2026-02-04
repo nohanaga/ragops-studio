@@ -13,7 +13,8 @@ function isToolTab(tab: CenterTab): boolean {
     tab === 'knowledge-source-builder' ||
     tab === 'knowledge-base-builder' ||
     tab === 'synonym-map-builder' ||
-    tab === 'index-builder'
+    tab === 'index-builder' ||
+    tab === 'skill-pipeline-builder'
   )
 }
 
@@ -33,6 +34,7 @@ export function useExperimentTabRestore(params: {
   setIsKnowledgeBaseBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsSynonymMapBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsIndexBuilderOpen: Dispatch<SetStateAction<boolean>>
+  setIsSkillPipelineBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsVectorOptimizerOpen: Dispatch<SetStateAction<boolean>>
 }) {
   const {
@@ -49,6 +51,7 @@ export function useExperimentTabRestore(params: {
     setIsKnowledgeBaseBuilderOpen,
     setIsSynonymMapBuilderOpen,
     setIsIndexBuilderOpen,
+    setIsSkillPipelineBuilderOpen,
     setIsVectorOptimizerOpen,
   } = params
 
@@ -111,6 +114,7 @@ export function useExperimentTabRestore(params: {
         setIsKnowledgeBaseBuilderOpen(restored.isKnowledgeBaseBuilderOpen ?? false)
         setIsSynonymMapBuilderOpen(restored.isSynonymMapBuilderOpen ?? false)
         setIsIndexBuilderOpen(restored.isIndexBuilderOpen ?? false)
+        setIsSkillPipelineBuilderOpen(restored.isSkillPipelineBuilderOpen ?? false)
         setIsVectorOptimizerOpen(restored.isVectorOptimizerOpen ?? false)
       }
     } else {
@@ -125,6 +129,7 @@ export function useExperimentTabRestore(params: {
     setCenterTab,
     setIsAutoTuningOpen,
     setIsIndexBuilderOpen,
+    setIsSkillPipelineBuilderOpen,
     setIsKnowledgeBaseBuilderOpen,
     setIsKnowledgeSourceBuilderOpen,
     setIsQpsTesterOpen,

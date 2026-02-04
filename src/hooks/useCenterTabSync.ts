@@ -15,6 +15,7 @@ export function useCenterTabSync(params: {
   setIsKnowledgeBaseBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsSynonymMapBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsIndexBuilderOpen: Dispatch<SetStateAction<boolean>>
+  setIsSkillPipelineBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsVectorOptimizerOpen: Dispatch<SetStateAction<boolean>>
 }) {
   const {
@@ -29,6 +30,7 @@ export function useCenterTabSync(params: {
     setIsKnowledgeBaseBuilderOpen,
     setIsSynonymMapBuilderOpen,
     setIsIndexBuilderOpen,
+    setIsSkillPipelineBuilderOpen,
     setIsVectorOptimizerOpen,
   } = params
 
@@ -78,6 +80,9 @@ export function useCenterTabSync(params: {
       case 'index-builder':
         setIsIndexBuilderOpen(true)
         break
+      case 'skill-pipeline-builder':
+        setIsSkillPipelineBuilderOpen(true)
+        break
       case 'vector-optimizer':
         setIsVectorOptimizerOpen(true)
         break
@@ -86,6 +91,7 @@ export function useCenterTabSync(params: {
     centerTab,
     setIsAutoTuningOpen,
     setIsIndexBuilderOpen,
+    setIsSkillPipelineBuilderOpen,
     setIsKnowledgeBaseBuilderOpen,
     setIsKnowledgeSourceBuilderOpen,
     setIsQpsTesterOpen,

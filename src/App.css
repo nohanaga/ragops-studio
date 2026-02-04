@@ -261,6 +261,38 @@
   background: var(--panel);
 }
 
+/* Skill Pipeline Builder nodes (graph) */
+.spvStage--doc {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.spvStage--doc .spvStage__header {
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-2));
+}
+
+.spvStage--projection {
+  border-style: dashed;
+}
+
+.spvStage--projection .spvStage__header {
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-2));
+}
+
+.spvStage--index {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.spvStage--index .spvStage__header {
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel-2));
+}
+
+.spvStage__status--tag {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.2px;
+}
+
+
 .spvStage__header {
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
@@ -272,10 +304,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
 
 .spvStage__label {
   font-weight: 650;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .spvStage__status {
@@ -284,6 +321,26 @@
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--panel);
+  flex: 0 0 auto;
+}
+
+/* Tag variants (use higher specificity than .spvStage__status) */
+.spvStage__status.spvStage__status--util {
+  border-color: color-mix(in srgb, #f44336 55%, var(--border));
+  background: color-mix(in srgb, #f44336 16%, var(--panel));
+  color: color-mix(in srgb, #f44336 85%, var(--fg));
+}
+
+.spvStage__status.spvStage__status--text {
+  border-color: color-mix(in srgb, #4caf50 55%, var(--border));
+  background: color-mix(in srgb, #4caf50 16%, var(--panel));
+  color: color-mix(in srgb, #4caf50 85%, var(--fg));
+}
+
+.spvStage__status.spvStage__status--custom {
+  border-color: color-mix(in srgb, #ff9800 55%, var(--border));
+  background: color-mix(in srgb, #ff9800 16%, var(--panel));
+  color: color-mix(in srgb, #ff9800 85%, var(--fg));
 }
 
 .spvStage__meta {

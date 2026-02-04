@@ -7,12 +7,92 @@
 /* eslint-disable react-refresh/only-export-components */
 
 import { createContext, useContext, useState, useMemo, useCallback, type ReactNode, type Dispatch, type SetStateAction } from 'react'
+import type { Node, Edge } from '@xyflow/react'
 import type { AppSettings, ConnectionProfile, Run } from '../lib/model'
 import type { ThemePreference, LabMode, BuilderMode, SearchFormState, AgenticFormState, AnalyzeFormState, LatestResponse, UiLogEntry } from '../types'
 import type { Language } from '../lib/translations'
 import { getInitialThemePreference, getBrowserLanguage } from '../utils'
 import { DEFAULT_SEARCH_FORM } from '../app/defaults'
 import { translations } from '../lib/translations'
+import { deleteSkillPipeline, getSkillPipeline, listSkillPipelines, upsertSkillPipeline, type PersistedSkillPipelineItem } from '../app/persistedSkillPipeline'
+import { v4 as uuidv4 } from 'uuid'
+
+// ============================================================================
+// Skill Pipeline Builder State Context
+// ============================================================================
+
+type SkillPipelineSkillInput = { name: string; source: string }
+type SkillPipelineSkillOutput = { name: string; targetName?: string }
+
+export type SkillPipelineSkillDefinition = {
+  '@odata.type': string
+  name?: string
+  description?: string
+  context: string
+  inputs: SkillPipelineSkillInput[]
+  outputs: SkillPipelineSkillOutput[]
+  [key: string]: unknown
+}
+
+export const SKILL_PIPELINE_DOC_NODE_ID = 'doc'
+const SKILL_PIPELINE_LEGACY_DOC_NODE_ID = 'doc-content'
+
+export type SkillPipelineNodeData =
+  | {
+      kind: 'skill'
+      skill: SkillPipelineSkillDefinition
+    }
+  | {
+      kind: 'doc'
+      path: string
+    }
+  | {
+      kind: 'projection'
+      targetIndexName: string
+      sourceContext: string
+      parentKeyFieldName?: string
+    }
+  | {
+      kind: 'index'
+      targetIndexName: string
+    }
+
+export type SkillPipelineNode = Node<SkillPipelineNodeData>
+export type SkillPipelineEdge = Edge
+
+type SkillPipelineStateContextValue = {
+  skillsetName: string
+  setSkillsetName: Dispatch<SetStateAction<string>>
+  skillsetDescription: string
+  setSkillsetDescription: Dispatch<SetStateAction<string>>
+
+  indexProjections: unknown | null
+  setIndexProjections: Dispatch<SetStateAction<unknown | null>>
+  knowledgeStore: unknown | null
+  setKnowledgeStore: Dispatch<SetStateAction<unknown | null>>
+
+  currentSavedId: string | null
+  savedSkillsets: PersistedSkillPipelineItem[]
+  refreshSavedSkillsets: () => void
+  saveSkillset: (mode: 'save' | 'saveAs') => void
+  loadSkillset: (id: string) => void
+  deleteSkillset: (id: string) => void
+
+  nodes: SkillPipelineNode[]
+  setNodes: Dispatch<SetStateAction<SkillPipelineNode[]>>
+  edges: SkillPipelineEdge[]
+  setEdges: Dispatch<SetStateAction<SkillPipelineEdge[]>>
+
+  selectedNodeId: string
+  setSelectedNodeId: Dispatch<SetStateAction<string>>
+
+  draftSkillJson: string
+  setDraftSkillJson: Dispatch<SetStateAction<string>>
+  draftError: string | null
+  setDraftError: Dispatch<SetStateAction<string | null>>
+}
+
+const SkillPipelineStateContext = createContext<SkillPipelineStateContextValue | null>(null)
 
 // ============================================================================
 // Theme Context
@@ -139,6 +219,8 @@ type ModalStateContextValue = {
   setIsSynonymMapBuilderOpen: Dispatch<SetStateAction<boolean>>
   isIndexBuilderOpen: boolean
   setIsIndexBuilderOpen: Dispatch<SetStateAction<boolean>>
+  isSkillPipelineBuilderOpen: boolean
+  setIsSkillPipelineBuilderOpen: Dispatch<SetStateAction<boolean>>
   isVectorOptimizerOpen: boolean
   setIsVectorOptimizerOpen: Dispatch<SetStateAction<boolean>>
   isFilterBuilderOpen: boolean
@@ -155,6 +237,7 @@ export function ModalStateProvider(props: { children: ReactNode }) {
   const [isKnowledgeBaseBuilderOpen, setIsKnowledgeBaseBuilderOpen] = useState(false)
   const [isSynonymMapBuilderOpen, setIsSynonymMapBuilderOpen] = useState(false)
   const [isIndexBuilderOpen, setIsIndexBuilderOpen] = useState(false)
+  const [isSkillPipelineBuilderOpen, setIsSkillPipelineBuilderOpen] = useState(false)
   const [isVectorOptimizerOpen, setIsVectorOptimizerOpen] = useState(false)
   const [isFilterBuilderOpen, setIsFilterBuilderOpen] = useState(false)
 
@@ -174,6 +257,8 @@ export function ModalStateProvider(props: { children: ReactNode }) {
       setIsSynonymMapBuilderOpen,
       isIndexBuilderOpen,
       setIsIndexBuilderOpen,
+      isSkillPipelineBuilderOpen,
+      setIsSkillPipelineBuilderOpen,
       isVectorOptimizerOpen,
       setIsVectorOptimizerOpen,
       isFilterBuilderOpen,
@@ -187,6 +272,7 @@ export function ModalStateProvider(props: { children: ReactNode }) {
       isKnowledgeBaseBuilderOpen,
       isSynonymMapBuilderOpen,
       isIndexBuilderOpen,
+      isSkillPipelineBuilderOpen,
       isVectorOptimizerOpen,
       isFilterBuilderOpen,
     ]
@@ -445,6 +531,205 @@ export function useExperiment() {
 }
 
 // ============================================================================
+// Skill Pipeline Builder State Provider
+// ============================================================================
+
+function defaultSkillPipelineSkill(n: number): SkillPipelineSkillDefinition {
+  return {
+    '@odata.type': '',
+    name: `skill${n}`,
+    context: '/document',
+    inputs: [],
+    outputs: [],
+  }
+}
+
+function defaultDocumentNode(): SkillPipelineNode {
+  return {
+    id: SKILL_PIPELINE_DOC_NODE_ID,
+    type: 'doc',
+    position: { x: 80, y: 80 },
+    data: { kind: 'doc', path: '/document' },
+  }
+}
+
+function normalizeLoadedNodes(input: SkillPipelineNode[] | undefined): SkillPipelineNode[] {
+  const raw = Array.isArray(input) ? input : []
+
+  // Back-compat: older records stored nodes as { data: { skill } } with no kind.
+  const normalized = raw.map((n) => {
+    const data = (n as any)?.data
+    const hasKind = data && typeof data.kind === 'string'
+    if (hasKind) return n
+
+    const maybeSkill = data?.skill
+    if (maybeSkill && typeof maybeSkill === 'object') {
+      return {
+        ...(n as any),
+        type: (n as any).type ?? 'skill',
+        data: { kind: 'skill' as const, skill: maybeSkill as any },
+      } as SkillPipelineNode
+    }
+
+    return n
+  })
+
+  const hasDoc = normalized.some((n) => n.id === SKILL_PIPELINE_DOC_NODE_ID || n.id === SKILL_PIPELINE_LEGACY_DOC_NODE_ID)
+  if (!hasDoc) return [defaultDocumentNode(), ...normalized]
+
+  return normalized
+}
+
+export function SkillPipelineStateProvider(props: { children: ReactNode }) {
+  const [skillsetName, setSkillsetName] = useState('skillset1')
+  const [skillsetDescription, setSkillsetDescription] = useState('')
+
+  const [indexProjections, setIndexProjections] = useState<unknown | null>(null)
+  const [knowledgeStore, setKnowledgeStore] = useState<unknown | null>(null)
+
+  const [currentSavedId, setCurrentSavedId] = useState<string | null>(null)
+  const [savedSkillsets, setSavedSkillsets] = useState<PersistedSkillPipelineItem[]>(() => listSkillPipelines())
+
+  const [nodes, setNodes] = useState<SkillPipelineNode[]>(() => [
+    defaultDocumentNode(),
+    {
+      id: 'n1',
+      type: 'skill',
+      position: { x: 420, y: 80 },
+      data: { kind: 'skill', skill: defaultSkillPipelineSkill(1) },
+    },
+  ])
+  const [edges, setEdges] = useState<SkillPipelineEdge[]>([])
+
+  const [selectedNodeId, setSelectedNodeId] = useState('n1')
+  const [draftSkillJson, setDraftSkillJson] = useState(() => JSON.stringify(defaultSkillPipelineSkill(1), null, 2))
+  const [draftError, setDraftError] = useState<string | null>(null)
+
+  const refreshSavedSkillsets = useCallback(() => {
+    setSavedSkillsets(listSkillPipelines())
+  }, [])
+
+  const saveSkillset = useCallback(
+    (mode: 'save' | 'saveAs') => {
+      const id = mode === 'save' && currentSavedId ? currentSavedId : uuidv4()
+      const title = skillsetName.trim() || 'skillset'
+
+      upsertSkillPipeline({
+        id,
+        title,
+        updatedAt: Date.now(),
+        state: {
+          skillsetName,
+          skillsetDescription,
+          indexProjections,
+          knowledgeStore,
+          nodes,
+          edges,
+        },
+      })
+
+      setCurrentSavedId(id)
+      refreshSavedSkillsets()
+    },
+    [currentSavedId, edges, nodes, refreshSavedSkillsets, skillsetDescription, skillsetName, indexProjections, knowledgeStore],
+  )
+
+  const loadSkillset = useCallback(
+    (id: string) => {
+      const item = getSkillPipeline(id)
+      if (!item) return
+
+      const normalizedNodes = normalizeLoadedNodes(item.state.nodes)
+      const normalizedEdges = Array.isArray(item.state.edges) ? item.state.edges : []
+
+      setCurrentSavedId(item.id)
+      setSkillsetName(item.state.skillsetName || 'skillset1')
+      setSkillsetDescription(item.state.skillsetDescription || '')
+      setIndexProjections((item.state as any).indexProjections ?? null)
+      setKnowledgeStore((item.state as any).knowledgeStore ?? null)
+      setNodes(normalizedNodes)
+      setEdges(normalizedEdges)
+
+      const firstSkillNode = normalizedNodes.find((n) => (n as any)?.data?.kind === 'skill')
+      const firstId = firstSkillNode?.id ?? ''
+      setSelectedNodeId(firstId)
+      const firstSkill = (firstSkillNode as any)?.data?.skill ?? defaultSkillPipelineSkill(1)
+      setDraftSkillJson(JSON.stringify(firstSkill, null, 2))
+      setDraftError(null)
+    },
+    [setEdges, setNodes, setSkillsetDescription, setSkillsetName],
+  )
+
+  const deleteSkillset = useCallback(
+    (id: string) => {
+      deleteSkillPipeline(id)
+      if (currentSavedId === id) setCurrentSavedId(null)
+      refreshSavedSkillsets()
+    },
+    [currentSavedId, refreshSavedSkillsets],
+  )
+
+  const value = useMemo<SkillPipelineStateContextValue>(
+    () => ({
+      skillsetName,
+      setSkillsetName,
+      skillsetDescription,
+      setSkillsetDescription,
+
+      indexProjections,
+      setIndexProjections,
+      knowledgeStore,
+      setKnowledgeStore,
+
+      currentSavedId,
+      savedSkillsets,
+      refreshSavedSkillsets,
+      saveSkillset,
+      loadSkillset,
+      deleteSkillset,
+
+      nodes,
+      setNodes,
+      edges,
+      setEdges,
+      selectedNodeId,
+      setSelectedNodeId,
+      draftSkillJson,
+      setDraftSkillJson,
+      draftError,
+      setDraftError,
+    }),
+    [
+      skillsetName,
+      skillsetDescription,
+      indexProjections,
+      knowledgeStore,
+      currentSavedId,
+      savedSkillsets,
+      refreshSavedSkillsets,
+      saveSkillset,
+      loadSkillset,
+      deleteSkillset,
+      nodes,
+      edges,
+      selectedNodeId,
+      draftSkillJson,
+      draftError,
+    ],
+  )
+
+  return <SkillPipelineStateContext.Provider value={value}>{props.children}</SkillPipelineStateContext.Provider>
+}
+
+export function useSkillPipelineState() {
+  const context = useContext(SkillPipelineStateContext)
+  if (!context) {
+    throw new Error('useSkillPipelineState must be used within SkillPipelineStateProvider')
+  }
+  return context
+}
+
+// ============================================================================
 // AppProvider - Combines all providers
 // ============================================================================
 
@@ -456,7 +741,9 @@ export function AppProvider(props: { children: ReactNode }) {
           <UiStateProvider>
             <ExperimentProvider>
               <BuilderStateProviderWrapper>
-                {props.children}
+                <SkillPipelineStateProvider>
+                  {props.children}
+                </SkillPipelineStateProvider>
               </BuilderStateProviderWrapper>
             </ExperimentProvider>
           </UiStateProvider>
