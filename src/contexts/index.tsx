@@ -24,6 +24,29 @@ import { v4 as uuidv4 } from 'uuid'
 type SkillPipelineSkillInput = { name: string; source: string }
 type SkillPipelineSkillOutput = { name: string; targetName?: string }
 
+export type SkillPipelineFieldMapping = {
+  sourceFieldName: string
+  targetFieldName: string
+  mappingFunction?: unknown | null
+}
+
+export type SkillPipelineOutputFieldMapping = {
+  sourceFieldName: string
+  targetFieldName: string
+  mappingFunction?: unknown | null
+}
+
+export type SkillPipelineIndexerDefinition = {
+  name?: string
+  dataSourceName?: string
+  targetIndexName?: string
+  skillsetName?: string
+  fieldMappings?: SkillPipelineFieldMapping[]
+  outputFieldMappings?: SkillPipelineOutputFieldMapping[]
+  parameters?: unknown
+  [key: string]: unknown
+}
+
 export type SkillPipelineSkillDefinition = {
   '@odata.type': string
   name?: string
@@ -55,6 +78,14 @@ export type SkillPipelineNodeData =
   | {
       kind: 'index'
       targetIndexName: string
+      connectedFieldNames?: string[]
+    }
+  | {
+      kind: 'indexer'
+      indexerName: string
+      targetIndexName: string
+      outputFieldMappingCount: number
+      fieldMappingCount: number
     }
 
 export type SkillPipelineNode = Node<SkillPipelineNodeData>
@@ -71,9 +102,13 @@ type SkillPipelineStateContextValue = {
   knowledgeStore: unknown | null
   setKnowledgeStore: Dispatch<SetStateAction<unknown | null>>
 
+  indexer: SkillPipelineIndexerDefinition | null
+  setIndexer: Dispatch<SetStateAction<SkillPipelineIndexerDefinition | null>>
+
   currentSavedId: string | null
   savedSkillsets: PersistedSkillPipelineItem[]
   refreshSavedSkillsets: () => void
+  newSkillset: () => void
   saveSkillset: (mode: 'save' | 'saveAs') => void
   loadSkillset: (id: string) => void
   deleteSkillset: (id: string) => void
@@ -90,6 +125,16 @@ type SkillPipelineStateContextValue = {
   setDraftSkillJson: Dispatch<SetStateAction<string>>
   draftError: string | null
   setDraftError: Dispatch<SetStateAction<string | null>>
+
+  draftIndexerJson: string
+  setDraftIndexerJson: Dispatch<SetStateAction<string>>
+  draftIndexerError: string | null
+  setDraftIndexerError: Dispatch<SetStateAction<string | null>>
+
+  draftIndexJson: string
+  setDraftIndexJson: Dispatch<SetStateAction<string>>
+  draftIndexError: string | null
+  setDraftIndexError: Dispatch<SetStateAction<string | null>>
 }
 
 const SkillPipelineStateContext = createContext<SkillPipelineStateContextValue | null>(null)
@@ -544,6 +589,17 @@ function defaultSkillPipelineSkill(n: number): SkillPipelineSkillDefinition {
   }
 }
 
+function defaultSkillPipelineIndexer(skillsetName: string): SkillPipelineIndexerDefinition {
+  return {
+    name: 'indexer1',
+    dataSourceName: 'datasource1',
+    targetIndexName: 'index1',
+    skillsetName: skillsetName.trim() || 'skillset1',
+    fieldMappings: [],
+    outputFieldMappings: [],
+  }
+}
+
 function defaultDocumentNode(): SkillPipelineNode {
   return {
     id: SKILL_PIPELINE_DOC_NODE_ID,
@@ -587,6 +643,8 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
   const [indexProjections, setIndexProjections] = useState<unknown | null>(null)
   const [knowledgeStore, setKnowledgeStore] = useState<unknown | null>(null)
 
+  const [indexer, setIndexer] = useState<SkillPipelineIndexerDefinition | null>(null)
+
   const [currentSavedId, setCurrentSavedId] = useState<string | null>(null)
   const [savedSkillsets, setSavedSkillsets] = useState<PersistedSkillPipelineItem[]>(() => listSkillPipelines())
 
@@ -605,9 +663,51 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
   const [draftSkillJson, setDraftSkillJson] = useState(() => JSON.stringify(defaultSkillPipelineSkill(1), null, 2))
   const [draftError, setDraftError] = useState<string | null>(null)
 
+  const [draftIndexerJson, setDraftIndexerJson] = useState('{}')
+  const [draftIndexerError, setDraftIndexerError] = useState<string | null>(null)
+
+  const [draftIndexJson, setDraftIndexJson] = useState('{}')
+  const [draftIndexError, setDraftIndexError] = useState<string | null>(null)
+
   const refreshSavedSkillsets = useCallback(() => {
     setSavedSkillsets(listSkillPipelines())
   }, [])
+
+  const newSkillset = useCallback(() => {
+    const nextName = 'skillset1'
+    const skill1 = defaultSkillPipelineSkill(1)
+
+    setCurrentSavedId(null)
+    setSkillsetName(nextName)
+    setSkillsetDescription('')
+    setIndexProjections(null)
+    setKnowledgeStore(null)
+
+    const nextNodes: SkillPipelineNode[] = [
+      defaultDocumentNode(),
+      {
+        id: 'n1',
+        type: 'skill',
+        position: { x: 420, y: 80 },
+        data: { kind: 'skill', skill: skill1 },
+      },
+    ]
+
+    setNodes(nextNodes)
+    setEdges([])
+
+    setSelectedNodeId('n1')
+    setDraftSkillJson(JSON.stringify(skill1, null, 2))
+    setDraftError(null)
+
+    const ix = defaultSkillPipelineIndexer(nextName)
+    setIndexer(ix)
+    setDraftIndexerJson(JSON.stringify(ix, null, 2))
+    setDraftIndexerError(null)
+
+    setDraftIndexJson('{}')
+    setDraftIndexError(null)
+  }, [setEdges, setNodes, setSkillsetDescription, setSkillsetName])
 
   const saveSkillset = useCallback(
     (mode: 'save' | 'saveAs') => {
@@ -623,6 +723,7 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
           skillsetDescription,
           indexProjections,
           knowledgeStore,
+          indexer,
           nodes,
           edges,
         },
@@ -631,7 +732,7 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       setCurrentSavedId(id)
       refreshSavedSkillsets()
     },
-    [currentSavedId, edges, nodes, refreshSavedSkillsets, skillsetDescription, skillsetName, indexProjections, knowledgeStore],
+    [currentSavedId, edges, nodes, refreshSavedSkillsets, skillsetDescription, skillsetName, indexProjections, knowledgeStore, indexer],
   )
 
   const loadSkillset = useCallback(
@@ -647,6 +748,7 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       setSkillsetDescription(item.state.skillsetDescription || '')
       setIndexProjections((item.state as any).indexProjections ?? null)
       setKnowledgeStore((item.state as any).knowledgeStore ?? null)
+      setIndexer(((item.state as any).indexer as SkillPipelineIndexerDefinition | null) ?? null)
       setNodes(normalizedNodes)
       setEdges(normalizedEdges)
 
@@ -656,6 +758,13 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       const firstSkill = (firstSkillNode as any)?.data?.skill ?? defaultSkillPipelineSkill(1)
       setDraftSkillJson(JSON.stringify(firstSkill, null, 2))
       setDraftError(null)
+
+      const ix = ((item.state as any).indexer as SkillPipelineIndexerDefinition | null) ?? null
+      setDraftIndexerJson(ix ? JSON.stringify(ix, null, 2) : '{}')
+      setDraftIndexerError(null)
+
+      setDraftIndexJson('{}')
+      setDraftIndexError(null)
     },
     [setEdges, setNodes, setSkillsetDescription, setSkillsetName],
   )
@@ -681,9 +790,13 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       knowledgeStore,
       setKnowledgeStore,
 
+      indexer,
+      setIndexer,
+
       currentSavedId,
       savedSkillsets,
       refreshSavedSkillsets,
+      newSkillset,
       saveSkillset,
       loadSkillset,
       deleteSkillset,
@@ -698,15 +811,27 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       setDraftSkillJson,
       draftError,
       setDraftError,
+
+      draftIndexerJson,
+      setDraftIndexerJson,
+      draftIndexerError,
+      setDraftIndexerError,
+
+      draftIndexJson,
+      setDraftIndexJson,
+      draftIndexError,
+      setDraftIndexError,
     }),
     [
       skillsetName,
       skillsetDescription,
       indexProjections,
       knowledgeStore,
+      indexer,
       currentSavedId,
       savedSkillsets,
       refreshSavedSkillsets,
+      newSkillset,
       saveSkillset,
       loadSkillset,
       deleteSkillset,
@@ -715,6 +840,10 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       selectedNodeId,
       draftSkillJson,
       draftError,
+      draftIndexerJson,
+      draftIndexerError,
+      draftIndexJson,
+      draftIndexError,
     ],
   )
 

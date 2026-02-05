@@ -5,6 +5,7 @@ export type PersistedSkillPipelineState = {
   skillsetDescription: string
   indexProjections?: unknown | null
   knowledgeStore?: unknown | null
+  indexer?: unknown | null
   nodes: SkillPipelineNode[]
   edges: SkillPipelineEdge[]
 }

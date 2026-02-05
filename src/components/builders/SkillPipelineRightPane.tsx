@@ -4,7 +4,7 @@
  * Hosts JSON editing for the selected skill and skillset-level properties.
  */
 
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { ExpandableCodeMirror } from '../viewers/ExpandableCodeMirror'
 import { githubDark, githubLight } from '@uiw/codemirror-theme-github'
@@ -98,6 +98,8 @@ export function SkillPipelineRightPane(props: {
     setSkillsetDescription,
     indexProjections,
     knowledgeStore,
+    indexer,
+    setIndexer,
     currentSavedId,
     savedSkillsets,
     saveSkillset,
@@ -111,6 +113,15 @@ export function SkillPipelineRightPane(props: {
     setDraftSkillJson,
     draftError,
     setDraftError,
+    draftIndexerJson,
+    setDraftIndexerJson,
+    draftIndexerError,
+    setDraftIndexerError,
+
+    draftIndexJson,
+    setDraftIndexJson,
+    draftIndexError,
+    setDraftIndexError,
   } = useSkillPipelineState()
 
   const selectedNode = useMemo(() => nodes.find((n) => n.id === selectedNodeId) ?? null, [nodes, selectedNodeId])
@@ -118,6 +129,36 @@ export function SkillPipelineRightPane(props: {
     () => (selectedNode && (selectedNode as any)?.data?.kind === 'skill' ? selectedNode : null),
     [selectedNode],
   )
+
+  const selectedIndexerNode = useMemo(
+    () => (selectedNode && (selectedNode as any)?.data?.kind === 'indexer' ? selectedNode : null),
+    [selectedNode],
+  )
+
+  const selectedIndexNode = useMemo(
+    () => (selectedNode && (selectedNode as any)?.data?.kind === 'index' ? selectedNode : null),
+    [selectedNode],
+  )
+
+  const lastSelectedIdRef = useRef<string>('')
+  const lastSyncedIndexerJsonRef = useRef<string>('')
+  useEffect(() => {
+    if (!selectedIndexerNode) return
+    const next = indexer ? JSON.stringify(indexer, null, 2) : '{}'
+    const selectionChanged = lastSelectedIdRef.current !== selectedIndexerNode.id
+    const backingChanged = lastSyncedIndexerJsonRef.current !== next
+    const userHasNotEdited = draftIndexerJson === lastSyncedIndexerJsonRef.current
+
+    // Sync on first selection of the indexer node, and also when the backing
+    // indexer changes (unless the user has started editing the draft).
+    if (selectionChanged || (backingChanged && userHasNotEdited)) {
+      setDraftIndexerJson(next)
+      setDraftIndexerError(null)
+      lastSyncedIndexerJsonRef.current = next
+    }
+
+    lastSelectedIdRef.current = selectedIndexerNode.id
+  }, [draftIndexerJson, indexer, selectedIndexerNode, setDraftIndexerError, setDraftIndexerJson])
 
   const skillsetObject = useMemo(() => {
     const name = skillsetName.trim() || 'skillset1'
@@ -128,12 +169,6 @@ export function SkillPipelineRightPane(props: {
     const base: Record<string, unknown> = {
       name,
       skills: skillNodes.map((n) => ensureSkillShape((n as any).data?.skill)),
-      _ragops: {
-        graph: {
-          nodes: nodes.map((n) => ({ id: n.id, x: n.position?.x ?? 0, y: n.position?.y ?? 0 })),
-          edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
-        },
-      },
     }
     if (description) base.description = description
 
@@ -176,6 +211,36 @@ export function SkillPipelineRightPane(props: {
       ),
     )
     setDraftError(null)
+  }
+
+  const applyDraftToIndexer = () => {
+    if (!selectedIndexerNode) return
+
+    const raw = draftIndexerJson.trim()
+    if (!raw) {
+      setDraftIndexerError(format('spbInvalidJson', { error: 'empty' }))
+      return
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch (e) {
+      setDraftIndexerError(format('spbInvalidJson', { error: e instanceof Error ? e.message : String(e) }))
+      return
+    }
+
+    if (!isRecord(parsed)) {
+      setDraftIndexerError(format('spbInvalidJson', { error: 'root must be an object' }))
+      return
+    }
+
+    setIndexer(parsed as any)
+    setDraftIndexerError(null)
+
+    // Mark the current draft as in-sync so future indexer state updates don't
+    // unexpectedly overwrite user edits.
+    lastSyncedIndexerJsonRef.current = raw
   }
 
   const copySkillset = async () => {
@@ -272,7 +337,7 @@ export function SkillPipelineRightPane(props: {
           {t('spbSelectedSkillJson')}
         </div>
 
-        {!selectedSkillNode && <div className="empty">(no selection)</div>}
+        {!selectedSkillNode && !selectedIndexerNode && !selectedIndexNode && <div className="empty">(no selection)</div>}
 
         {selectedSkillNode && (
           <>
@@ -282,7 +347,7 @@ export function SkillPipelineRightPane(props: {
               t={(k) => String(translations[language][k] ?? '')}
               modalTitle={t('spbSelectedSkillJson')}
               value={draftSkillJson}
-              height="280px"
+              height="520px"
               theme={codeMirrorTheme}
               extensions={[json(), EditorView.lineWrapping]}
               onChange={(v) => {
@@ -299,18 +364,59 @@ export function SkillPipelineRightPane(props: {
           </>
         )}
 
-        <div className="section__title">{t('spbGeneratedJson')}</div>
-        <ExpandableCodeMirror
-          t={(k) => String(translations[language][k] ?? '')}
-          modalTitle={t('spbGeneratedJson')}
-          value={skillsetJson}
-          height="240px"
-          theme={codeMirrorTheme}
-          extensions={[json(), EditorView.lineWrapping, EditorView.editable.of(false)]}
-          onChange={() => {
-            // read-only
-          }}
-        />
+        {selectedIndexerNode && (
+          <>
+            <div className="section__title" style={{ marginTop: 14 }}>
+              {t('spbSelectedIndexerJson')}
+            </div>
+
+            {draftIndexerError && <div className="notice notice--error builder__notice">{draftIndexerError}</div>}
+
+            <ExpandableCodeMirror
+              t={(k) => String(translations[language][k] ?? '')}
+              modalTitle={t('spbSelectedIndexerJson')}
+              value={draftIndexerJson}
+              height="520px"
+              theme={codeMirrorTheme}
+              extensions={[json(), EditorView.lineWrapping]}
+              onChange={(v) => {
+                setDraftIndexerJson(v)
+                if (draftIndexerError) setDraftIndexerError(null)
+              }}
+            />
+
+            <div className="actions actions--mb10" style={{ marginTop: 10 }}>
+              <button type="button" className="btn" onClick={applyDraftToIndexer}>
+                {t('spbApply')}
+              </button>
+            </div>
+          </>
+        )}
+
+        {selectedIndexNode && (
+          <>
+            <div className="section__title" style={{ marginTop: 14 }}>
+              {t('spbSelectedIndexJson')}
+            </div>
+
+            {draftIndexError && <div className="notice notice--error builder__notice">{draftIndexError}</div>}
+
+            <ExpandableCodeMirror
+              t={(k) => String(translations[language][k] ?? '')}
+              modalTitle={t('spbSelectedIndexJson')}
+              value={draftIndexJson}
+              height="520px"
+              theme={codeMirrorTheme}
+              extensions={[json(), EditorView.lineWrapping, EditorView.editable.of(false)]}
+              onChange={(v) => {
+                // Read-only; still accept updates from parent state.
+                if (v !== draftIndexJson) setDraftIndexJson(v)
+                if (draftIndexError) setDraftIndexError(null)
+              }}
+            />
+          </>
+        )}
+
       </div>
     </section>
   )
