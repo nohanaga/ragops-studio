@@ -4,17 +4,21 @@
  * Hosts JSON editing for the selected skill and skillset-level properties.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ExpandableCodeMirror } from '../viewers/ExpandableCodeMirror'
 import { githubDark, githubLight } from '@uiw/codemirror-theme-github'
 import { json } from '@codemirror/lang-json'
-import { EditorView } from '@codemirror/view'
+import { EditorView, Decoration, ViewPlugin } from '@codemirror/view'
+import { RangeSetBuilder } from '@codemirror/state'
+import { diffLines } from 'diff'
 
 import type { ThemePreference } from '../../types/app'
 import type { Language } from '../../lib/translations'
 import { translations } from '../../lib/translations'
-import { useSkillPipelineState, type SkillPipelineSkillDefinition } from '../../contexts'
+import { useSkillPipelineState } from '../../contexts'
+import type { ConnectionProfile, SearchApiVersion } from '../../lib/model'
+import { createOrUpdateSkillset, getSkillset } from '../../lib/aiSearchRest'
 
 type TranslationKey = keyof typeof translations.ja
 
@@ -22,48 +26,8 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v)
 }
 
-function ensureSkillShape(input: unknown): SkillPipelineSkillDefinition {
-  const obj = isRecord(input) ? input : {}
-  const odataType = typeof obj['@odata.type'] === 'string' ? (obj['@odata.type'] as string) : ''
-  const name = typeof obj.name === 'string' ? obj.name : undefined
-  const description = typeof obj.description === 'string' ? obj.description : undefined
-  const context = typeof obj.context === 'string' && obj.context.trim() ? obj.context : '/document'
-
-  const inputsRaw = obj.inputs
-  const outputsRaw = obj.outputs
-
-  const inputs = Array.isArray(inputsRaw)
-    ? inputsRaw
-        .map((x) => {
-          const r = isRecord(x) ? x : {}
-          return {
-            name: typeof r.name === 'string' ? r.name : '',
-            source: typeof r.source === 'string' ? r.source : '',
-          }
-        })
-        .filter((x) => x.name.trim() || x.source.trim())
-    : []
-
-  const outputs = Array.isArray(outputsRaw)
-    ? outputsRaw
-        .map((x) => {
-          const r = isRecord(x) ? x : {}
-          const name = typeof r.name === 'string' ? r.name : ''
-          const targetName = typeof r.targetName === 'string' ? r.targetName : undefined
-          return { name, targetName }
-        })
-        .filter((x) => x.name.trim())
-    : []
-
-  return {
-    ...obj,
-    '@odata.type': odataType,
-    name,
-    description,
-    context,
-    inputs,
-    outputs,
-  }
+function ensureJsonObject(input: unknown): Record<string, unknown> {
+  return isRecord(input) ? input : {}
 }
 
 export function SkillPipelineRightPane(props: {
@@ -71,9 +35,11 @@ export function SkillPipelineRightPane(props: {
   language: Language
   theme: ThemePreference
   copyToClipboard: (text: string) => Promise<void>
+  profile: ConnectionProfile | null
+  apiVersion: SearchApiVersion
   onCollapse: () => void
 }) {
-  const { t, language, theme, copyToClipboard } = props
+  const { t, language, theme, copyToClipboard, profile, apiVersion } = props
 
   const format = useCallback(
     (key: TranslationKey, params: Record<string, string | number>): string => {
@@ -100,14 +66,10 @@ export function SkillPipelineRightPane(props: {
     knowledgeStore,
     indexer,
     setIndexer,
-    currentSavedId,
-    savedSkillsets,
-    saveSkillset,
-    loadSkillset,
-    deleteSkillset,
+    baselineSkillsetJson,
+    setBaselineSkillsetJson,
     nodes,
     setNodes,
-    edges,
     selectedNodeId,
     draftSkillJson,
     setDraftSkillJson,
@@ -124,6 +86,42 @@ export function SkillPipelineRightPane(props: {
     setDraftIndexError,
   } = useSkillPipelineState()
 
+  const [saveDiffOpen, setSaveDiffOpen] = useState(false)
+  // Baseline JSON fetched from Azure for diff. `null` means "not fetched yet".
+  // Empty string "" is a valid baseline representing "does not exist (404)".
+  const [publishBeforeJson, setPublishBeforeJson] = useState<string | null>(null)
+  const [publishLoading, setPublishLoading] = useState(false)
+  const [publishError, setPublishError] = useState<string | null>(null)
+  const [publishOkMessage, setPublishOkMessage] = useState<string | null>(null)
+
+  const makeLineClassExtension = useCallback((lines: Set<number>, className: string) => {
+    const deco = Decoration.line({ class: className })
+
+    const build = (view: any) => {
+      const b = new RangeSetBuilder<Decoration>()
+      const max = view.state.doc.lines
+      for (const n of lines) {
+        if (n < 1 || n > max) continue
+        const line = view.state.doc.line(n)
+        b.add(line.from, line.from, deco)
+      }
+      return b.finish()
+    }
+
+    return ViewPlugin.fromClass(
+      class {
+        decorations: any
+        constructor(view: any) {
+          this.decorations = build(view)
+        }
+        update(update: any) {
+          if (update.docChanged || update.viewportChanged) this.decorations = build(update.view)
+        }
+      },
+      { decorations: (v: any) => v.decorations },
+    )
+  }, [])
+
   const selectedNode = useMemo(() => nodes.find((n) => n.id === selectedNodeId) ?? null, [nodes, selectedNodeId])
   const selectedSkillNode = useMemo(
     () => (selectedNode && (selectedNode as any)?.data?.kind === 'skill' ? selectedNode : null),
@@ -137,6 +135,11 @@ export function SkillPipelineRightPane(props: {
 
   const selectedIndexNode = useMemo(
     () => (selectedNode && (selectedNode as any)?.data?.kind === 'index' ? selectedNode : null),
+    [selectedNode],
+  )
+
+  const selectedProjectionNode = useMemo(
+    () => (selectedNode && (selectedNode as any)?.data?.kind === 'projection' ? selectedNode : null),
     [selectedNode],
   )
 
@@ -166,19 +169,192 @@ export function SkillPipelineRightPane(props: {
 
     const skillNodes = nodes.filter((n) => (n as any)?.data?.kind === 'skill')
 
-    const base: Record<string, unknown> = {
-      name,
-      skills: skillNodes.map((n) => ensureSkillShape((n as any).data?.skill)),
-    }
-    if (description) base.description = description
+    // Preserve the exact skill JSON structure stored in nodes.
+    const skills = skillNodes.map((n) => ensureJsonObject((n as any).data?.skill))
 
+    const base: Record<string, unknown> = { name, skills }
+    if (description) base.description = description
     if (indexProjections) base.indexProjections = indexProjections
     if (knowledgeStore) base.knowledgeStore = knowledgeStore
-
     return base
-  }, [edges, nodes, skillsetDescription, skillsetName, indexProjections, knowledgeStore])
+  }, [nodes, skillsetDescription, skillsetName, indexProjections, knowledgeStore])
 
   const skillsetJson = useMemo(() => JSON.stringify(skillsetObject, null, 2), [skillsetObject])
+
+  const parseJsonOrEmpty = (text: string): Record<string, unknown> => {
+    const s = text.trim()
+    if (!s) return {}
+    try {
+      const v = JSON.parse(s)
+      return isRecord(v) ? v : {}
+    } catch {
+      return {}
+    }
+  }
+
+  const stripServiceMeta = (obj: Record<string, unknown>): Record<string, unknown> => {
+    const next: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(obj)) {
+      if (k === '@odata.etag') continue
+      next[k] = v
+    }
+    return next
+  }
+
+  const publishBaselineText = useMemo(() => {
+    return publishBeforeJson !== null ? publishBeforeJson : baselineSkillsetJson
+  }, [baselineSkillsetJson, publishBeforeJson])
+
+  const publishCandidateObject = useMemo(() => {
+    const name = skillsetName.trim() || 'skillset1'
+    const base = stripServiceMeta(parseJsonOrEmpty(publishBaselineText || ''))
+
+    // Overlay the current draft into skills when it is valid.
+    let draftOverlay: Record<string, unknown> | null = null
+    if (!draftError && selectedNodeId) {
+      const raw = draftSkillJson.trim()
+      if (raw) {
+        try {
+          const parsed: unknown = JSON.parse(raw)
+          if (isRecord(parsed)) draftOverlay = parsed
+        } catch {
+          // ignore; fall back to node data
+        }
+      }
+    }
+
+    const skillNodes = nodes.filter((n) => (n as any)?.data?.kind === 'skill')
+    const skills = skillNodes.map((n) => {
+      if (draftOverlay && n.id === selectedNodeId) return draftOverlay
+      return ensureJsonObject((n as any).data?.skill)
+    })
+
+    const nextBody: Record<string, unknown> = {
+      ...base,
+      name,
+      skills,
+    }
+
+    const desc = skillsetDescription.trim()
+    if (desc) nextBody.description = desc
+    else delete nextBody.description
+
+    if (indexProjections) nextBody.indexProjections = indexProjections
+    else delete nextBody.indexProjections
+
+    if (knowledgeStore) nextBody.knowledgeStore = knowledgeStore
+    else delete nextBody.knowledgeStore
+
+    return nextBody
+  }, [draftError, draftSkillJson, indexProjections, knowledgeStore, nodes, publishBaselineText, selectedNodeId, skillsetDescription, skillsetName])
+
+  const publishCandidateJson = useMemo(() => JSON.stringify(publishCandidateObject, null, 2), [publishCandidateObject])
+
+  const diffLineSets = useMemo(() => {
+    const a = (publishBaselineText || '') ?? ''
+    const b = publishCandidateJson ?? ''
+    const parts = diffLines(a, b)
+
+    const left = new Set<number>()
+    const right = new Set<number>()
+
+    let l = 1
+    let r = 1
+    const countLines = (text: string) => {
+      if (!text) return 0
+      const lines = text.split('\n')
+      // diffLines keeps trailing '\n' in value; ignore final empty line for counting.
+      if (lines.length && lines[lines.length - 1] === '') return lines.length - 1
+      return lines.length
+    }
+
+    for (const p of parts) {
+      const c = countLines(p.value)
+      if (!c) continue
+
+      if ((p as any).added) {
+        for (let i = 0; i < c; i++) right.add(r + i)
+        r += c
+        continue
+      }
+      if ((p as any).removed) {
+        for (let i = 0; i < c; i++) left.add(l + i)
+        l += c
+        continue
+      }
+
+      l += c
+      r += c
+    }
+
+    return { left, right }
+  }, [publishBaselineText, publishCandidateJson])
+
+  const onSaveClick = async () => {
+    if (!profile) {
+      setPublishError(String((translations as any)[language]?.restErrorProfileUnset ?? 'Profile is not set'))
+      return
+    }
+
+    const name = skillsetName.trim() || 'skillset1'
+    setPublishOkMessage(null)
+    setPublishError(null)
+    setPublishLoading(true)
+
+    try {
+      // Fetch remote baseline so diff is against the actual service state.
+      const res = await getSkillset({ profile, skillsetName: name, apiVersion, language })
+      if (res.ok) {
+        const obj = res.response as any
+        const { ['@odata.etag']: _etag, ...rest } = obj && typeof obj === 'object' ? obj : ({} as any)
+        setPublishBeforeJson(JSON.stringify(rest, null, 2))
+      } else {
+        // 404 => new skillset; show empty baseline
+        if (res.status === 404) {
+          setPublishBeforeJson('')
+        } else {
+          setPublishError(res.error.message)
+          return
+        }
+      }
+
+      setSaveDiffOpen(true)
+    } catch (e) {
+      setPublishError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setPublishLoading(false)
+    }
+  }
+
+  const publishToAzure = async () => {
+    if (!profile) {
+      setPublishError(String((translations as any)[language]?.restErrorProfileUnset ?? 'Profile is not set'))
+      return
+    }
+
+    const name = skillsetName.trim() || 'skillset1'
+    setPublishOkMessage(null)
+    setPublishError(null)
+    setPublishLoading(true)
+
+    try {
+      const put = await createOrUpdateSkillset({ profile, skillsetName: name, apiVersion, language, body: publishCandidateObject as any })
+      if (!put.ok) {
+        setPublishError(put.error.message)
+        return
+      }
+
+      setPublishOkMessage(t('spbPublishOk'))
+      setPublishBeforeJson(JSON.stringify(publishCandidateObject, null, 2))
+      // Keep baseline in sync for subsequent diffs.
+      setBaselineSkillsetJson(JSON.stringify(publishCandidateObject, null, 2))
+      setSaveDiffOpen(false)
+    } catch (e) {
+      setPublishError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setPublishLoading(false)
+    }
+  }
 
   const applyDraftToSelected = () => {
     if (!selectedSkillNode) return
@@ -202,11 +378,10 @@ export function SkillPipelineRightPane(props: {
       return
     }
 
-    const normalized = ensureSkillShape(parsed)
     setNodes((prev) =>
       prev.map((n) =>
         n.id === selectedNodeId && (n as any)?.data?.kind === 'skill'
-          ? ({ ...n, data: { ...(n.data ?? {}), kind: 'skill', skill: normalized } } as any)
+          ? ({ ...n, data: { ...(n.data ?? {}), kind: 'skill', skill: parsed } } as any)
           : n,
       ),
     )
@@ -247,15 +422,6 @@ export function SkillPipelineRightPane(props: {
     await copyToClipboard(skillsetJson)
   }
 
-  const fmtUpdated = (ms: number) => {
-    try {
-      const locale = language === 'ja' ? 'ja-JP' : 'en-US'
-      return new Date(ms).toLocaleString(locale)
-    } catch {
-      return String(ms)
-    }
-  }
-
   return (
     <section className="pane pane--right">
       <div className="pane__header">
@@ -276,6 +442,9 @@ export function SkillPipelineRightPane(props: {
       <div className="section pane__scroll">
         <div className="section__title">Skillset</div>
 
+        {publishError ? <div className="notice notice--error builder__notice">{String(publishError)}</div> : null}
+        {publishOkMessage ? <div className="notice builder__notice">{String(publishOkMessage)}</div> : null}
+
         <div className="form" style={{ marginBottom: 10 }}>
           <label className="field">
             <span className="field__label">{t('spbSkillsetName')}</span>
@@ -295,49 +464,105 @@ export function SkillPipelineRightPane(props: {
           <button type="button" className="btn" onClick={copySkillset}>
             <i className="bi bi-clipboard"></i> {t('spbCopySkillsetJson')}
           </button>
-          <button type="button" className="btn" onClick={() => saveSkillset('save')}>
-            {t('spbSave')}
-          </button>
-          <button type="button" className="btn" onClick={() => saveSkillset('saveAs')}>
-            {t('spbSaveAs')}
+          <button type="button" className="btn" onClick={onSaveClick} disabled={publishLoading}>
+            {publishLoading ? t('spbPublishing') : t('spbPublish')}
           </button>
         </div>
 
-        <div className="section__title" style={{ marginTop: 14 }}>
-          {t('spbSavedSkillsets')}
-        </div>
+        {saveDiffOpen ? (
+          <div className="modal-overlay" onClick={() => setSaveDiffOpen(false)}>
+            <div
+              className="modal-content"
+              onClick={(e) => e.stopPropagation()}
+              style={{ width: '96vw', maxWidth: 1600, minWidth: 760, maxHeight: '94vh' }}
+            >
+              <div className="modal-header">
+                <h2>{t('spbSaveConfirmTitle')}</h2>
+                <button type="button" className="btn" onClick={() => setSaveDiffOpen(false)}>
+                  ✕
+                </button>
+              </div>
+              <div className="modal-body" style={{ padding: 12 }}>
+                <div className="section__hint" style={{ marginBottom: 10 }}>
+                  {t('spbSaveConfirmHint')}
+                </div>
 
-        {savedSkillsets.length === 0 && <div className="empty">{t('spbNoSavedSkillsets')}</div>}
+                {publishBaselineText === publishCandidateJson ? (
+                  <div className="notice">{t('spbSaveNoChanges')}</div>
+                ) : null}
 
-        {savedSkillsets.length > 0 && (
-          <div className="kv kv--mb16">
-            {savedSkillsets.map((s) => (
-              <div key={s.id} className="kv__row" style={{ alignItems: 'center' }}>
-                <div className="kv__k" title={s.id}>
-                  {s.title}
-                  {currentSavedId === s.id ? ' (current)' : ''}
-                  <div className="mono" style={{ opacity: 0.7, fontSize: 12 }}>
-                    {fmtUpdated(s.updatedAt)}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div className="skillset-diff-editor">
+                    <div className="section__title" style={{ marginTop: 0 }}>
+                      {t('spbSaveDiffBefore')}
+                    </div>
+                    <ExpandableCodeMirror
+                      t={(k) => String(translations[language][k] ?? '')}
+                      modalTitle={t('spbSaveDiffBefore')}
+                      value={publishBaselineText}
+                      height="520px"
+                      theme={codeMirrorTheme}
+                      extensions={[
+                        json(),
+                        EditorView.lineWrapping,
+                        EditorView.editable.of(false),
+                        makeLineClassExtension(diffLineSets.left, 'cm-diff-removed'),
+                      ]}
+                      onChange={() => {
+                        // read-only
+                      }}
+                    />
+                  </div>
+
+                  <div className="skillset-diff-editor">
+                    <div className="section__title" style={{ marginTop: 0 }}>
+                      {t('spbSaveDiffAfter')}
+                    </div>
+                    <ExpandableCodeMirror
+                      t={(k) => String(translations[language][k] ?? '')}
+                      modalTitle={t('spbSaveDiffAfter')}
+                      value={publishCandidateJson}
+                      height="520px"
+                      theme={codeMirrorTheme}
+                      extensions={[
+                        json(),
+                        EditorView.lineWrapping,
+                        EditorView.editable.of(false),
+                        makeLineClassExtension(diffLineSets.right, 'cm-diff-added'),
+                      ]}
+                      onChange={() => {
+                        // read-only
+                      }}
+                    />
                   </div>
                 </div>
-                <div className="kv__v" style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                  <button type="button" className="btn btn--tab" onClick={() => loadSkillset(s.id)}>
-                    {t('spbLoad')}
+
+                <div className="actions" style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button type="button" className="btn" onClick={() => setSaveDiffOpen(false)}>
+                    {t('spbSaveConfirmCancel')}
                   </button>
-                  <button type="button" className="btn btn--danger" onClick={() => deleteSkillset(s.id)}>
-                    {t('spbDelete')}
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => {
+                      publishToAzure()
+                    }}
+                    disabled={publishBaselineText === publishCandidateJson || publishLoading}
+                    title={publishBaselineText === publishCandidateJson ? t('spbSaveNoChanges') : ''}
+                  >
+                    {publishLoading ? t('spbPublishing') : t('spbPublish')}
                   </button>
                 </div>
               </div>
-            ))}
+            </div>
           </div>
-        )}
+        ) : null}
 
         <div className="section__title" style={{ marginTop: 14 }}>
-          {t('spbSelectedSkillJson')}
+          {selectedProjectionNode ? t('spbSelectedIndexProjectionsJson') : t('spbSelectedSkillJson')}
         </div>
 
-        {!selectedSkillNode && !selectedIndexerNode && !selectedIndexNode && <div className="empty">(no selection)</div>}
+        {!selectedSkillNode && !selectedIndexerNode && !selectedIndexNode && !selectedProjectionNode && <div className="empty">(no selection)</div>}
 
         {selectedSkillNode && (
           <>
@@ -361,6 +586,22 @@ export function SkillPipelineRightPane(props: {
                 {t('spbApply')}
               </button>
             </div>
+          </>
+        )}
+
+        {selectedProjectionNode && (
+          <>
+            <ExpandableCodeMirror
+              t={(k) => String(translations[language][k] ?? '')}
+              modalTitle={t('spbSelectedIndexProjectionsJson')}
+              value={JSON.stringify(indexProjections ?? {}, null, 2)}
+              height="520px"
+              theme={codeMirrorTheme}
+              extensions={[json(), EditorView.lineWrapping, EditorView.editable.of(false)]}
+              onChange={() => {
+                // read-only
+              }}
+            />
           </>
         )}
 

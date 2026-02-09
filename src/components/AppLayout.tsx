@@ -1016,6 +1016,8 @@ export function AppLayout(props: {
               language={language}
               theme={theme}
               copyToClipboard={copyToClipboard}
+              profile={activeProfile}
+              apiVersion={effectiveApiVersion}
               onCollapse={() => setIsRightPaneCollapsed(true)}
             />
           ) : (

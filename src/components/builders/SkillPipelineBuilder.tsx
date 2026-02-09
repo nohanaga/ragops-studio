@@ -68,6 +68,7 @@ type IndexerOutputMappingEdgeData = {
 }
 
 const SKILL_PIPELINE_INDEXER_NODE_ID = 'indexer'
+const SKILL_PIPELINE_INDEX_NODE_ID = 'index'
 
 const DAGRE_RANKSEP_PX = 140
 
@@ -694,48 +695,8 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v)
 }
 
-function ensureSkillShape(input: unknown): SkillPipelineSkillDefinition {
-  const obj = isRecord(input) ? input : {}
-  const odataType = typeof obj['@odata.type'] === 'string' ? (obj['@odata.type'] as string) : ''
-  const name = typeof obj.name === 'string' ? obj.name : undefined
-  const description = typeof obj.description === 'string' ? obj.description : undefined
-  const context = typeof obj.context === 'string' && obj.context.trim() ? obj.context : '/document'
-
-  const inputsRaw = obj.inputs
-  const outputsRaw = obj.outputs
-
-  const inputs = Array.isArray(inputsRaw)
-    ? inputsRaw
-        .map((x) => {
-          const r = isRecord(x) ? x : {}
-          return {
-            name: typeof r.name === 'string' ? r.name : '',
-            source: typeof r.source === 'string' ? r.source : '',
-          }
-        })
-        .filter((x) => x.name.trim() || x.source.trim())
-    : []
-
-  const outputs = Array.isArray(outputsRaw)
-    ? outputsRaw
-        .map((x) => {
-          const r = isRecord(x) ? x : {}
-          const name = typeof r.name === 'string' ? r.name : ''
-          const targetName = typeof r.targetName === 'string' ? r.targetName : undefined
-          return { name, targetName }
-        })
-        .filter((x) => x.name.trim())
-    : []
-
-  return {
-    ...obj,
-    '@odata.type': odataType,
-    name,
-    description,
-    context,
-    inputs,
-    outputs,
-  }
+function ensureJsonObject(input: unknown): Record<string, unknown> {
+  return isRecord(input) ? input : {}
 }
 
 function getNodeDims(n: SkillPipelineNode): { width: number; height: number } {
@@ -1273,14 +1234,28 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
     setSkillsetDescription,
     setIndexProjections,
     setKnowledgeStore,
+    setBaselineSkillsetJson,
   } = useSkillPipelineState()
 
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const [mainTab, setMainTab] = useState<'graph' | 'skillsetJson' | 'debugRunner' | 'enrichmentTree'>('graph')
   const [addSkillTemplateId, setAddSkillTemplateId] = useState<string>('')
-  const [nodeContextMenu, setNodeContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null)
+  const [nodeContextMenu, setNodeContextMenu] = useState<
+    | { kind: 'skill'; x: number; y: number; nodeId: string }
+    | { kind: 'doc'; x: number; y: number; nodeId: string }
+    | { kind: 'projection'; x: number; y: number; nodeId: string }
+    | { kind: 'indexer'; x: number; y: number; nodeId: string }
+    | { kind: 'index'; x: number; y: number; nodeId: string }
+    | null
+  >(null)
+  const [edgeContextMenu, setEdgeContextMenu] = useState<
+    | { x: number; y: number; edgeId: string; deletable: boolean }
+    | null
+  >(null)
+  const [serviceResourceFilter, setServiceResourceFilter] = useState<string>('')
 
   const flowRef = useRef<ReactFlowInstance<SkillPipelineNode, any> | null>(null)
+  const canvasKeyRef = useRef<HTMLDivElement | null>(null)
   const pendingFitViewRef = useRef(false)
   const indexFetchSeqRef = useRef(0)
   const lastSelectedNodeIdRef = useRef<string>('')
@@ -1297,6 +1272,61 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
   const [remoteResourcesLoading, setRemoteResourcesLoading] = useState(false)
   const [remoteResourcesError, setRemoteResourcesError] = useState<string | null>(null)
 
+  const hasRemoteIndex = (nameRaw: string) => {
+    const name = String(nameRaw || '').trim()
+    if (!name) return false
+    return remoteIndexes.some((n) => String(n).trim() === name)
+  }
+
+  const upsertSingleIndexNode = (targetIndexNameRaw: string) => {
+    const targetIndexName = String(targetIndexNameRaw || '').trim()
+    if (!targetIndexName) return
+
+    setRemoteIndexSelected(targetIndexName)
+
+    setNodes((prev) => {
+      const indexNodes = prev.filter((n) => n.data.kind === 'index')
+      const existing = indexNodes.find((n) => n.id === SKILL_PIPELINE_INDEX_NODE_ID) ?? indexNodes[0] ?? null
+
+      const indexerNode = prev.find((n) => n.id === SKILL_PIPELINE_INDEXER_NODE_ID) ?? null
+      const ixPos = (indexerNode?.position ?? { x: recommendIndexerX(prev), y: 140 }) as { x: number; y: number }
+      const createPos = { x: ixPos.x + 260 + DAGRE_RANKSEP_PX, y: ixPos.y }
+
+      if (!existing) {
+        return prev.concat([
+          {
+            id: SKILL_PIPELINE_INDEX_NODE_ID,
+            type: 'index',
+            position: createPos,
+            data: { kind: 'index', targetIndexName, selectionMode: 'auto' } as any,
+          },
+        ])
+      }
+
+      const curName = typeof (existing.data as any)?.targetIndexName === 'string' ? String((existing.data as any).targetIndexName).trim() : ''
+      const selectionMode = typeof (existing.data as any)?.selectionMode === 'string' ? String((existing.data as any).selectionMode) : ''
+      const isManual = selectionMode === 'manual'
+
+      // Don't override a user-picked index.
+      if (isManual && curName) return prev
+      if (existing.id === SKILL_PIPELINE_INDEX_NODE_ID && curName === targetIndexName) return prev
+
+      // Keep only the chosen index node; normalize id to SKILL_PIPELINE_INDEX_NODE_ID.
+      return prev
+        .filter((n) => n.data.kind !== 'index' || n.id === existing.id)
+        .map((n) =>
+          n.id === existing.id
+            ? ({
+                ...n,
+                id: SKILL_PIPELINE_INDEX_NODE_ID,
+                data: { ...(n as any).data, targetIndexName, selectionMode: 'auto' },
+                position: n.position ?? createPos,
+              } as any)
+            : n,
+        )
+    })
+  }
+
   const codeMirrorTheme = useMemo(() => {
     const isLight = theme === 'light' || theme === 'solarized'
     return isLight ? githubLight : githubDark
@@ -1309,13 +1339,13 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
 
     // Overlay the current draft into the generated JSON when it's valid,
     // so the Skillset JSON tab reflects the latest edits immediately.
-    let draftOverlay: SkillPipelineSkillDefinition | null = null
+    let draftOverlay: Record<string, unknown> | null = null
     if (!draftError && selectedNodeId) {
       const raw = draftSkillJson.trim()
       if (raw) {
         try {
           const parsed: unknown = JSON.parse(raw)
-          if (isRecord(parsed)) draftOverlay = ensureSkillShape(parsed)
+          if (isRecord(parsed)) draftOverlay = parsed
         } catch {
           // ignore parse errors; fall back to persisted node data
         }
@@ -1326,7 +1356,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
       name,
       skills: skillNodes.map((n) => {
         if (draftOverlay && n.id === selectedNodeId) return draftOverlay
-        return ensureSkillShape(n.data.kind === 'skill' ? n.data.skill : {})
+        return ensureJsonObject(n.data.kind === 'skill' ? (n.data as any).skill : {})
       }),
     }
     if (description) base.description = description
@@ -1474,8 +1504,45 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
     }
 
     setSelectedEdgeId(null)
+    setEdgeContextMenu(null)
     onSelectNode(params.nodeId)
-    setNodeContextMenu({ x: params.x, y: params.y, nodeId: params.nodeId })
+    setNodeContextMenu({ kind: 'skill', x: params.x, y: params.y, nodeId: params.nodeId })
+  }
+
+  const openIndexerContextMenu = (params: { nodeId: string; x: number; y: number }) => {
+    const node = nodes.find((n) => n.id === params.nodeId) ?? null
+    if (!node || node.data.kind !== 'indexer') {
+      setNodeContextMenu(null)
+      return
+    }
+
+    setSelectedEdgeId(null)
+  setEdgeContextMenu(null)
+    onSelectNode(params.nodeId)
+    setNodeContextMenu({ kind: 'indexer', x: params.x, y: params.y, nodeId: params.nodeId })
+
+    // Lazy-load resources on first open.
+    if (profile && !remoteResourcesLoading && remoteIndexers.length === 0) {
+      void refreshRemoteResources()
+    }
+  }
+
+  const openIndexContextMenu = (params: { nodeId: string; x: number; y: number }) => {
+    const node = nodes.find((n) => n.id === params.nodeId) ?? null
+    if (!node || node.data.kind !== 'index') {
+      setNodeContextMenu(null)
+      return
+    }
+
+    setSelectedEdgeId(null)
+  setEdgeContextMenu(null)
+    onSelectNode(params.nodeId)
+    setNodeContextMenu({ kind: 'index', x: params.x, y: params.y, nodeId: params.nodeId })
+
+    // Lazy-load resources on first open.
+    if (profile && !remoteResourcesLoading && remoteIndexes.length === 0) {
+      void refreshRemoteResources()
+    }
   }
 
   const onSelectNode = (id: string) => {
@@ -1500,27 +1567,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
 
     if ((node as any)?.data?.kind === 'index') {
       const indexName = typeof (node as any)?.data?.targetIndexName === 'string' ? String((node as any).data.targetIndexName) : ''
-      setDraftIndexError(null)
-      setDraftIndexJson('{}')
-
-      if (!indexName.trim()) {
-        setDraftIndexError('Index name is not set')
-      } else if (!profile) {
-        setDraftIndexError(String((translations as any)?.[language]?.spvErrorProfileUnset ?? 'Connection profile is not initialized'))
-      } else {
-        const seq = ++indexFetchSeqRef.current
-        void (async () => {
-          const res = await getIndexDefinition({ profile, indexName, apiVersion, language })
-          if (seq !== indexFetchSeqRef.current) return
-          if (res.ok) {
-            setDraftIndexJson(JSON.stringify(res.response ?? {}, null, 2))
-            setDraftIndexError(null)
-          } else {
-            setDraftIndexError(String(res.error?.message ?? 'Failed to fetch index definition'))
-            setDraftIndexJson(JSON.stringify(res.error?.response ?? {}, null, 2))
-          }
-        })()
-      }
+      fetchAndSetIndexJson(indexName)
     }
     setDraftError(null)
   }
@@ -1573,21 +1620,41 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
 
       const targetIndexName = summary.targetIndexName.trim()
       if (targetIndexName) {
-        const hasTargetIndexNode = next.some((n) => n.data.kind === 'index' && (n.data as any).targetIndexName === targetIndexName)
-        if (!hasTargetIndexNode) {
-          const ixPos = (next.find((n) => n.id === SKILL_PIPELINE_INDEXER_NODE_ID)?.position ?? ixNode.position) as { x: number; y: number }
-          next = [
-            ...next,
-            {
-              id: `index-${uuidv4()}`,
-              type: 'index',
-              position: {
-                x: ixPos.x + 260 + DAGRE_RANKSEP_PX,
-                y: ixPos.y + next.filter((n) => n.data.kind === 'index').length * 220,
+        const canAutoSync = hasRemoteIndex(targetIndexName)
+        const indexNodes = next.filter((n) => n.data.kind === 'index')
+        if (indexNodes.length === 0) {
+          if (canAutoSync) {
+            const ixPos = (next.find((n) => n.id === SKILL_PIPELINE_INDEXER_NODE_ID)?.position ?? ixNode.position) as { x: number; y: number }
+            next = [
+              ...next,
+              {
+                id: SKILL_PIPELINE_INDEX_NODE_ID,
+                type: 'index',
+                position: {
+                  x: ixPos.x + 260 + DAGRE_RANKSEP_PX,
+                  y: ixPos.y,
+                },
+                data: { kind: 'index', targetIndexName, selectionMode: 'auto' } as any,
               },
-              data: { kind: 'index', targetIndexName } as any,
-            },
-          ]
+            ]
+          }
+        } else if (indexNodes.length === 1) {
+          const only = indexNodes[0]
+          const curName = typeof (only.data as any)?.targetIndexName === 'string' ? String((only.data as any).targetIndexName).trim() : ''
+          const selectionMode = typeof (only.data as any)?.selectionMode === 'string' ? String((only.data as any).selectionMode) : ''
+          const isManual = selectionMode === 'manual'
+          // Auto-sync when the target index exists; otherwise only fill when empty.
+          if (!isManual && ((canAutoSync && curName !== targetIndexName) || (!curName && targetIndexName))) {
+            next = next.map((n) =>
+              n.id === only.id
+                ? ({
+                    ...n,
+                    id: SKILL_PIPELINE_INDEX_NODE_ID,
+                    data: { ...(n as any).data, targetIndexName, selectionMode: 'auto' },
+                  } as any)
+                : n,
+            )
+          }
         }
       }
 
@@ -1595,14 +1662,59 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
     })
   }, [indexer, setNodes])
 
+  // Normalize: only one Index node may exist. If multiple are present, keep one and retarget edges.
+  useEffect(() => {
+    const indexNodes = nodes.filter((n) => n.data.kind === 'index')
+    if (indexNodes.length <= 1) return
+
+    const keep = indexNodes.find((n) => n.id === SKILL_PIPELINE_INDEX_NODE_ID) ?? indexNodes[0]
+    const removeIds = indexNodes.filter((n) => n.id !== keep.id).map((n) => n.id)
+    if (removeIds.length === 0) return
+
+    setNodes((prev) => {
+      const idxs = prev.filter((n) => n.data.kind === 'index')
+      if (idxs.length <= 1) return prev
+      const keepId = idxs.find((n) => n.id === SKILL_PIPELINE_INDEX_NODE_ID)?.id ?? idxs[0]?.id
+      if (!keepId) return prev
+      return prev.filter((n) => n.data.kind !== 'index' || n.id === keepId)
+    })
+
+    setEdges((prev) => {
+      let changed = false
+      const next = prev.map((e: any) => {
+        const source = typeof e?.source === 'string' ? String(e.source) : ''
+        const target = typeof e?.target === 'string' ? String(e.target) : ''
+
+        if (!removeIds.includes(source) && !removeIds.includes(target)) return e
+        changed = true
+        return {
+          ...e,
+          source: removeIds.includes(source) ? keep.id : source,
+          target: removeIds.includes(target) ? keep.id : target,
+        }
+      })
+
+      if (!changed) return prev
+
+      // Dedupe after retargeting.
+      const seen = new Set<string>()
+      const deduped = [] as any[]
+      for (const e of next) {
+        const sh = typeof e?.sourceHandle === 'string' ? e.sourceHandle : ''
+        const th = typeof e?.targetHandle === 'string' ? e.targetHandle : ''
+        const k = `${String(e?.source)}(${sh})->${String(e?.target)}(${th})|${JSON.stringify(e?.data ?? null)}`
+        if (seen.has(k)) continue
+        seen.add(k)
+        deduped.push(e)
+      }
+      return deduped as any
+    })
+  }, [nodes, setEdges, setNodes])
+
   const indexerComputedEdges = useMemo(() => {
     if (!indexer) return []
     const skillNodes = nodes.filter((n) => n.data.kind === 'skill')
-    const targetIndexName = typeof (indexer as any)?.targetIndexName === 'string' ? String((indexer as any).targetIndexName) : ''
-    const indexNodeId =
-      targetIndexName && nodes.some((n) => n.data.kind === 'index' && (n.data as any).targetIndexName === targetIndexName)
-        ? (nodes.find((n) => n.data.kind === 'index' && (n.data as any).targetIndexName === targetIndexName)?.id ?? null)
-        : null
+    const indexNodeId = nodes.find((n) => n.data.kind === 'index')?.id ?? null
 
     return inferIndexerEdges({
       docNodeId: SKILL_PIPELINE_DOC_NODE_ID,
@@ -1618,6 +1730,55 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
     return base.map((e) => ({ ...e, selected: !!selectedEdgeId && e.id === selectedEdgeId } as any))
   }, [edges, indexerComputedEdges, selectedEdgeId])
 
+  const deleteConnectionsByNodeId = (nodeIdRaw: string, direction: 'all' | 'incoming' | 'outgoing' = 'all') => {
+    const nodeId = String(nodeIdRaw || '').trim()
+    if (!nodeId) return
+
+    const ids = viewEdges
+      .filter((e: any) => {
+        const isOut = String(e?.source) === nodeId
+        const isIn = String(e?.target) === nodeId
+        if (direction === 'outgoing') return isOut
+        if (direction === 'incoming') return isIn
+        return isOut || isIn
+      })
+      .map((e: any) => (typeof e?.id === 'string' ? e.id : String(e?.id ?? '')))
+      .filter(Boolean)
+
+    if (!ids.length) return
+
+    setSelectedEdgeId(null)
+    setNodeContextMenu(null)
+    setEdgeContextMenu(null)
+    onEdgesChange(ids.map((id) => ({ id, type: 'remove' })))
+  }
+
+  const openDocContextMenu = (params: { nodeId: string; x: number; y: number }) => {
+    const node = nodes.find((n) => n.id === params.nodeId) ?? null
+    if (!node || node.data.kind !== 'doc') {
+      setNodeContextMenu(null)
+      return
+    }
+
+    setSelectedEdgeId(null)
+    setEdgeContextMenu(null)
+    onSelectNode(params.nodeId)
+    setNodeContextMenu({ kind: 'doc', x: params.x, y: params.y, nodeId: params.nodeId })
+  }
+
+  const openProjectionContextMenu = (params: { nodeId: string; x: number; y: number }) => {
+    const node = nodes.find((n) => n.id === params.nodeId) ?? null
+    if (!node || node.data.kind !== 'projection') {
+      setNodeContextMenu(null)
+      return
+    }
+
+    setSelectedEdgeId(null)
+    setEdgeContextMenu(null)
+    onSelectNode(params.nodeId)
+    setNodeContextMenu({ kind: 'projection', x: params.x, y: params.y, nodeId: params.nodeId })
+  }
+
   // Sync index node display metadata: show which index fields are connected via outputFieldMappings.
   useEffect(() => {
     const targetIndexName = typeof (indexer as any)?.targetIndexName === 'string' ? String((indexer as any).targetIndexName) : ''
@@ -1631,11 +1792,18 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
     const sameArray = (a: string[], b: string[]) => a.length === b.length && a.every((v, i) => v === b[i])
 
     setNodes((prev) => {
+      const indexNodes = prev.filter((n) => (n as any)?.data?.kind === 'index')
+      const singleIndexNodeId = indexNodes.length === 1 ? indexNodes[0]!.id : ''
       let changed = false
       const next = prev.map((n) => {
         if ((n as any)?.data?.kind !== 'index') return n
         const name = typeof (n as any)?.data?.targetIndexName === 'string' ? String((n as any).data.targetIndexName) : ''
-        const nextFields = indexer && targetIndexName && name === targetIndexName ? uniqueConnected : []
+        const nextFields =
+          indexer && singleIndexNodeId
+            ? uniqueConnected
+            : indexer && targetIndexName && name === targetIndexName
+              ? uniqueConnected
+              : []
         const curFields = Array.isArray((n as any)?.data?.connectedFieldNames)
           ? ((n as any).data.connectedFieldNames as unknown[]).map((x) => String(x)).filter(Boolean)
           : []
@@ -1815,11 +1983,12 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
     }
   }
 
-  const loadRemoteIndexer = async () => {
+  const loadRemoteIndexerByName = async (nameRaw: string) => {
     if (!profile) return
-    const name = remoteIndexerSelected.trim()
+    const name = String(nameRaw || '').trim()
     if (!name) return
 
+    setRemoteIndexerSelected(name)
     setRemoteResourcesLoading(true)
     setRemoteResourcesError(null)
     try {
@@ -1829,9 +1998,34 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
         return
       }
 
+      // If this indexer points to a target index, ensure we know whether it exists.
+      const nextIndexer = ixGet.response && typeof ixGet.response === 'object' ? (ixGet.response as any) : null
+      const targetIndexName = typeof nextIndexer?.targetIndexName === 'string' ? String(nextIndexer.targetIndexName).trim() : ''
+      if (targetIndexName && !hasRemoteIndex(targetIndexName)) {
+        try {
+          const idxRes = await listIndexes({ profile, apiVersion, language })
+          if (idxRes.ok) {
+            const value = (idxRes.response as any)?.value
+            const names = Array.isArray(value)
+              ? value
+                  .map((x: any) => (x && typeof x.name === 'string' ? x.name : null))
+                  .filter((x: any): x is string => typeof x === 'string')
+              : []
+            setRemoteIndexes(names)
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       if (ixGet.response && typeof ixGet.response === 'object') {
-        setIndexer(ixGet.response as any)
+        setIndexer(nextIndexer)
         pendingFitViewRef.current = true
+
+        // Auto-set the single index node only when the service actually has the target index.
+        if (targetIndexName && hasRemoteIndex(targetIndexName)) {
+          upsertSingleIndexNode(targetIndexName)
+        }
       }
     } catch (e) {
       setRemoteResourcesError(e instanceof Error ? e.message : String(e))
@@ -1840,28 +2034,49 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
     }
   }
 
-  const addRemoteIndexNode = () => {
-    const name = remoteIndexSelected.trim()
-    if (!name) return
+  const fetchAndSetIndexJson = (indexNameRaw: string) => {
+    const indexName = String(indexNameRaw || '').trim()
+    setDraftIndexError(null)
+    setDraftIndexJson('{}')
+    if (!indexName) {
+      setDraftIndexError('Index name is not set')
+      return
+    }
+    if (!profile) {
+      setDraftIndexError(String((translations as any)?.[language]?.spvErrorProfileUnset ?? 'Connection profile is not initialized'))
+      return
+    }
 
-    setNodes((prev) => {
-      const exists = prev.some((n) => n.data.kind === 'index' && (n.data as any)?.targetIndexName === name)
-      if (exists) return prev
+    const seq = ++indexFetchSeqRef.current
+    void (async () => {
+      const res = await getIndexDefinition({ profile, indexName, apiVersion, language })
+      if (seq !== indexFetchSeqRef.current) return
+      if (res.ok) {
+        setDraftIndexJson(JSON.stringify(res.response ?? {}, null, 2))
+        setDraftIndexError(null)
+      } else {
+        setDraftIndexError(String(res.error?.message ?? 'Failed to fetch index definition'))
+        setDraftIndexJson(JSON.stringify(res.error?.response ?? {}, null, 2))
+      }
+    })()
+  }
 
-      const indexerNode = prev.find((n) => n.data.kind === 'indexer') ?? null
-      const baseX = indexerNode ? (indexerNode.position?.x ?? 0) + 260 + DAGRE_RANKSEP_PX : recommendIndexerX(prev) + 260 + DAGRE_RANKSEP_PX
-      const baseY = indexerNode ? (indexerNode.position?.y ?? 140) : 140
+  const updateIndexNodeTargetName = (params: { nodeId: string; targetIndexName: string }) => {
+    const targetIndexName = params.targetIndexName.trim()
+    if (!targetIndexName) return
+    setRemoteIndexSelected(targetIndexName)
 
-      return prev.concat([
-        {
-          id: `index-${uuidv4()}`,
-          type: 'index',
-          position: { x: baseX, y: baseY + prev.filter((n) => n.data.kind === 'index').length * 220 },
-          data: { kind: 'index', targetIndexName: name } as any,
-        },
-      ])
-    })
-    pendingFitViewRef.current = true
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.id === params.nodeId && n.data.kind === 'index'
+          ? ({ ...n, data: { ...(n as any).data, targetIndexName, selectionMode: 'manual' } } as any)
+          : n,
+      ),
+    )
+
+    if (selectedNodeId === params.nodeId) {
+      fetchAndSetIndexJson(targetIndexName)
+    }
   }
 
   const loadRemoteSkillset = async () => {
@@ -1879,6 +2094,19 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
       }
 
       const obj = res.response as any
+
+      // Keep the full remote JSON as the baseline for diff/publish.
+      // Strip service metadata fields that we should not send back.
+      try {
+        if (obj && typeof obj === 'object') {
+          const { ['@odata.etag']: _etag, ...rest } = obj as any
+          setBaselineSkillsetJson(JSON.stringify(rest, null, 2))
+        } else {
+          setBaselineSkillsetJson('')
+        }
+      } catch {
+        setBaselineSkillsetJson('')
+      }
       const skills = Array.isArray(obj?.skills) ? obj.skills : []
 
       // Load the indexer bound to this skillset (if any) so we can visualize outputFieldMappings.
@@ -1953,17 +2181,22 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
 
       const indexNodeIdByTarget = new Map<string, string>()
       const indexNodes: SkillPipelineNode[] = []
-      for (const s of selectors) {
-        const targetIndexName = typeof s?.targetIndexName === 'string' ? s.targetIndexName : ''
-        if (!targetIndexName) continue
-        if (indexNodeIdByTarget.has(targetIndexName)) continue
-        const id = `index-${uuidv4()}`
-        indexNodeIdByTarget.set(targetIndexName, id)
+
+      const firstTargetIndexName =
+        uniqueTargets.length > 0
+          ? String(uniqueTargets[0] ?? '')
+          : typeof (loadedIndexer as any)?.targetIndexName === 'string'
+            ? String((loadedIndexer as any).targetIndexName)
+            : ''
+
+      if (firstTargetIndexName.trim()) {
+        const id = SKILL_PIPELINE_INDEX_NODE_ID
+        indexNodeIdByTarget.set(firstTargetIndexName, id)
         indexNodes.push({
           id,
           type: 'index',
-          position: { x: 1500, y: 180 + indexNodes.length * 220 },
-          data: { kind: 'index', targetIndexName } as any,
+          position: { x: 1500, y: 180 },
+          data: { kind: 'index', targetIndexName: firstTargetIndexName, selectionMode: 'auto' } as any,
         })
       }
 
@@ -1985,19 +2218,30 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
 
         const tname = summary.targetIndexName.trim()
         if (tname) {
-          const hasTargetIndexNode = nextNodes.some((n) => n.data.kind === 'index' && (n.data as any).targetIndexName === tname)
-          if (!hasTargetIndexNode) {
+          const existingIndexNodes = nextNodes.filter((n) => n.data.kind === 'index')
+
+          if (existingIndexNodes.length === 0) {
             nextNodes = nextNodes.concat([
               {
-                id: `index-${uuidv4()}`,
+                id: SKILL_PIPELINE_INDEX_NODE_ID,
                 type: 'index',
                 position: {
                   x: recommendedIndexerX + 260 + DAGRE_RANKSEP_PX,
-                  y: 140 + nextNodes.filter((n) => n.data.kind === 'index').length * 220,
+                  y: 140,
                 },
-                data: { kind: 'index', targetIndexName: tname } as any,
+                data: { kind: 'index', targetIndexName: tname, selectionMode: 'auto' } as any,
               },
             ])
+          } else if (existingIndexNodes.length === 1) {
+            const only = existingIndexNodes[0]!
+            const curName = typeof (only.data as any)?.targetIndexName === 'string' ? String((only.data as any).targetIndexName).trim() : ''
+            if (!curName) {
+              nextNodes = nextNodes.map((n) =>
+                n.id === only.id
+                  ? ({ ...n, data: { ...(n as any).data, targetIndexName: tname, selectionMode: 'auto' } } as any)
+                  : n,
+              )
+            }
           }
         }
       }
@@ -2061,11 +2305,9 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
             }),
           )
 
-          // mapping -> index for every target index
-          for (const [target, idxId] of indexNodeIdByTarget.entries()) {
-            if (!target) continue
-            nextEdges.push({ id: uuidv4(), source: mappingNodeId, target: idxId })
-          }
+          // mapping -> index
+          const firstIndexNodeId = indexNodes[0]?.id
+          if (firstIndexNodeId) nextEdges.push({ id: uuidv4(), source: mappingNodeId, target: firstIndexNodeId })
         }
       }
 
@@ -2172,64 +2414,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
           {remoteError && <div className="notice notice--error builder__notice">{remoteError}</div>}
         </div>
 
-        <div className="actions actions--mb10" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div className="field" style={{ minWidth: 280 }}>
-            <span className="field__label">Indexers (service)</span>
-            <select
-              className="field__input"
-              value={remoteIndexerSelected}
-              onChange={(e) => setRemoteIndexerSelected(e.target.value)}
-              disabled={!profile || remoteResourcesLoading || remoteIndexers.length === 0}
-            >
-              {remoteIndexers.length === 0 ? <option value="">(none)</option> : null}
-              {remoteIndexers.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="field" style={{ minWidth: 280 }}>
-            <span className="field__label">Indexes (service)</span>
-            <select
-              className="field__input"
-              value={remoteIndexSelected}
-              onChange={(e) => setRemoteIndexSelected(e.target.value)}
-              disabled={!profile || remoteResourcesLoading || remoteIndexes.length === 0}
-            >
-              {remoteIndexes.length === 0 ? <option value="">(none)</option> : null}
-              {remoteIndexes.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <button type="button" className="btn" onClick={refreshRemoteResources} disabled={!profile || remoteResourcesLoading}>
-            Refresh
-          </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={loadRemoteIndexer}
-            disabled={!profile || remoteResourcesLoading || !remoteIndexerSelected}
-            title="Load selected indexer into the canvas"
-          >
-            Load Indexer
-          </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={addRemoteIndexNode}
-            disabled={!profile || remoteResourcesLoading || !remoteIndexSelected}
-            title="Add selected index as a node"
-          >
-            Add Index Node
-          </button>
-          {remoteResourcesError && <div className="notice notice--error builder__notice">{remoteResourcesError}</div>}
-        </div>
+        {remoteResourcesError ? <div className="notice notice--error builder__notice">{remoteResourcesError}</div> : null}
 
         <div className="actions actions--mb10" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div className="field" style={{ minWidth: 280 }}>
@@ -2299,21 +2484,27 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
               role="region"
               aria-label="skill pipeline canvas"
               tabIndex={0}
+              ref={canvasKeyRef}
               onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setNodeContextMenu(null)
+                  setEdgeContextMenu(null)
+                  return
+                }
+
                 if (e.key !== 'Backspace' && e.key !== 'Delete') return
 
                 if (selectedEdgeId) {
                   e.preventDefault()
-                  setEdges((prev) => prev.filter((x) => x.id !== selectedEdgeId))
-                  setSelectedEdgeId(null)
+                  onEdgesChange([{ id: selectedEdgeId, type: 'remove' }])
                   return
                 }
 
-                // Fallback delete: selected skill node.
-                const node = nodes.find((n) => n.id === selectedNodeId) ?? null
-                if (node && node.data.kind === 'skill') {
+                if (selectedNodeId) {
+                  const hasAny = viewEdges.some((x: any) => String(x?.source) === selectedNodeId || String(x?.target) === selectedNodeId)
+                  if (!hasAny) return
                   e.preventDefault()
-                  deleteSkillNodeById(node.id)
+                  deleteConnectionsByNodeId(selectedNodeId)
                 }
               }}
             >
@@ -2322,15 +2513,167 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                   className="dropdown-menu show"
                   style={{
                     position: 'fixed',
-                    left: Math.min(nodeContextMenu.x, window.innerWidth - 270),
-                    top: Math.min(nodeContextMenu.y, window.innerHeight - 80),
+                    left: Math.min(nodeContextMenu.x, window.innerWidth - 360),
+                    top: Math.min(nodeContextMenu.y, window.innerHeight - 420),
                     right: 'auto',
+                    width: nodeContextMenu.kind === 'skill' ? undefined : 360,
+                    maxHeight: nodeContextMenu.kind === 'skill' ? undefined : 420,
+                    overflowY: nodeContextMenu.kind === 'skill' ? undefined : 'auto',
                   }}
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <button type="button" className="dropdown-item" onClick={() => deleteSkillNodeById(nodeContextMenu.nodeId)}>
-                    {t('spbDeleteSkill')}
+                  {nodeContextMenu.kind === 'skill' ? (
+                    <>
+                      <button type="button" className="dropdown-item" onClick={() => deleteConnectionsByNodeId(nodeContextMenu.nodeId, 'incoming')}>
+                        {t('spbDisconnectInputs')}
+                      </button>
+                      <button type="button" className="dropdown-item" onClick={() => deleteConnectionsByNodeId(nodeContextMenu.nodeId, 'outgoing')}>
+                        {t('spbDisconnectOutputs')}
+                      </button>
+                      <button type="button" className="dropdown-item" onClick={() => deleteSkillNodeById(nodeContextMenu.nodeId)}>
+                        {t('spbDeleteSkill')}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" className="dropdown-item" onClick={() => deleteConnectionsByNodeId(nodeContextMenu.nodeId)}>
+                        {t('spbDeleteConnections')}
+                      </button>
+                      {nodeContextMenu.kind === 'indexer' || nodeContextMenu.kind === 'index' ? (
+                        <>
+                          <div className="dropdown-menu__filter">
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <input
+                                className="field__input"
+                                style={{ flex: 1, padding: '6px 8px', fontSize: 12 }}
+                                value={serviceResourceFilter}
+                                onChange={(e) => setServiceResourceFilter(e.target.value)}
+                                placeholder={t('spbServiceResourcesFilter')}
+                              />
+                              <button
+                                type="button"
+                                className="btn"
+                                style={{ padding: '6px 10px', fontSize: 12 }}
+                                onClick={() => void refreshRemoteResources()}
+                                disabled={!profile || remoteResourcesLoading}
+                                title={t('spbServiceResourcesRefresh')}
+                              >
+                                {t('spbServiceResourcesRefresh')}
+                              </button>
+                            </div>
+                            {!profile ? (
+                              <div className="text-muted-xs" style={{ marginTop: 6 }}>
+                                {t('spvErrorProfileUnset')}
+                              </div>
+                            ) : null}
+                            {remoteResourcesLoading ? (
+                              <div className="text-muted-xs" style={{ marginTop: 6 }}>
+                                {t('spbServiceResourcesLoading')}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div className="dropdown-menu__pad" style={{ paddingTop: 8, paddingBottom: 8 }}>
+                            {nodeContextMenu.kind === 'indexer' ? (
+                              <>
+                                <div className="text-muted-xs" style={{ marginBottom: 6 }}>
+                                  {t('spbServiceResourcesIndexers')}
+                                </div>
+                                {(remoteIndexers || [])
+                                  .filter((n) => {
+                                    const q = serviceResourceFilter.trim().toLowerCase()
+                                    if (!q) return true
+                                    return String(n).toLowerCase().includes(q)
+                                  })
+                                  .slice(0, 200)
+                                  .map((name) => (
+                                    <button
+                                      key={name}
+                                      type="button"
+                                      className="dropdown-item"
+                                      disabled={!profile || remoteResourcesLoading}
+                                      title={t('spbServiceResourcesLoadIndexer')}
+                                      onClick={() => {
+                                        setNodeContextMenu(null)
+                                        void loadRemoteIndexerByName(name)
+                                      }}
+                                    >
+                                      {name}
+                                    </button>
+                                  ))}
+                                {remoteIndexers.length === 0 ? <div className="text-muted-xs">(none)</div> : null}
+                              </>
+                            ) : null}
+
+                            {nodeContextMenu.kind === 'index' ? (
+                              <>
+                                <div className="text-muted-xs" style={{ marginBottom: 6 }}>
+                                  {t('spbServiceResourcesIndexes')}
+                                </div>
+                                {(remoteIndexes || [])
+                                  .filter((n) => {
+                                    const q = serviceResourceFilter.trim().toLowerCase()
+                                    if (!q) return true
+                                    return String(n).toLowerCase().includes(q)
+                                  })
+                                  .slice(0, 200)
+                                  .map((name) => (
+                                    <button
+                                      key={name}
+                                      type="button"
+                                      className="dropdown-item"
+                                      disabled={!profile || remoteResourcesLoading}
+                                      title={t('spbServiceResourcesAddIndexNode')}
+                                      onClick={() => {
+                                        const nodeId = nodeContextMenu.nodeId
+                                        setNodeContextMenu(null)
+                                        updateIndexNodeTargetName({ nodeId, targetIndexName: name })
+                                      }}
+                                    >
+                                      {name}
+                                    </button>
+                                  ))}
+                                {remoteIndexes.length === 0 ? <div className="text-muted-xs">(none)</div> : null}
+                              </>
+                            ) : null}
+                          </div>
+                        </>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              ) : null}
+
+              {edgeContextMenu ? (
+                <div
+                  className="dropdown-menu show"
+                  style={{
+                    position: 'fixed',
+                    left: Math.min(edgeContextMenu.x, window.innerWidth - 360),
+                    top: Math.min(edgeContextMenu.y, window.innerHeight - 220),
+                    right: 'auto',
+                    width: 280,
+                    maxHeight: 220,
+                    overflowY: 'auto',
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    className="dropdown-item"
+                    disabled={!edgeContextMenu.deletable}
+                    title={!edgeContextMenu.deletable ? 'This connection cannot be deleted' : ''}
+                    onClick={() => {
+                      const id = edgeContextMenu.edgeId
+                      const deletable = edgeContextMenu.deletable
+                      setEdgeContextMenu(null)
+                      if (!deletable) return
+                      onEdgesChange([{ id, type: 'remove' }])
+                    }}
+                  >
+                    {t('spbDeleteConnection')}
                   </button>
                 </div>
               ) : null}
@@ -2384,14 +2727,41 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                   const btn = typeof (e as any)?.button === 'number' ? Number((e as any).button) : 0
                   if (btn === 2) return
 
+                  canvasKeyRef.current?.focus()
                   setSelectedEdgeId(null)
                   setNodeContextMenu(null)
+                  setEdgeContextMenu(null)
                   onSelectNode(node.id)
                 }}
                 onNodeContextMenu={(e, node) => {
                   e.preventDefault()
                   e.stopPropagation()
-                  openSkillContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
+                  canvasKeyRef.current?.focus()
+
+                  setEdgeContextMenu(null)
+
+                  if (node.data.kind === 'skill') {
+                    openSkillContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
+                    return
+                  }
+                  if (node.data.kind === 'doc') {
+                    openDocContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
+                    return
+                  }
+                  if (node.data.kind === 'projection') {
+                    openProjectionContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
+                    return
+                  }
+                  if (node.data.kind === 'indexer') {
+                    openIndexerContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
+                    return
+                  }
+                  if (node.data.kind === 'index') {
+                    openIndexContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
+                    return
+                  }
+
+                  setNodeContextMenu(null)
                 }}
                 onSelectionChange={(sel) => {
                   const selectedNodes = Array.isArray(sel.nodes) ? sel.nodes : []
@@ -2405,11 +2775,25 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                 onEdgeClick={(e, edge) => {
                   e.preventDefault()
                   setNodeContextMenu(null)
+                  setEdgeContextMenu(null)
                   setSelectedEdgeId(edge.id)
                 }}
+                onEdgeContextMenu={(e, edge) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  canvasKeyRef.current?.focus()
+
+                  setNodeContextMenu(null)
+                  setSelectedEdgeId(edge.id)
+
+                  const deletable = typeof (edge as any)?.deletable === 'boolean' ? Boolean((edge as any).deletable) : true
+                  setEdgeContextMenu({ x: e.clientX, y: e.clientY, edgeId: edge.id, deletable })
+                }}
                 onPaneClick={() => {
+                  canvasKeyRef.current?.focus()
                   setSelectedEdgeId(null)
                   setNodeContextMenu(null)
+                  setEdgeContextMenu(null)
                 }}
                 onInit={(instance) => {
                   flowRef.current = instance

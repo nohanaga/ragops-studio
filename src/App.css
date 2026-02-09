@@ -1604,6 +1604,15 @@ summary.section__title {
   padding: 8px;
 }
 
+/* SkillPipelineBuilder: side-by-side diff highlighting */
+.skillset-diff-editor .cm-line.cm-diff-added {
+  background: rgba(46, 160, 67, 0.18);
+}
+
+.skillset-diff-editor .cm-line.cm-diff-removed {
+  background: rgba(248, 81, 73, 0.16);
+}
+
 /* SynonymMapBuilder: layout/styles (refactored from inline styles) */
 .synonymMapBuilder__desc {
   color: var(--muted);

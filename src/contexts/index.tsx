@@ -91,6 +91,27 @@ export type SkillPipelineNodeData =
 export type SkillPipelineNode = Node<SkillPipelineNodeData>
 export type SkillPipelineEdge = Edge
 
+function computeSkillsetJsonSnapshot(input: {
+  skillsetName: string
+  skillsetDescription: string
+  indexProjections: unknown | null
+  knowledgeStore: unknown | null
+  nodes: SkillPipelineNode[]
+}): string {
+  const name = input.skillsetName.trim() || 'skillset1'
+  const description = input.skillsetDescription.trim()
+  const skillNodes = input.nodes.filter((n) => (n as any)?.data?.kind === 'skill')
+
+  const base: Record<string, unknown> = {
+    name,
+    skills: skillNodes.map((n) => ((n as any)?.data?.skill ?? {}) as unknown),
+  }
+  if (description) base.description = description
+  if (input.indexProjections) base.indexProjections = input.indexProjections
+  if (input.knowledgeStore) base.knowledgeStore = input.knowledgeStore
+  return JSON.stringify(base, null, 2)
+}
+
 type SkillPipelineStateContextValue = {
   skillsetName: string
   setSkillsetName: Dispatch<SetStateAction<string>>
@@ -106,6 +127,10 @@ type SkillPipelineStateContextValue = {
   setIndexer: Dispatch<SetStateAction<SkillPipelineIndexerDefinition | null>>
 
   currentSavedId: string | null
+  baselineSkillsetJson: string
+  setBaselineSkillsetJson: Dispatch<SetStateAction<string>>
+  saveSkillsetError: string | null
+  setSaveSkillsetError: Dispatch<SetStateAction<string | null>>
   savedSkillsets: PersistedSkillPipelineItem[]
   refreshSavedSkillsets: () => void
   newSkillset: () => void
@@ -646,6 +671,25 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
   const [indexer, setIndexer] = useState<SkillPipelineIndexerDefinition | null>(null)
 
   const [currentSavedId, setCurrentSavedId] = useState<string | null>(null)
+  const [baselineSkillsetJson, setBaselineSkillsetJson] = useState<string>(() => {
+    const initialNodes: SkillPipelineNode[] = [
+      defaultDocumentNode(),
+      {
+        id: 'n1',
+        type: 'skill',
+        position: { x: 420, y: 80 },
+        data: { kind: 'skill', skill: defaultSkillPipelineSkill(1) },
+      },
+    ]
+    return computeSkillsetJsonSnapshot({
+      skillsetName: 'skillset1',
+      skillsetDescription: '',
+      indexProjections: null,
+      knowledgeStore: null,
+      nodes: initialNodes,
+    })
+  })
+  const [saveSkillsetError, setSaveSkillsetError] = useState<string | null>(null)
   const [savedSkillsets, setSavedSkillsets] = useState<PersistedSkillPipelineItem[]>(() => listSkillPipelines())
 
   const [nodes, setNodes] = useState<SkillPipelineNode[]>(() => [
@@ -678,6 +722,7 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
     const skill1 = defaultSkillPipelineSkill(1)
 
     setCurrentSavedId(null)
+    setSaveSkillsetError(null)
     setSkillsetName(nextName)
     setSkillsetDescription('')
     setIndexProjections(null)
@@ -695,6 +740,16 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
 
     setNodes(nextNodes)
     setEdges([])
+
+    setBaselineSkillsetJson(
+      computeSkillsetJsonSnapshot({
+        skillsetName: nextName,
+        skillsetDescription: '',
+        indexProjections: null,
+        knowledgeStore: null,
+        nodes: nextNodes,
+      }),
+    )
 
     setSelectedNodeId('n1')
     setDraftSkillJson(JSON.stringify(skill1, null, 2))
@@ -714,23 +769,37 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       const id = mode === 'save' && currentSavedId ? currentSavedId : uuidv4()
       const title = skillsetName.trim() || 'skillset'
 
-      upsertSkillPipeline({
-        id,
-        title,
-        updatedAt: Date.now(),
-        state: {
-          skillsetName,
-          skillsetDescription,
-          indexProjections,
-          knowledgeStore,
-          indexer,
-          nodes,
-          edges,
-        },
-      })
+      try {
+        upsertSkillPipeline({
+          id,
+          title,
+          updatedAt: Date.now(),
+          state: {
+            skillsetName,
+            skillsetDescription,
+            indexProjections,
+            knowledgeStore,
+            indexer,
+            nodes,
+            edges,
+          },
+        })
 
-      setCurrentSavedId(id)
-      refreshSavedSkillsets()
+        setSaveSkillsetError(null)
+        setCurrentSavedId(id)
+        setBaselineSkillsetJson(
+          computeSkillsetJsonSnapshot({
+            skillsetName,
+            skillsetDescription,
+            indexProjections,
+            knowledgeStore,
+            nodes,
+          }),
+        )
+        refreshSavedSkillsets()
+      } catch (e) {
+        setSaveSkillsetError(e instanceof Error ? e.message : String(e))
+      }
     },
     [currentSavedId, edges, nodes, refreshSavedSkillsets, skillsetDescription, skillsetName, indexProjections, knowledgeStore, indexer],
   )
@@ -744,6 +813,7 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       const normalizedEdges = Array.isArray(item.state.edges) ? item.state.edges : []
 
       setCurrentSavedId(item.id)
+      setSaveSkillsetError(null)
       setSkillsetName(item.state.skillsetName || 'skillset1')
       setSkillsetDescription(item.state.skillsetDescription || '')
       setIndexProjections((item.state as any).indexProjections ?? null)
@@ -751,6 +821,16 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       setIndexer(((item.state as any).indexer as SkillPipelineIndexerDefinition | null) ?? null)
       setNodes(normalizedNodes)
       setEdges(normalizedEdges)
+
+      setBaselineSkillsetJson(
+        computeSkillsetJsonSnapshot({
+          skillsetName: item.state.skillsetName || 'skillset1',
+          skillsetDescription: item.state.skillsetDescription || '',
+          indexProjections: (item.state as any).indexProjections ?? null,
+          knowledgeStore: (item.state as any).knowledgeStore ?? null,
+          nodes: normalizedNodes,
+        }),
+      )
 
       const firstSkillNode = normalizedNodes.find((n) => (n as any)?.data?.kind === 'skill')
       const firstId = firstSkillNode?.id ?? ''
@@ -794,6 +874,10 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       setIndexer,
 
       currentSavedId,
+      baselineSkillsetJson,
+      setBaselineSkillsetJson,
+      saveSkillsetError,
+      setSaveSkillsetError,
       savedSkillsets,
       refreshSavedSkillsets,
       newSkillset,
