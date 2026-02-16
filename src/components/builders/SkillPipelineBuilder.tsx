@@ -33,6 +33,7 @@ import dagre from 'dagre'
 
 import type { ConnectionProfile, SearchApiVersion } from '../../lib/model'
 import { getIndexDefinition, getIndexerDefinition, getSkillset, listIndexers, listIndexes, listSkillsets } from '../../lib/aiSearchRest'
+import type { JsonValue } from '../../lib/aiSearchRest'
 
 import type { ThemePreference } from '../../types/app'
 import type { Language, TranslationKey } from '../../lib/translations'
@@ -1239,6 +1240,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
 
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const [mainTab, setMainTab] = useState<'graph' | 'skillsetJson' | 'debugRunner' | 'enrichmentTree'>('graph')
+  const [debugFetchedDocs, setDebugFetchedDocs] = useState<JsonValue | null>(null)
   const [addSkillTemplateId, setAddSkillTemplateId] = useState<string>('')
   const [nodeContextMenu, setNodeContextMenu] = useState<
     | { kind: 'skill'; x: number; y: number; nodeId: string }
@@ -2858,6 +2860,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                 theme={theme}
                 skillsetJson={skillsetJson}
                 defaultSkillsetName={skillsetName}
+                onFetchedDocs={setDebugFetchedDocs}
               />
             </div>
           </div>
@@ -2875,7 +2878,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
               role="region"
               aria-label="enrichment tree preview"
             >
-              <SkillPipelineEnrichmentTreePreview t={t as any} nodes={nodes} indexer={indexer} />
+              <SkillPipelineEnrichmentTreePreview t={t as any} nodes={nodes} indexer={indexer} fetchedDocs={debugFetchedDocs} />
             </div>
           </div>
         </div>

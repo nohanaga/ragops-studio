@@ -18,6 +18,12 @@
   --shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
   --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.18);
 
+  /* Excel-like table */
+  --xt-bg: #171f2b;
+  --xt-head: #1c2636;
+  --xt-fg: #e6edf3;
+  --xt-border: #283850;
+
   --radius: 10px;
   --radius-sm: 8px;
 
@@ -52,6 +58,10 @@ html[data-theme='dark'] {
   --ring: rgba(150, 205, 255, 0.28);
   --shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
   --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.18);
+  --xt-bg: #171f2b;
+  --xt-head: #1c2636;
+  --xt-fg: #e6edf3;
+  --xt-border: #283850;
   color-scheme: dark;
 }
 
@@ -72,6 +82,10 @@ html[data-theme='light'] {
   --ring: rgba(36, 78, 122, 0.22);
   --shadow: 0 10px 24px rgba(2, 6, 23, 0.10);
   --shadow-soft: 0 4px 12px rgba(2, 6, 23, 0.06);
+  --xt-bg: #ffffff;
+  --xt-head: #f0f3f7;
+  --xt-fg: #0b1220;
+  --xt-border: #d7dee8;
   background: radial-gradient(1200px circle at 85% 0%, rgba(36, 78, 122, 0.08), transparent 55%),
               radial-gradient(900px circle at 0% 100%, rgba(31, 42, 56, 0.08), transparent 60%),
               var(--bg);
@@ -96,6 +110,10 @@ html[data-theme='midnight'] {
   --ring: rgba(90, 140, 255, 0.28);
   --shadow: 0 12px 30px rgba(0, 0, 0, 0.32);
   --shadow-soft: 0 6px 16px rgba(0, 0, 0, 0.22);
+  --xt-bg: #161b30;
+  --xt-head: #1c2240;
+  --xt-fg: #e8ecff;
+  --xt-border: #2a3558;
   background: radial-gradient(1200px circle at 85% 0%, rgba(47, 79, 146, 0.25), transparent 55%),
               radial-gradient(900px circle at 0% 100%, rgba(31, 41, 64, 0.25), transparent 60%),
               var(--bg);
@@ -119,6 +137,10 @@ html[data-theme='forest'] {
   --ring: rgba(84, 188, 129, 0.24);
   --shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
   --shadow-soft: 0 6px 16px rgba(0, 0, 0, 0.18);
+  --xt-bg: #162520;
+  --xt-head: #1c3028;
+  --xt-fg: #e7f2e8;
+  --xt-border: #243a2e;
   background: radial-gradient(1200px circle at 85% 0%, rgba(47, 95, 70, 0.22), transparent 55%),
               radial-gradient(900px circle at 0% 100%, rgba(28, 47, 37, 0.22), transparent 60%),
               var(--bg);
@@ -142,6 +164,10 @@ html[data-theme='solarized'] {
   --ring: rgba(181, 137, 0, 0.25);
   --shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
   --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --xt-bg: #fefbf1;
+  --xt-head: #f0e8d0;
+  --xt-fg: #073642;
+  --xt-border: #e0d6bd;
   background: radial-gradient(1200px circle at 85% 0%, rgba(181, 137, 0, 0.08), transparent 55%),
               radial-gradient(900px circle at 0% 100%, rgba(101, 123, 131, 0.08), transparent 60%),
               var(--bg);
@@ -166,6 +192,10 @@ html[data-theme='solarized'] {
     --ring: rgba(36, 78, 122, 0.22);
     --shadow: 0 10px 24px rgba(2, 6, 23, 0.10);
     --shadow-soft: 0 4px 12px rgba(2, 6, 23, 0.06);
+    --xt-bg: #ffffff;
+    --xt-head: #f0f3f7;
+    --xt-fg: #0b1220;
+    --xt-border: #d7dee8;
     background: radial-gradient(1200px circle at 85% 0%, rgba(36, 78, 122, 0.08), transparent 55%),
                 radial-gradient(900px circle at 0% 100%, rgba(31, 42, 56, 0.08), transparent 60%),
                 var(--bg);

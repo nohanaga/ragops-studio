@@ -2,18 +2,115 @@
  * Skill Pipeline Builder - Enrichment Tree Preview.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback, type ReactNode } from 'react'
 
 import type { TranslationKey } from '../../lib/translations'
 import type { SkillPipelineIndexerDefinition, SkillPipelineNode } from '../../contexts'
+import type { JsonValue } from '../../lib/aiSearchRest'
 import { buildEnrichmentTreeModel, type EnrichmentTreeNode } from '../../utils/enrichmentTree'
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getFetchedDocsRows(input: JsonValue | null | undefined): Record<string, unknown>[] {
+  if (!input || !isRecord(input)) return []
+  const raw = input['value']
+  if (!Array.isArray(raw)) return []
+  return raw.filter((x): x is Record<string, unknown> => isRecord(x))
+}
+
+const TRUNCATE_LEN = 240
+
+function stringifyFull(value: unknown): string {
+  if (typeof value === 'string') return value
+  try {
+    const asJson = JSON.stringify(value, null, 2)
+    if (typeof asJson === 'string') return asJson
+  } catch {
+    // ignore
+  }
+  return String(value)
+}
+
+/** Renders a value that can be expanded when truncated. */
+function ExpandableValue(props: { value: unknown }) {
+  const [open, setOpen] = useState(false)
+  const full = stringifyFull(props.value)
+  const truncatable = full.length > TRUNCATE_LEN
+  const toggle = useCallback(() => setOpen((v) => !v), [])
+
+  if (!truncatable) return <>{full}</>
+
+  return (
+    <>
+      <span>{open ? full : `${full.slice(0, TRUNCATE_LEN)}…`}</span>
+      <button type="button" className="xt__expandBtn" onClick={toggle} title={open ? 'Collapse' : 'Expand'}>
+        <i className={open ? 'bi bi-chevron-up' : 'bi bi-chevron-down'} />
+        {open ? ' Collapse' : ' Expand'}
+      </button>
+    </>
+  )
+}
+
+type XTableCol = {
+  key: string
+  label: string
+  /** CSS width hint, e.g. '45%' */
+  width?: string
+}
+
+type XTableRow = {
+  /** Unique key for React */
+  id: string
+  cells: Record<string, { text: ReactNode; sub?: ReactNode }>
+}
+
+function XTable(props: { cols: XTableCol[]; rows: XTableRow[]; emptyText: string }) {
+  const { cols, rows, emptyText } = props
+  if (rows.length === 0) return <div className="xt__empty">{emptyText}</div>
+  return (
+    <div className="xt__wrap">
+      <table className="xt">
+        <colgroup>
+          {cols.map((c) => (
+            <col key={c.key} style={c.width ? { width: c.width } : undefined} />
+          ))}
+        </colgroup>
+        <thead>
+          <tr>
+            {cols.map((c) => (
+              <th key={c.key}>{c.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              {cols.map((c) => {
+                const cell = row.cells[c.key]
+                return (
+                  <td key={c.key} tabIndex={0}>
+                    {cell?.text ?? ''}
+                    {cell?.sub ? <span className="xt__sub">{cell.sub}</span> : null}
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
 
 export function SkillPipelineEnrichmentTreePreview(props: {
   t: (key: TranslationKey) => string
   nodes: SkillPipelineNode[]
   indexer: SkillPipelineIndexerDefinition | null
+  fetchedDocs?: JsonValue | null
 }) {
-  const { t, nodes, indexer } = props
+  const { t, nodes, indexer, fetchedDocs } = props
 
   const model = useMemo(() => buildEnrichmentTreeModel({ nodes, indexer, docRoot: '/document' }), [nodes, indexer])
 
@@ -45,6 +142,161 @@ export function SkillPipelineEnrichmentTreePreview(props: {
     )
   }, [model.indexerUsages, selectedPath])
 
+  const fetchedDocRows = useMemo(() => getFetchedDocsRows(fetchedDocs), [fetchedDocs])
+
+  const fetchedValuesUnderSelection = useMemo(() => {
+    if (fetchedDocRows.length === 0) return [] as Array<{
+      sourceFieldName: string
+      targetFieldName: string
+      docNumber: number
+      value: unknown
+    }>
+
+    const out: Array<{ sourceFieldName: string; targetFieldName: string; docNumber: number; value: unknown }> = []
+    const seen = new Set<string>()
+
+    const pushUnique = (item: { sourceFieldName: string; targetFieldName: string; docNumber: number; value: unknown }) => {
+      const key = `${item.sourceFieldName}|${item.targetFieldName}|${item.docNumber}`
+      if (seen.has(key)) return
+      seen.add(key)
+      out.push(item)
+    }
+
+    for (const m of indexerUsageUnderSelection) {
+      const target = String(m.targetFieldName || '').trim()
+      if (!target) continue
+      for (let i = 0; i < fetchedDocRows.length; i++) {
+        const row = fetchedDocRows[i]
+        if (!(target in row)) continue
+        pushUnique({
+          sourceFieldName: m.sourceFieldName,
+          targetFieldName: target,
+          docNumber: i + 1,
+          value: row[target],
+        })
+      }
+    }
+
+    // Fallback: show the retrieved index `content` field as values under /document/content.
+    // This helps debugging even when content is not explicitly mapped via outputFieldMappings.
+    const includeContent =
+      selectedPath === '/document' ||
+      selectedPath === '/document/content' ||
+      selectedPath.startsWith('/document/content/')
+
+    if (includeContent) {
+      for (let i = 0; i < fetchedDocRows.length; i++) {
+        const row = fetchedDocRows[i]
+        if (!('content' in row)) continue
+        pushUnique({
+          sourceFieldName: '/document/content',
+          targetFieldName: 'content',
+          docNumber: i + 1,
+          value: row['content'],
+        })
+      }
+    }
+
+    return out
+  }, [fetchedDocRows, indexerUsageUnderSelection, selectedPath])
+
+  /* ── Column definitions ── */
+  const summaryCols: XTableCol[] = useMemo(() => [
+    { key: 'prop', label: 'Property', width: '40%' },
+    { key: 'val', label: 'Value' },
+  ], [])
+
+  const producedCols: XTableCol[] = useMemo(() => [
+    { key: 'path', label: 'Path', width: '45%' },
+    { key: 'skill', label: 'Skill' },
+  ], [])
+
+  const referencedCols: XTableCol[] = useMemo(() => [
+    { key: 'source', label: 'Source', width: '45%' },
+    { key: 'skill', label: 'Skill' },
+  ], [])
+
+  const indexerCols: XTableCol[] = useMemo(() => [
+    { key: 'source', label: 'Source Field', width: '50%' },
+    { key: 'target', label: 'Target Field' },
+  ], [])
+
+  const fetchedCols: XTableCol[] = useMemo(() => [
+    { key: 'source', label: 'Source Field', width: '40%' },
+    { key: 'value', label: 'Value' },
+  ], [])
+
+  /* ── Row data ── */
+  const summaryTableRows = useMemo<XTableRow[]>(
+    () => [
+      { id: 'path', cells: { prop: { text: 'path' }, val: { text: <span className="mono">{selectedPath}</span> } } },
+      { id: 'produced', cells: { prop: { text: 'produced outputs' }, val: { text: String(producedUnderSelection.length) } } },
+      { id: 'referenced', cells: { prop: { text: 'referenced inputs' }, val: { text: String(referencedUnderSelection.length) } } },
+      { id: 'indexer', cells: { prop: { text: 'indexer outputFieldMappings' }, val: { text: String(indexerUsageUnderSelection.length) } } },
+    ],
+    [selectedPath, producedUnderSelection.length, referencedUnderSelection.length, indexerUsageUnderSelection.length],
+  )
+
+  const producedTableRows = useMemo<XTableRow[]>(
+    () =>
+      producedUnderSelection.map((p, i) => ({
+        id: `${p.path}|${i}`,
+        cells: {
+          path: {
+            text: <span className="mono">{p.path}</span>,
+            sub: p.odataType || undefined,
+          },
+          skill: {
+            text: <span className="mono" title={p.skillId}>{p.skillName}</span>,
+            sub: p.targetName ? `targetName: ${p.targetName}` : p.outputName ? `name: ${p.outputName}` : undefined,
+          },
+        },
+      })),
+    [producedUnderSelection],
+  )
+
+  const referencedTableRows = useMemo<XTableRow[]>(
+    () =>
+      referencedUnderSelection.map((r, i) => ({
+        id: `${r.source}|${i}`,
+        cells: {
+          source: { text: <span className="mono">{r.source}</span> },
+          skill: {
+            text: <span className="mono" title={r.skillId}>{r.skillName}</span>,
+            sub: r.inputName ? `input: ${r.inputName}` : undefined,
+          },
+        },
+      })),
+    [referencedUnderSelection],
+  )
+
+  const indexerTableRows = useMemo<XTableRow[]>(
+    () =>
+      indexerUsageUnderSelection.map((m, i) => ({
+        id: `${m.sourceFieldName}|${i}`,
+        cells: {
+          source: { text: <span className="mono">{m.sourceFieldName}</span> },
+          target: { text: <span className="mono">{m.targetFieldName}</span> },
+        },
+      })),
+    [indexerUsageUnderSelection],
+  )
+
+  const fetchedTableRows = useMemo<XTableRow[]>(
+    () =>
+      fetchedValuesUnderSelection.map((item, i) => ({
+        id: `${item.sourceFieldName}|${item.targetFieldName}|${item.docNumber}|${i}`,
+        cells: {
+          source: {
+            text: <span className="mono">{item.sourceFieldName}</span>,
+            sub: `doc #${item.docNumber}`,
+          },
+          value: { text: <ExpandableValue value={item.value} /> },
+        },
+      })),
+    [fetchedValuesUnderSelection],
+  )
+
   const toggleExpand = (path: string) => {
     setExpanded((prev) => {
       const next = new Set(prev)
@@ -69,7 +321,7 @@ export function SkillPipelineEnrichmentTreePreview(props: {
             gap: 8,
             padding: '4px 6px',
             borderRadius: 6,
-            background: isSelected ? 'var(--panel-3)' : 'transparent',
+            background: isSelected ? 'color-mix(in srgb, var(--accent) 12%, var(--panel))' : 'transparent',
           }}
         >
           <button
@@ -154,98 +406,30 @@ export function SkillPipelineEnrichmentTreePreview(props: {
           {t('spbEnrichmentTreeDetails')}
         </div>
 
-        <div className="kv kv--mb16">
-          <div className="kv__row">
-            <div className="kv__k">path</div>
-            <div className="kv__v mono" style={{ textAlign: 'right' }}>
-              {selectedPath}
-            </div>
-          </div>
-          <div className="kv__row">
-            <div className="kv__k">produced outputs</div>
-            <div className="kv__v" style={{ textAlign: 'right' }}>
-              {producedUnderSelection.length}
-            </div>
-          </div>
-          <div className="kv__row">
-            <div className="kv__k">referenced inputs</div>
-            <div className="kv__v" style={{ textAlign: 'right' }}>
-              {referencedUnderSelection.length}
-            </div>
-          </div>
-          <div className="kv__row">
-            <div className="kv__k">indexer outputFieldMappings</div>
-            <div className="kv__v" style={{ textAlign: 'right' }}>
-              {indexerUsageUnderSelection.length}
-            </div>
-          </div>
-        </div>
+        <XTable cols={summaryCols} rows={summaryTableRows} emptyText="(none)" />
 
         <div className="section__title" style={{ marginTop: 14 }}>
           {t('spbEnrichmentTreeProducedBy')}
         </div>
-        {producedUnderSelection.length === 0 ? (
-          <div className="empty">(none)</div>
-        ) : (
-          <div className="kv kv--mb16">
-            {producedUnderSelection.map((p, idx) => (
-              <div key={`${p.path}|${p.skillId}|${idx}`} className="kv__row" style={{ alignItems: 'flex-start' }}>
-                <div className="kv__k" title={p.path}>
-                  <div className="mono" style={{ opacity: 0.9 }}>{p.path}</div>
-                  <div style={{ opacity: 0.7, fontSize: 12 }}>{p.odataType || ''}</div>
-                </div>
-                <div className="kv__v" style={{ textAlign: 'right' }}>
-                  <div className="mono" title={p.skillId}>{p.skillName}</div>
-                  <div style={{ opacity: 0.7, fontSize: 12 }}>
-                    {p.targetName ? `targetName: ${p.targetName}` : p.outputName ? `name: ${p.outputName}` : ''}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <XTable cols={producedCols} rows={producedTableRows} emptyText="(none)" />
 
         <div className="section__title" style={{ marginTop: 14 }}>
           {t('spbEnrichmentTreeReferencedBy')}
         </div>
-        {referencedUnderSelection.length === 0 ? (
-          <div className="empty">(none)</div>
-        ) : (
-          <div className="kv kv--mb16">
-            {referencedUnderSelection.map((r, idx) => (
-              <div key={`${r.source}|${r.skillId}|${idx}`} className="kv__row" style={{ alignItems: 'flex-start' }}>
-                <div className="kv__k" title={r.source}>
-                  <div className="mono" style={{ opacity: 0.9 }}>{r.source}</div>
-                </div>
-                <div className="kv__v" style={{ textAlign: 'right' }}>
-                  <div className="mono" title={r.skillId}>{r.skillName}</div>
-                  <div style={{ opacity: 0.7, fontSize: 12 }}>{r.inputName ? `input: ${r.inputName}` : ''}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <XTable cols={referencedCols} rows={referencedTableRows} emptyText="(none)" />
 
         <div className="section__title" style={{ marginTop: 14 }}>
           {t('spbEnrichmentTreeIndexerUsage')}
         </div>
-        {!indexer ? (
-          <div className="empty">(no indexer loaded)</div>
-        ) : indexerUsageUnderSelection.length === 0 ? (
-          <div className="empty">(none)</div>
+        {!indexer ? <div className="xt__empty">(no indexer loaded)</div> : <XTable cols={indexerCols} rows={indexerTableRows} emptyText="(none)" />}
+
+        <div className="section__title" style={{ marginTop: 14 }}>
+          {t('spbEnrichmentTreeFetchedValues')}
+        </div>
+        {fetchedDocRows.length === 0 ? (
+          <div className="xt__empty">{t('spbEnrichmentTreeNoFetchedDocs')}</div>
         ) : (
-          <div className="kv kv--mb16">
-            {indexerUsageUnderSelection.map((m, idx) => (
-              <div key={`${m.sourceFieldName}|${m.targetFieldName}|${idx}`} className="kv__row" style={{ alignItems: 'flex-start' }}>
-                <div className="kv__k" title={m.sourceFieldName}>
-                  <div className="mono" style={{ opacity: 0.9 }}>{m.sourceFieldName}</div>
-                </div>
-                <div className="kv__v" style={{ textAlign: 'right' }}>
-                  <div className="mono">{m.targetFieldName}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+          <XTable cols={fetchedCols} rows={fetchedTableRows} emptyText={t('spbEnrichmentTreeNoFetchedValues')} />
         )}
       </div>
     </div>

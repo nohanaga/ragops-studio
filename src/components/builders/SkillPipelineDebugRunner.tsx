@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { EditorView } from 'codemirror'
 import { json } from '@codemirror/lang-json'
@@ -22,6 +22,11 @@ import {
 import { translations, type Language } from '../../lib/translations'
 import { ExpandableCodeMirror } from '../viewers/ExpandableCodeMirror'
 import { JsonViewer } from '../viewers/JsonViewer'
+import {
+  DEBUG_RUNNER_BLOB_CONTAINER_KEY,
+  DEBUG_RUNNER_BLOB_PATH_KEY,
+  DEBUG_RUNNER_STORAGE_CONNECTION_STRING_KEY,
+} from '../../app/constants'
 
 type TranslationKey = keyof typeof translations.ja
 
@@ -44,6 +49,24 @@ type ExtractedSkillOutput = {
 }
 
 type ResolvedSkillOutput = ExtractedSkillOutput & { fieldName: string }
+
+function loadPersistedString(key: string): string {
+  try {
+    return String(localStorage.getItem(key) ?? '')
+  } catch {
+    return ''
+  }
+}
+
+function persistString(key: string, value: string): void {
+  try {
+    const v = String(value ?? '')
+    if (!v.trim()) localStorage.removeItem(key)
+    else localStorage.setItem(key, v)
+  } catch {
+    // ignore
+  }
+}
 
 function safeJsonParse(raw: string): { ok: true; value: unknown } | { ok: false; error: string } {
   try {
@@ -78,6 +101,52 @@ function toSearchFieldName(input: string): string {
   const underscored = stripped.replace(/[^A-Za-z0-9_]+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '')
   const startsOk = underscored.match(/^[A-Za-z]/) ? underscored : `f_${underscored || 'out'}`
   return startsOk.slice(0, 128)
+}
+
+function makeDebugCaptureFieldName(params: {
+  skillName: string
+  outputName: string
+  usedFieldNames: Map<string, number>
+}): string {
+  const maxLen = 128
+  const prefix = 'dbg__'
+  const sep = '__'
+
+  const safeSkill = toSearchFieldName(params.skillName)
+  const safeOutput = toSearchFieldName(params.outputName)
+
+  // Prefer dbg__{skill}__{output}. If too long, truncate parts to fit.
+  let base = `${prefix}${safeSkill}${sep}${safeOutput}`
+  if (base.length > maxLen) {
+    const remaining = maxLen - prefix.length - sep.length
+    const minPart = 8
+    const skillBudget = Math.max(minPart, Math.floor(remaining * 0.6))
+    const skillPart = safeSkill.slice(0, Math.min(safeSkill.length, skillBudget))
+    const outBudget = Math.max(minPart, remaining - skillPart.length)
+    const outPart = safeOutput.slice(0, Math.min(safeOutput.length, outBudget))
+    // Ensure we never exceed maxLen due to minPart adjustments.
+    base = `${prefix}${skillPart}${sep}${outPart}`.slice(0, maxLen)
+  }
+
+  const bump = (name: string) => {
+    const prev = params.usedFieldNames.get(name) ?? 0
+    params.usedFieldNames.set(name, prev + 1)
+    return prev
+  }
+
+  // First try the base name.
+  if (bump(base) === 0) return base
+
+  // Collision: add a deterministic suffix, truncating if required.
+  for (let n = 2; n < 10000; n++) {
+    const suffix = `_${n}`
+    const trimmedBase = base.length + suffix.length <= maxLen ? base : base.slice(0, Math.max(0, maxLen - suffix.length))
+    const candidate = `${trimmedBase}${suffix}`
+    if (bump(candidate) === 0) return candidate
+  }
+
+  // Should be unreachable.
+  return base.slice(0, maxLen)
 }
 
 function extractSkillOutputs(skillset: Record<string, unknown>): ExtractedSkillOutput[] {
@@ -188,10 +257,22 @@ function makeDefaultIndexJson(indexName: string): string {
       { name: 'id', type: 'Edm.String', key: true, filterable: true, sortable: true },
       { name: 'metadata_storage_path', type: 'Edm.String', filterable: true, retrievable: true },
       { name: 'metadata_storage_name', type: 'Edm.String', filterable: true },
-      { name: 'content', type: 'Edm.String', searchable: true },
+      // Keep content as searchable+retrievable, and explicitly disable filter/sort/facet.
+      { name: 'content', type: 'Edm.String', searchable: true, retrievable: true, filterable: false, sortable: false, facetable: false },
     ],
   }
   return JSON.stringify(base, null, 2)
+}
+
+function forceContentFieldMinimal(fields: any[]): any[] {
+  if (!Array.isArray(fields)) return []
+  return fields.map((f) => {
+    if (!isRecord(f)) return f
+    const name = typeof f.name === 'string' ? (f.name as string) : ''
+    if (name !== 'content') return f
+    const type = typeof f.type === 'string' && (f.type as string).trim() ? (f.type as string) : 'Edm.String'
+    return { name: 'content', type, searchable: true, retrievable: true, filterable: false, sortable: false, facetable: false }
+  })
 }
 
 function findIndexKeyFieldName(indexBody: Record<string, unknown>): string | null {
@@ -220,8 +301,9 @@ export function SkillPipelineDebugRunner(props: {
   theme: string
   skillsetJson: string
   defaultSkillsetName: string
+  onFetchedDocs?: (docs: JsonValue | null) => void
 }) {
-  const { t, profile, apiVersion, language, theme, skillsetJson, defaultSkillsetName } = props
+  const { t, profile, apiVersion, language, theme, skillsetJson, defaultSkillsetName, onFetchedDocs } = props
 
   const codeMirrorTheme = useMemo(() => {
     const isLight = theme === 'light' || theme === 'solarized'
@@ -234,9 +316,21 @@ export function SkillPipelineDebugRunner(props: {
     return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}${pad2(d.getSeconds())}`
   }, [])
 
-  const [storageConnectionString, setStorageConnectionString] = useState('')
-  const [containerName, setContainerName] = useState('')
-  const [virtualFolder, setVirtualFolder] = useState('')
+  const [storageConnectionString, setStorageConnectionString] = useState(() => loadPersistedString(DEBUG_RUNNER_STORAGE_CONNECTION_STRING_KEY))
+  const [containerName, setContainerName] = useState(() => loadPersistedString(DEBUG_RUNNER_BLOB_CONTAINER_KEY))
+  const [virtualFolder, setVirtualFolder] = useState(() => loadPersistedString(DEBUG_RUNNER_BLOB_PATH_KEY))
+
+  useEffect(() => {
+    persistString(DEBUG_RUNNER_STORAGE_CONNECTION_STRING_KEY, storageConnectionString)
+  }, [storageConnectionString])
+
+  useEffect(() => {
+    persistString(DEBUG_RUNNER_BLOB_CONTAINER_KEY, containerName)
+  }, [containerName])
+
+  useEffect(() => {
+    persistString(DEBUG_RUNNER_BLOB_PATH_KEY, virtualFolder)
+  }, [virtualFolder])
 
   const [resourcePrefix, setResourcePrefix] = useState(`ragops-debug-${nowSuffix}`)
   const [debugSkillsetName, setDebugSkillsetName] = useState(() => {
@@ -277,6 +371,8 @@ export function SkillPipelineDebugRunner(props: {
     if (!debugIndexerName.trim()) return 'indexer name is required'
     if (!storageConnectionString.trim()) return 'storage connection string is required'
     if (!containerName.trim()) return 'container name is required'
+    if (!virtualFolder.trim()) return 'blob path is required'
+    if (virtualFolder.trim().endsWith('/')) return "blob path must not end with '/'"
     return null
   }
 
@@ -311,21 +407,8 @@ export function SkillPipelineDebugRunner(props: {
       const extractedOutputs = extractSkillOutputs(skillsetBody)
       const usedFieldNames = new Map<string, number>()
       const resolvedOutputs: ResolvedSkillOutput[] = extractedOutputs.map((x) => {
-        const base = toSearchFieldName(x.targetName)
-        const prev = usedFieldNames.get(base) ?? 0
-        usedFieldNames.set(base, prev + 1)
-
-        if (prev === 0) return { ...x, fieldName: base }
-
-        // Collision: disambiguate deterministically.
-        const withSkill = toSearchFieldName(`${x.skillName}_${x.targetName}`)
-        const altPrev = usedFieldNames.get(withSkill) ?? 0
-        if (altPrev === 0) {
-          usedFieldNames.set(withSkill, 1)
-          return { ...x, fieldName: withSkill }
-        }
-
-        return { ...x, fieldName: `${base}_${prev + 1}` }
+        const fieldName = makeDebugCaptureFieldName({ skillName: x.skillName, outputName: x.outputName, usedFieldNames })
+        return { ...x, fieldName }
       })
 
       const generatedOutputFieldMappings = resolvedOutputs.map((x) => {
@@ -388,10 +471,11 @@ export function SkillPipelineDebugRunner(props: {
             { name: 'id', type: 'Edm.String', key: true, filterable: true, sortable: true },
             { name: 'metadata_storage_path', type: 'Edm.String', filterable: true, retrievable: true },
             { name: 'metadata_storage_name', type: 'Edm.String', filterable: true, retrievable: true },
-            { name: 'content', type: 'Edm.String', searchable: true, retrievable: true },
+            // Keep content as searchable+retrievable, and explicitly disable filter/sort/facet.
+            { name: 'content', type: 'Edm.String', searchable: true, retrievable: true, filterable: false, sortable: false, facetable: false },
           ]
 
-          indexBody.fields = mergeIndexFields(mergeIndexFields(baseFields, fields), generatedIndexFields)
+          indexBody.fields = forceContentFieldMinimal(mergeIndexFields(mergeIndexFields(baseFields, fields), generatedIndexFields))
 
           // If the user had a different key field name, we still need it for the indexer mapping.
           resolvedKeyFieldName = findIndexKeyFieldName(indexBody) ?? resolvedKeyFieldName
@@ -425,7 +509,8 @@ export function SkillPipelineDebugRunner(props: {
           name: containerName.trim(),
         },
       }
-      if (virtualFolder.trim() && isRecord(dsBody.container)) (dsBody.container as Record<string, unknown>).query = virtualFolder.trim()
+      // Always scope the debug run to a single blob path via container.query.
+      if (isRecord(dsBody.container)) (dsBody.container as Record<string, unknown>).query = virtualFolder.trim()
 
       const putDs = await createOrUpdateDataSource({
         profile: p,
@@ -564,9 +649,11 @@ export function SkillPipelineDebugRunner(props: {
       })
       setLastDocs(res.ok ? res.response : restResultToLogJson(res))
       if (!res.ok) {
+        onFetchedDocs?.(null)
         setMessage({ type: 'error', text: res.error.message })
         return
       }
+      onFetchedDocs?.(res.response)
       setMessage({ type: 'success', text: 'Fetched documents from debug index.' })
     } finally {
       setBusy(false)
@@ -640,7 +727,7 @@ export function SkillPipelineDebugRunner(props: {
             className="field__input"
             value={virtualFolder}
             onChange={(e) => setVirtualFolder(e.target.value)}
-            placeholder="optional/path/prefix"
+            placeholder="path/to/file.pdf"
           />
         </div>
       </div>

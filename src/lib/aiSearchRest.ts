@@ -100,6 +100,11 @@ function getDevProxyTarget(endpoint: string): string | null {
   }
 }
 
+function normalizeRawEndpoint(endpoint: string): string {
+  const trimmed = endpoint.trim();
+  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
+}
+
 function getQuerySourceAuthorizationHeaderValue(profile: ConnectionProfile): string | null {
   const value = profile.querySourceAuthorization?.trim();
   if (!value) return null;
@@ -109,8 +114,13 @@ function getQuerySourceAuthorizationHeaderValue(profile: ConnectionProfile): str
   return value;
 }
 
-function makeAuthHeaders(profile: ConnectionProfile, language?: Language): Record<string, string> {
-  const proxyTarget = getDevProxyTarget(profile.endpoint);
+function makeAuthHeaders(
+  profile: ConnectionProfile,
+  language?: Language,
+  options?: { useDevProxy?: boolean }
+): Record<string, string> {
+  const useDevProxy = options?.useDevProxy ?? true;
+  const proxyTarget = useDevProxy ? getDevProxyTarget(profile.endpoint) : null;
   const lang = getLang(language);
 
   if (profile.authType === 'apiKey') {
@@ -183,6 +193,7 @@ export async function searchDocuments(input: {
 }): Promise<RestResult> {
   const lang = getLang(input.language);
   const endpoint = normalizeEndpoint(input.profile.endpoint);
+  const directEndpoint = normalizeRawEndpoint(input.profile.endpoint);
   const indexName = input.indexName.trim();
   if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
   if (!indexName) throw new Error(tr(lang, 'restErrorIndexNameUnset'));
@@ -200,7 +211,16 @@ export async function searchDocuments(input: {
   const qsa = getQuerySourceAuthorizationHeaderValue(input.profile);
   if (qsa) headers['x-ms-query-source-authorization'] = qsa;
 
+  const fallbackUrl = `${directEndpoint}/indexes/${encodeURIComponent(indexName)}/docs/search?api-version=${encodeURIComponent(input.apiVersion)}`;
+  const fallbackHeaders: Record<string, string> = {
+    'content-type': 'application/json',
+    'x-ms-client-request-id': clientRequestId,
+    ...makeAuthHeaders(input.profile, lang, { useDevProxy: false }),
+  };
+  if (qsa) fallbackHeaders['x-ms-query-source-authorization'] = qsa;
+
   let res: Response;
+  let resultUrl = url;
   try {
     res = await fetch(url, {
       method: 'POST',
@@ -209,16 +229,42 @@ export async function searchDocuments(input: {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return {
-      ok: false,
-      status: 0,
-      requestId: clientRequestId,
-      clientRequestId,
-      url,
-      error: {
-        message: makeNetworkErrorMessage(lang, msg),
-      },
-    };
+
+    // In some debug-runner environments, `/api-proxy` is not reachable.
+    // Fall back once to the direct endpoint when the proxy path fails at network level.
+    if (isUsingDevProxy(input.profile)) {
+      try {
+        res = await fetch(fallbackUrl, {
+          method: 'POST',
+          headers: fallbackHeaders,
+          body: JSON.stringify(input.body ?? {}),
+        });
+        resultUrl = fallbackUrl;
+      } catch (fallbackError) {
+        const fallbackMsg = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+        return {
+          ok: false,
+          status: 0,
+          requestId: clientRequestId,
+          clientRequestId,
+          url: fallbackUrl,
+          error: {
+            message: makeNetworkErrorMessage(lang, fallbackMsg),
+          },
+        };
+      }
+    } else {
+      return {
+        ok: false,
+        status: 0,
+        requestId: clientRequestId,
+        clientRequestId,
+        url,
+        error: {
+          message: makeNetworkErrorMessage(lang, msg),
+        },
+      };
+    }
   }
 
   const requestId = getServiceRequestId(res) ?? clientRequestId;
@@ -233,7 +279,7 @@ export async function searchDocuments(input: {
       status: res.status,
       requestId,
       clientRequestId,
-      url,
+      url: resultUrl,
       error: {
         message: extractErrorMessage(res.status, parsed),
         response: parsed.json,
@@ -248,7 +294,7 @@ export async function searchDocuments(input: {
     status: res.status,
     requestId,
     clientRequestId,
-    url,
+    url: resultUrl,
     response: (parsed.json ?? (parsed.text as unknown as JsonValue)) ?? null,
     responseText: parsed.text,
     elapsedTimeMs,

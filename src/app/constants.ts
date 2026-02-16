@@ -56,6 +56,15 @@ export const LAST_SELECTED_EXPERIMENT_ID_KEY = 'ragops:lastSelectedExperimentId'
 /** localStorage key for the most recently viewed runId in the Result (latest) tab */
 export const LAST_VIEWED_RUN_ID_KEY = 'ragops:lastViewedRunId'
 
+/** localStorage key for Debug Runner storage connection string */
+export const DEBUG_RUNNER_STORAGE_CONNECTION_STRING_KEY = 'ragops:debugRunner:storageConnectionString'
+
+/** localStorage key for Debug Runner blob container name */
+export const DEBUG_RUNNER_BLOB_CONTAINER_KEY = 'ragops:debugRunner:blobContainer'
+
+/** localStorage key for Debug Runner blob path (container.query; single file) */
+export const DEBUG_RUNNER_BLOB_PATH_KEY = 'ragops:debugRunner:blobPath'
+
 // ============================================================================
 // Index Inspector
 // ============================================================================
