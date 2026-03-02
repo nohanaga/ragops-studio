@@ -33,12 +33,11 @@ import dagre from 'dagre'
 
 import type { ConnectionProfile, SearchApiVersion } from '../../lib/model'
 import { getIndexDefinition, getIndexerDefinition, getSkillset, listIndexers, listIndexes, listSkillsets } from '../../lib/aiSearchRest'
-import type { JsonValue } from '../../lib/aiSearchRest'
 
 import type { ThemePreference } from '../../types/app'
 import type { Language, TranslationKey } from '../../lib/translations'
 import { translations } from '../../lib/translations'
-import { SkillPipelineDebugRunner } from './SkillPipelineDebugRunner'
+import { SkillPipelineDebugRunner, type SkillPipelineDebugRunnerHandle } from './SkillPipelineDebugRunner'
 import { SkillPipelineEnrichmentTreePreview } from './SkillPipelineEnrichmentTreePreview'
 import {
   useSkillPipelineState,
@@ -60,6 +59,8 @@ type SkillPipelineEdgeLinkData = {
   targetInputName?: string
   created?: boolean
   prevSource?: string | null
+  /** Stored when an array-producing source auto-sets the target skill's context. */
+  prevContext?: string | null
 }
 
 type IndexerOutputMappingEdgeData = {
@@ -109,6 +110,74 @@ function inferDocSourceHandleForPath(sourcePath: string, docRoot: string): strin
   return null
 }
 
+/**
+ * Registry of built-in skill outputs that produce Collection (array) types.
+ * When a connection is made FROM one of these outputs to a downstream skill,
+ * the target skill's context and input source are automatically given the
+ * `/*` wildcard suffix so that the skill iterates over each element.
+ *
+ * Key format: `@odata.type::outputName`
+ *
+ * Embedding vectors (Collection(Edm.Single)) are intentionally excluded
+ * because they represent a single vector value, not an iterable sequence.
+ *
+ * References:
+ *   https://learn.microsoft.com/azure/search/cognitive-search-predefined-skills
+ */
+const COLLECTION_OUTPUT_REGISTRY: ReadonlySet<string> = new Set([
+  // SplitSkill — all outputs are parallel arrays
+  '#Microsoft.Skills.Text.SplitSkill::textItems',
+  '#Microsoft.Skills.Text.SplitSkill::offsets',
+  '#Microsoft.Skills.Text.SplitSkill::lengths',
+  '#Microsoft.Skills.Text.SplitSkill::ordinalPositions',
+  // KeyPhraseExtractionSkill
+  '#Microsoft.Skills.Text.KeyPhraseExtractionSkill::keyPhrases',
+  // PIIDetectionSkill
+  '#Microsoft.Skills.Text.PIIDetectionSkill::piiEntities',
+  // SentimentSkill V3
+  '#Microsoft.Skills.Text.V3.SentimentSkill::sentences',
+  // EntityRecognitionSkill V3 — all category outputs are string arrays
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::persons',
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::locations',
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::organizations',
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::quantities',
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::dateTimes',
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::urls',
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::emails',
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::personTypes',
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::events',
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::products',
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::skills',
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::addresses',
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::phoneNumbers',
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::ipAddresses',
+  '#Microsoft.Skills.Text.V3.EntityRecognitionSkill::namedEntities',
+  // EntityLinkingSkill V3
+  '#Microsoft.Skills.Text.V3.EntityLinkingSkill::entities',
+  // ImageAnalysisSkill
+  '#Microsoft.Skills.Vision.ImageAnalysisSkill::brands',
+  '#Microsoft.Skills.Vision.ImageAnalysisSkill::categories',
+  '#Microsoft.Skills.Vision.ImageAnalysisSkill::faces',
+  '#Microsoft.Skills.Vision.ImageAnalysisSkill::objects',
+  '#Microsoft.Skills.Vision.ImageAnalysisSkill::tags',
+  // DocumentExtractionSkill
+  '#Microsoft.Skills.Util.DocumentExtractionSkill::normalized_images',
+])
+
+/**
+ * Returns `true` when the primary (first) output of `node` is a Collection
+ * type according to `COLLECTION_OUTPUT_REGISTRY`.
+ */
+function isSourceOutputCollection(node: SkillPipelineNode): boolean {
+  if (node.data.kind !== 'skill') return false
+  const skill = node.data.skill
+  const odataType = typeof skill['@odata.type'] === 'string' ? skill['@odata.type'] : ''
+  const outputs = Array.isArray(skill.outputs) ? skill.outputs : []
+  if (!odataType || outputs.length === 0) return false
+  const primaryOutputName = typeof outputs[0].name === 'string' ? outputs[0].name : ''
+  return COLLECTION_OUTPUT_REGISTRY.has(`${odataType}::${primaryOutputName}`)
+}
+
 type BuiltInSkillTemplate = {
   id: string
   label: string
@@ -118,7 +187,7 @@ type BuiltInSkillTemplate = {
 const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
   {
     id: 'textSplit',
-    label: 'Text Split',
+    label: 'spbSkillTextSplit',
     skill: {
       '@odata.type': '#Microsoft.Skills.Text.SplitSkill',
       name: 'splitText',
@@ -135,7 +204,7 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
   },
   {
     id: 'keyPhrases',
-    label: 'Key Phrase Extraction',
+    label: 'spbSkillKeyPhrase',
     skill: {
       '@odata.type': '#Microsoft.Skills.Text.KeyPhraseExtractionSkill',
       name: 'keyPhrases',
@@ -147,7 +216,7 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
   },
   {
     id: 'languageDetection',
-    label: 'Language Detection',
+    label: 'spbSkillLanguageDetection',
     skill: {
       '@odata.type': '#Microsoft.Skills.Text.LanguageDetectionSkill',
       name: 'languageDetection',
@@ -158,7 +227,7 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
   },
   {
     id: 'piiDetection',
-    label: 'PII Detection',
+    label: 'spbSkillPiiDetection',
     skill: {
       '@odata.type': '#Microsoft.Skills.Text.PIIDetectionSkill',
       name: 'piiDetection',
@@ -177,7 +246,7 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
   },
   {
     id: 'textTranslation',
-    label: 'Text Translation',
+    label: 'spbSkillTextTranslation',
     skill: {
       '@odata.type': '#Microsoft.Skills.Text.TranslationSkill',
       name: 'translateText',
@@ -194,7 +263,7 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
   },
   {
     id: 'sentimentV3',
-    label: 'Sentiment (v3)',
+    label: 'spbSkillSentiment',
     skill: {
       '@odata.type': '#Microsoft.Skills.Text.V3.SentimentSkill',
       name: 'sentiment',
@@ -210,7 +279,7 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
   },
   {
     id: 'entityRecognitionV3',
-    label: 'Entity Recognition (v3)',
+    label: 'spbSkillEntityRecognition',
     skill: {
       '@odata.type': '#Microsoft.Skills.Text.V3.EntityRecognitionSkill',
       name: 'entities',
@@ -224,7 +293,7 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
   },
   {
     id: 'entityLinkingV3',
-    label: 'Entity Linking (v3)',
+    label: 'spbSkillEntityLinking',
     skill: {
       '@odata.type': '#Microsoft.Skills.Text.V3.EntityLinkingSkill',
       name: 'entityLinks',
@@ -236,7 +305,7 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
   },
   {
     id: 'ocr',
-    label: 'OCR',
+    label: 'spbSkillOcr',
     skill: {
       '@odata.type': '#Microsoft.Skills.Vision.OcrSkill',
       name: 'ocr',
@@ -248,7 +317,7 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
   },
   {
     id: 'imageAnalysis',
-    label: 'Image Analysis',
+    label: 'spbSkillImageAnalysis',
     skill: {
       '@odata.type': '#Microsoft.Skills.Vision.ImageAnalysisSkill',
       name: 'imageAnalysis',
@@ -265,7 +334,7 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
   },
   {
     id: 'textMerge',
-    label: 'Text Merge',
+    label: 'spbSkillTextMerge',
     skill: {
       '@odata.type': '#Microsoft.Skills.Text.MergeSkill',
       name: 'mergeText',
@@ -283,7 +352,7 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
   },
   {
     id: 'conditional',
-    label: 'Conditional',
+    label: 'spbSkillConditional',
     skill: {
       '@odata.type': '#Microsoft.Skills.Util.ConditionalSkill',
       name: 'conditional',
@@ -298,7 +367,7 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
   },
   {
     id: 'documentExtraction',
-    label: 'Document Extraction',
+    label: 'spbSkillDocumentExtraction',
     skill: {
       '@odata.type': '#Microsoft.Skills.Util.DocumentExtractionSkill',
       name: 'documentExtraction',
@@ -312,7 +381,7 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
   },
   {
     id: 'azureOpenAIEmbedding',
-    label: 'Azure OpenAI Embedding',
+    label: 'spbSkillAzureOpenAIEmbedding',
     skill: {
       '@odata.type': '#Microsoft.Skills.Text.AzureOpenAIEmbeddingSkill',
       name: 'embedding',
@@ -323,6 +392,40 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
       modelName: 'text-embedding-3-small',
       inputs: [{ name: 'text', source: '/document/content' }],
       outputs: [{ name: 'embedding', targetName: 'embedding' }],
+    } as any,
+  },
+  {
+    id: 'genAIPrompt',
+    label: 'spbSkillGenAIPrompt',
+    skill: {
+      '@odata.type': '#Microsoft.Skills.Custom.ChatCompletionSkill',
+      name: 'genAIPrompt',
+      context: '/document',
+      // Required per docs: uri (public endpoint of the deployed model).
+      uri: 'https://YOUR-RESOURCE.openai.azure.com/openai/deployments/gpt-4o/chat/completions',
+      apiKey: '',
+      inputs: [
+        { name: 'text', source: '/document/content' },
+        { name: 'systemMessage', source: "='You are a helpful AI assistant.'" },
+        { name: 'userMessage', source: "='Summarize the following text:'" },
+      ],
+      outputs: [{ name: 'response', targetName: 'response' }],
+      commonModelParameters: { temperature: 0.7, maxTokens: 1024 },
+    } as any,
+  },
+  {
+    id: 'customWebApi',
+    label: 'spbSkillCustomWebApi',
+    skill: {
+      '@odata.type': '#Microsoft.Skills.Custom.WebApiSkill',
+      name: 'customWebApi',
+      context: '/document',
+      // Required per docs: uri (HTTPS endpoint of the custom Web API).
+      uri: 'https://YOUR-FUNCTION-APP.azurewebsites.net/api/your-skill',
+      httpMethod: 'POST',
+      batchSize: 1000,
+      inputs: [{ name: 'text', source: '/document/content' }],
+      outputs: [{ name: 'result', targetName: 'customResult' }],
     } as any,
   },
 ]
@@ -339,6 +442,55 @@ function cloneBuiltInSkillTemplate(templateId: string, fallbackSkillNumber: numb
   return cloned
 }
 
+/**
+ * Collect all enrichment-tree paths produced by existing skill nodes.
+ * Each path is `context + "/" + targetName`.
+ */
+function collectExistingOutputPaths(nodes: SkillPipelineNode[]): Set<string> {
+  const paths = new Set<string>()
+  for (const n of nodes) {
+    if ((n as any)?.data?.kind !== 'skill') continue
+    const skill = (n as any).data.skill as SkillPipelineSkillDefinition | undefined
+    if (!skill) continue
+    const ctx = typeof skill.context === 'string' ? skill.context : '/document'
+    const outputs = Array.isArray(skill.outputs) ? skill.outputs : []
+    for (const o of outputs) {
+      const tn = typeof o?.targetName === 'string' ? o.targetName.trim() : ''
+      const nm = typeof o?.name === 'string' ? o.name.trim() : ''
+      const seg = tn || nm
+      if (seg) paths.add(joinPath(ctx, seg))
+    }
+  }
+  return paths
+}
+
+/**
+ * Deduplicate the output targetNames of a new skill against paths already
+ * occupied by existing skills.  Appends `_2`, `_3`, … until unique.
+ */
+function deduplicateOutputTargetNames(
+  skill: SkillPipelineSkillDefinition,
+  existingPaths: Set<string>,
+): void {
+  const ctx = typeof skill.context === 'string' ? skill.context : '/document'
+  const outputs = Array.isArray(skill.outputs) ? skill.outputs : []
+  for (const o of outputs) {
+    const baseName = typeof o.targetName === 'string' ? o.targetName.trim() : ''
+    if (!baseName) continue
+    let candidate = baseName
+    let attempt = 2
+    while (existingPaths.has(joinPath(ctx, candidate))) {
+      candidate = `${baseName}_${attempt}`
+      attempt++
+    }
+    if (candidate !== baseName) {
+      o.targetName = candidate
+    }
+    // Register so subsequent outputs within the same skill don't collide.
+    existingPaths.add(joinPath(ctx, candidate))
+  }
+}
+
 type SkillPipelineBuilderProps = {
   t: (key: TranslationKey) => string
   language: Language
@@ -347,6 +499,12 @@ type SkillPipelineBuilderProps = {
 
   profile: ConnectionProfile | null
   apiVersion: SearchApiVersion
+}
+
+/** Module-level language & translator so sub-components (custom ReactFlow nodes) can access i18n without prop drilling. */
+let _spbLang: Language = 'en'
+function _t(key: TranslationKey): string {
+  return String((translations as any)[_spbLang]?.[key] ?? (translations as any)['en']?.[key] ?? key)
 }
 
 function SkillPipelineSkillNode(props: NodeProps<SkillPipelineNode>) {
@@ -362,15 +520,15 @@ function SkillPipelineSkillNode(props: NodeProps<SkillPipelineNode>) {
     return parts.length ? parts[parts.length - 1] : cleaned
   }, [odataType])
 
-  const label = shortTypeName || name || '(skill)'
+  const label = shortTypeName || name || _t('spbNodeFallbackSkill')
 
   const tag = (() => {
     const t = odataType
     if (!t) return null
-    if (t.includes('.Skills.Util.') || t.includes('#Microsoft.Skills.Util.')) return { text: 'Util', cls: 'spvStage__status--util' }
-    if (t.includes('.Skills.Text.') || t.includes('#Microsoft.Skills.Text.')) return { text: 'Text', cls: 'spvStage__status--text' }
-    if (t.includes('.Skills.Custom.') || t.includes('#Microsoft.Skills.Custom.')) return { text: 'Custom', cls: 'spvStage__status--custom' }
-    return { text: 'Skill', cls: 'spvStage__status--tag' }
+    if (t.includes('.Skills.Util.') || t.includes('#Microsoft.Skills.Util.')) return { text: _t('spbTagUtil'), cls: 'spvStage__status--util' }
+    if (t.includes('.Skills.Text.') || t.includes('#Microsoft.Skills.Text.')) return { text: _t('spbTagText'), cls: 'spvStage__status--text' }
+    if (t.includes('.Skills.Custom.') || t.includes('#Microsoft.Skills.Custom.')) return { text: _t('spbTagCustom'), cls: 'spvStage__status--custom' }
+    return { text: _t('spbTagSkill'), cls: 'spvStage__status--tag' }
   })()
 
   return (
@@ -439,8 +597,8 @@ function SkillPipelineDocumentNode(props: NodeProps<SkillPipelineNode>) {
       >
         <div className="spvStage__header">
           <div className="spvStage__title">
-            <div className="spvStage__label">ドキュメント</div>
-            <div className="spvStage__status spvStage__status--tag">root</div>
+            <div className="spvStage__label">{_t('spbNodeDocument')}</div>
+            <div className="spvStage__status spvStage__status--tag">{_t('spbNodeDocumentRoot')}</div>
           </div>
           <div className="spvStage__meta">
             <span className="mono mono--ellipsesSm" title={path}>
@@ -530,7 +688,7 @@ function SkillPipelineProjectionNode(props: NodeProps<SkillPipelineNode>) {
       >
         <div className="spvStage__header">
           <div className="spvStage__title">
-            <div className="spvStage__label">インデックス投影</div>
+            <div className="spvStage__label">{_t('spbNodeIndexProjection')}</div>
             <div className="spvStage__status"></div>
           </div>
           <div className="spvStage__meta">
@@ -546,11 +704,11 @@ function SkillPipelineProjectionNode(props: NodeProps<SkillPipelineNode>) {
         <div className="spvStage__tableWrap">
           <div className="kv">
             <div className="kv__row">
-              <div className="kv__k">セレクター数</div>
+              <div className="kv__k">{_t('spbNodeSelectorCount')}</div>
               <div className="kv__v" style={{ textAlign: 'right' }}>{projectionCount ?? '-'}</div>
             </div>
             <div className="kv__row">
-              <div className="kv__k">マッピング数</div>
+              <div className="kv__k">{_t('spbNodeMappingCount')}</div>
               <div className="kv__v" style={{ textAlign: 'right' }}>{fieldMappingCount ?? '-'}</div>
             </div>
           </div>
@@ -567,7 +725,7 @@ function SkillPipelineIndexNode(props: NodeProps<SkillPipelineNode>) {
     (data as any)?.kind === 'index' && Array.isArray((data as any).connectedFieldNames)
       ? ((data as any).connectedFieldNames as unknown[]).map((x) => String(x)).filter(Boolean)
       : []
-  const connectedSummary = connectedFieldNames.length ? connectedFieldNames.join(', ') : '(none)'
+  const connectedSummary = connectedFieldNames.length ? connectedFieldNames.join(', ') : _t('spbNone')
 
   return (
     <div style={{ width: 260 }}>
@@ -591,7 +749,7 @@ function SkillPipelineIndexNode(props: NodeProps<SkillPipelineNode>) {
       >
         <div className="spvStage__header">
           <div className="spvStage__title">
-            <div className="spvStage__label">検索インデックス</div>
+            <div className="spvStage__label">{_t('spbNodeSearchIndex')}</div>
             <div className="spvStage__status"></div>
           </div>
           <div className="spvStage__meta">
@@ -604,7 +762,7 @@ function SkillPipelineIndexNode(props: NodeProps<SkillPipelineNode>) {
         <div className="spvStage__tableWrap">
           <div className="kv">
             <div className="kv__row">
-              <div className="kv__k">outputFieldMappings</div>
+              <div className="kv__k">{_t('spbNodeOutputFieldMappings')}</div>
               <div className="kv__v mono mono--ellipsesSm" style={{ textAlign: 'right', maxWidth: 170 }} title={connectedSummary}>
                 {connectedSummary}
               </div>
@@ -658,7 +816,7 @@ function SkillPipelineIndexerNode(props: NodeProps<SkillPipelineNode>) {
       >
         <div className="spvStage__header">
           <div className="spvStage__title">
-            <div className="spvStage__label">インデクサー (mappings)</div>
+            <div className="spvStage__label">{_t('spbNodeIndexer')}</div>
             <div className="spvStage__status"></div>
           </div>
           <div className="spvStage__meta">
@@ -674,13 +832,13 @@ function SkillPipelineIndexerNode(props: NodeProps<SkillPipelineNode>) {
         <div className="spvStage__tableWrap">
           <div className="kv">
             <div className="kv__row">
-              <div className="kv__k">fieldMappings</div>
+              <div className="kv__k">{_t('spbNodeFieldMappings')}</div>
               <div className="kv__v" style={{ textAlign: 'right' }}>
                 {fieldCount}
               </div>
             </div>
             <div className="kv__row">
-              <div className="kv__k">outputFieldMappings</div>
+              <div className="kv__k">{_t('spbNodeOutputFieldMappings')}</div>
               <div className="kv__v" style={{ textAlign: 'right' }}>
                 {outputCount}
               </div>
@@ -823,6 +981,34 @@ function getPrimaryProducedPath(node: SkillPipelineNode): string | null {
   return context
 }
 
+/**
+ * Returns ALL produced paths from a skill node's outputs.
+ * Unlike getPrimaryProducedPath which returns only the first output,
+ * this returns a path for every output defined on the skill.
+ * This is critical for skills like EntityRecognitionSkill that have
+ * multiple outputs (persons, locations, organizations, etc.).
+ */
+function getAllProducedPaths(node: SkillPipelineNode): string[] {
+  const data = node.data
+  if (data.kind === 'doc') {
+    const p = typeof data.path === 'string' && data.path.trim() ? data.path.trim() : '/document'
+    return [p]
+  }
+  if (data.kind !== 'skill') return []
+
+  const skill = data.skill
+  const context = typeof skill.context === 'string' && skill.context.trim() ? skill.context.trim() : '/document'
+  const outputs = Array.isArray(skill.outputs) ? skill.outputs : []
+  const paths: string[] = []
+  for (const o of outputs) {
+    const seg = (typeof o?.targetName === 'string' ? o.targetName : '') || (typeof o?.name === 'string' ? o.name : '')
+    if (seg.trim()) paths.push(joinPath(context, seg))
+  }
+  // Fallback: if no outputs, use context itself.
+  if (paths.length === 0) paths.push(context)
+  return paths
+}
+
 function makeUniqueInputName(existing: Array<{ name: string }>, base: string): string {
   const used = new Set(existing.map((i) => (typeof i?.name === 'string' ? i.name : '').trim()).filter(Boolean))
   if (!used.has(base)) return base
@@ -833,35 +1019,104 @@ function makeUniqueInputName(existing: Array<{ name: string }>, base: string): s
   return `${base}${Date.now()}`
 }
 
+/** Returns the primary input name for a built-in skill @odata.type. */
+function getPrimaryInputName(odataType: string): string {
+  const t = (odataType || '').toLowerCase()
+  if (t.includes('ocrskill') || t.includes('imageanalysisskill')) return 'image'
+  if (t.includes('conditionalskill')) return 'condition'
+  if (t.includes('documentextractionskill')) return 'file_data'
+  if (t.includes('shaperskill')) return 'input'
+  // All Text.* skills (Split, KeyPhrase, Sentiment, EntityRecognition,
+  // EntityLinking, PII, Translation, LanguageDetection, Merge,
+  // AzureOpenAIEmbedding, CustomEntityLookup) use "text".
+  if (t.includes('microsoft.skills.text.')) return 'text'
+  // Custom / WebApi / AmlSkill / unknown → generic fallback.
+  return 'input'
+}
+
 function applyConnectionToTargetSkill(params: {
   targetSkill: SkillPipelineSkillDefinition
   sourcePath: string
+  /** When true the source output is a Collection type and we auto-append `/*`. */
+  sourceIsCollection?: boolean
 }): { nextSkill: SkillPipelineSkillDefinition; link: SkillPipelineEdgeLinkData } {
-  const { targetSkill, sourcePath } = params
-  const inputs = Array.isArray(targetSkill.inputs) ? targetSkill.inputs.map((i) => ({ ...i })) : []
+  const { targetSkill, sourcePath, sourceIsCollection } = params
 
+  // When the source produces a Collection, downstream skills must iterate
+  // over each element using the /* wildcard in both context and input source.
+  const effectivePath = sourceIsCollection ? `${sourcePath}/*` : sourcePath
+  const nextContext = sourceIsCollection ? `${sourcePath}/*` : targetSkill.context
+  const prevContext = sourceIsCollection ? targetSkill.context : null
+
+  let inputs = Array.isArray(targetSkill.inputs) ? targetSkill.inputs.map((i) => ({ ...i })) : []
+
+  // 1. If there's an input with an empty source, fill it in.
   const idx = inputs.findIndex((i) => typeof i?.source === 'string' && !i.source.trim())
   if (idx >= 0) {
     const prevSource = typeof inputs[idx].source === 'string' ? inputs[idx].source : ''
-    inputs[idx].source = sourcePath
+    inputs[idx].source = effectivePath
     const link: SkillPipelineEdgeLinkData = {
-      sourcePath,
+      sourcePath: effectivePath,
       targetInputName: inputs[idx].name,
       created: false,
       prevSource,
+      prevContext,
     }
-    return { nextSkill: { ...targetSkill, inputs }, link }
+    return { nextSkill: { ...targetSkill, context: nextContext, inputs }, link }
   }
 
-  const nextName = makeUniqueInputName(inputs, 'input')
-  inputs.push({ name: nextName, source: sourcePath })
+  // 2. For built-in skills with a FIXED input schema, overwrite the primary
+  //    input's source instead of creating a new input with a suffixed name
+  //    like "text2" — Azure AI Search rejects input names that aren't in
+  //    the skill's supported list.
+  //    Skills that accept arbitrary user-defined input names are excluded:
+  //    - Custom.WebApiSkill / Custom.AmlSkill — custom code defines inputs
+  //    - Util.ShaperSkill — multiple arbitrary inputs are its core purpose
+  const odataType = typeof (targetSkill as any)['@odata.type'] === 'string' ? String((targetSkill as any)['@odata.type']) : ''
+  const primaryName = getPrimaryInputName(odataType)
+  const tLower = odataType.toLowerCase()
+  const allowsArbitraryInputs = tLower.includes('.custom.') || tLower.includes('shaperskill')
+  const isFixedSchema = tLower.startsWith('#microsoft.skills.') && !allowsArbitraryInputs
+
+  // Clean up legacy auto-generated inputs like "text2" on fixed-schema built-in skills.
+  // These inputs are rejected by Azure AI Search and can linger in older graphs.
+  if (isFixedSchema && primaryName) {
+    const escaped = primaryName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const suffixedPrimaryRe = new RegExp(`^${escaped}\\d+$`)
+    inputs = inputs.filter((i) => !suffixedPrimaryRe.test(String(i?.name ?? '')))
+  }
+
+  if (isFixedSchema) {
+    // Try to find the existing primary input to overwrite
+    const primaryIdx = inputs.findIndex((i) => i.name === primaryName)
+    if (primaryIdx >= 0) {
+      const prevSource = inputs[primaryIdx].source
+      inputs[primaryIdx].source = effectivePath
+      const link: SkillPipelineEdgeLinkData = {
+        sourcePath: effectivePath,
+        targetInputName: primaryName,
+        created: false,
+        prevSource,
+        prevContext,
+      }
+      return { nextSkill: { ...targetSkill, context: nextContext, inputs }, link }
+    }
+  }
+
+  // 3. Fallback: add a new input.
+  //    - Custom / WebApi / Aml / Shaper skills support arbitrary input names.
+  //    - For fixed-schema skills this only runs when primary input isn't found
+  //      (shouldn't normally happen).
+  const nextName = makeUniqueInputName(inputs, primaryName)
+  inputs.push({ name: nextName, source: effectivePath })
   const link: SkillPipelineEdgeLinkData = {
-    sourcePath,
+    sourcePath: effectivePath,
     targetInputName: nextName,
     created: true,
     prevSource: null,
+    prevContext,
   }
-  return { nextSkill: { ...targetSkill, inputs }, link }
+  return { nextSkill: { ...targetSkill, context: nextContext, inputs }, link }
 }
 
 function revertConnectionOnTargetSkill(params: {
@@ -877,13 +1132,17 @@ function revertConnectionOnTargetSkill(params: {
   const idx = inputs.findIndex((i) => i.name === inputName && typeof i.source === 'string' && i.source === sourcePath)
   if (idx < 0) return targetSkill
 
+  // Restore context if it was auto-changed by a Collection output connection.
+  const revertedContext =
+    typeof link.prevContext === 'string' ? link.prevContext : targetSkill.context
+
   if (link.created) {
     inputs.splice(idx, 1)
-    return { ...targetSkill, inputs }
+    return { ...targetSkill, context: revertedContext, inputs }
   }
 
   inputs[idx].source = typeof link.prevSource === 'string' ? link.prevSource : ''
-  return { ...targetSkill, inputs }
+  return { ...targetSkill, context: revertedContext, inputs }
 }
 
 function getSkillFromNode(node: SkillPipelineNode): SkillPipelineSkillDefinition | null {
@@ -1025,22 +1284,27 @@ function findDeterministicProducerId(params: {
   if (!s) return null
 
   const candidates = trimTrailingWildcards(s)
-  const hits: string[] = []
+  const exactHits: string[] = []
+  const prefixHits: string[] = []
 
   for (const p of producedByLengthDesc) {
     // Exact match against the source or its trimmed variants.
     if (candidates.includes(p.path)) {
-      hits.push(p.producerId)
+      exactHits.push(p.producerId)
       continue
     }
 
     // Array expansion: producer outputs a collection at p.path,
     // consumer reads elements under p.path/*/...
     if (s.startsWith(`${p.path}/*`)) {
-      hits.push(p.producerId)
+      prefixHits.push(p.producerId)
     }
   }
 
+  // Exact matches always take priority over prefix (ancestor array) matches.
+  // e.g. for "/document/pages/*/pages2", prefer the skill that directly
+  // produces that path over its ancestor SplitSkill at "/document/pages".
+  const hits = exactHits.length > 0 ? exactHits : prefixHits
   const uniq = Array.from(new Set(hits))
   return uniq.length === 1 ? uniq[0] : null
 }
@@ -1210,6 +1474,7 @@ function inferIndexerEdges(params: {
 
 export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
   const { t, profile, apiVersion, language, theme, copyToClipboard } = props
+  _spbLang = language
 
   const {
     skillsetName,
@@ -1219,6 +1484,14 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
     indexer,
     setIndexer,
     newSkillset,
+    currentSavedId,
+    saveSkillsetError,
+    setSaveSkillsetError,
+    savedSkillsets,
+    refreshSavedSkillsets,
+    saveSkillset,
+    loadSkillset,
+    deleteSkillset,
     nodes,
     setNodes,
     edges,
@@ -1236,11 +1509,15 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
     setIndexProjections,
     setKnowledgeStore,
     setBaselineSkillsetJson,
+    debugFetchedDocs,
+    setDebugFetchedDocs,
   } = useSkillPipelineState()
 
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const [mainTab, setMainTab] = useState<'graph' | 'skillsetJson' | 'debugRunner' | 'enrichmentTree'>('graph')
-  const [debugFetchedDocs, setDebugFetchedDocs] = useState<JsonValue | null>(null)
+  const [debugBusy, setDebugBusy] = useState(false)
+  const [debugProgress, setDebugProgress] = useState<string | null>(null)
+  const debugRunnerRef = useRef<SkillPipelineDebugRunnerHandle | null>(null)
   const [addSkillTemplateId, setAddSkillTemplateId] = useState<string>('')
   const [nodeContextMenu, setNodeContextMenu] = useState<
     | { kind: 'skill'; x: number; y: number; nodeId: string }
@@ -1252,6 +1529,10 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
   >(null)
   const [edgeContextMenu, setEdgeContextMenu] = useState<
     | { x: number; y: number; edgeId: string; deletable: boolean }
+    | null
+  >(null)
+  const [canvasContextMenu, setCanvasContextMenu] = useState<
+    | { x: number; y: number; flowX: number; flowY: number }
     | null
   >(null)
   const [serviceResourceFilter, setServiceResourceFilter] = useState<string>('')
@@ -1392,6 +1673,10 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
         if (baseName && !/\d+$/.test(baseName)) skill.name = `${baseName}${n}`
       }
 
+      // Ensure the new skill's output targetNames don't collide with existing skills.
+      const existingPaths = collectExistingOutputPaths(prev)
+      deduplicateOutputTargetNames(skill, existingPaths)
+
       const next: SkillPipelineNode = {
         id,
         type: 'skill',
@@ -1469,9 +1754,119 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
   const isSkillNode = (n: SkillPipelineNode): n is SkillPipelineNode & { data: { kind: 'skill'; skill: SkillPipelineSkillDefinition } } =>
     (n as any)?.data?.kind === 'skill'
 
+  /** Add a skill from a built-in template, optionally placing it at a flow-coordinate position. */
+  const addSkillWithTemplate = (templateId: string, position?: { x: number; y: number }) => {
+    setCanvasContextMenu(null)
+    setAddSkillTemplateId(templateId)
+
+    setNodes((prev) => {
+      const skillCount = prev.filter((x) => (x as any)?.data?.kind === 'skill').length
+      const n = skillCount + 1
+      const id = uuidv4()
+
+      const skill: SkillPipelineSkillDefinition = cloneBuiltInSkillTemplate(templateId, n)
+      const baseName = typeof skill.name === 'string' ? skill.name.trim() : ''
+      if (baseName && !/\d+$/.test(baseName)) skill.name = `${baseName}${n}`
+
+      const existingPaths = collectExistingOutputPaths(prev)
+      deduplicateOutputTargetNames(skill, existingPaths)
+
+      const pos = position ?? { x: 80 + (n - 1) * 40, y: 80 + (n - 1) * 30 }
+      const next: SkillPipelineNode = {
+        id,
+        type: 'skill',
+        position: pos,
+        data: { kind: 'skill', skill },
+      }
+      const out = [...prev, next]
+      setSelectedNodeId(id)
+      setDraftSkillJson(JSON.stringify((next.data as any).skill, null, 2))
+      setDraftError(null)
+
+      const inputsRaw = (skill as any)?.inputs
+      const inputs = Array.isArray(inputsRaw) ? inputsRaw : []
+      const docRoot = DOC_ROOT_DEFAULT
+      const producedByLengthDesc = computeProducedPaths(out.filter((x) => (x as any)?.data?.kind === 'skill'))
+
+      setEdges((prevEdges) => {
+        const nextEdges = [...prevEdges]
+        const seen = new Set(
+          prevEdges
+            .map((e: any) => {
+              const link = (e as any)?.data as SkillPipelineEdgeLinkData | undefined
+              const sp = typeof link?.sourcePath === 'string' ? link.sourcePath : ''
+              const tn = typeof link?.targetInputName === 'string' ? link.targetInputName : ''
+              const sh = typeof (e as any)?.sourceHandle === 'string' ? String((e as any).sourceHandle) : ''
+              return `${String((e as any)?.source)}(${sh})->${String((e as any)?.target)}|${tn}|${sp}`
+            })
+            .filter(Boolean),
+        )
+
+        for (const input of inputs) {
+          const r = isRecord(input) ? input : {}
+          const source = typeof (r as any)?.source === 'string' ? String((r as any).source).trim() : ''
+          const inputName = typeof (r as any)?.name === 'string' ? String((r as any).name) : ''
+          if (!source || !inputName) continue
+          if (source.startsWith("='")) continue
+          if (source.startsWith('=') && source.includes('$(')) continue
+
+          let sourceId: string | null = null
+          let sourceHandle: string | undefined
+
+          const producerId = findDeterministicProducerId({ source, producedByLengthDesc })
+          if (producerId && producerId !== id) {
+            sourceId = producerId
+          } else if (source === docRoot || source.startsWith(`${docRoot}/`)) {
+            sourceId = SKILL_PIPELINE_DOC_NODE_ID
+            sourceHandle = inferDocSourceHandleForPath(source, docRoot) ?? 'root'
+          }
+
+          if (!sourceId) continue
+          const link: SkillPipelineEdgeLinkData = {
+            sourcePath: source,
+            targetInputName: inputName,
+            created: false,
+            prevSource: '',
+          }
+
+          const k = `${sourceId}(${sourceHandle ?? ''})->${id}|${inputName}|${source}`
+          if (seen.has(k)) continue
+          seen.add(k)
+          nextEdges.push({ id: uuidv4(), source: sourceId, sourceHandle, target: id, data: link } as any)
+        }
+
+        return nextEdges
+      })
+
+      return out
+    })
+  }
+
   const deleteSkillNodeById = (id: string) => {
     setSelectedEdgeId(null)
     setNodeContextMenu(null)
+
+    // Collect the enrichment-tree paths produced by the skill being deleted
+    // so we can clean up corresponding indexer outputFieldMappings.
+    const targetNode = nodes.find((n) => n.id === id) ?? null
+    if (targetNode && targetNode.data.kind === 'skill') {
+      const producedPaths = computeProducedPaths([targetNode]).map((p) => p.path)
+      if (producedPaths.length > 0) {
+        setIndexer((prev) => {
+          if (!prev) return prev
+          const ofm = Array.isArray((prev as any)?.outputFieldMappings) ? ((prev as any).outputFieldMappings as any[]) : []
+          const filtered = ofm.filter((m: any) => {
+            const src = typeof m?.sourceFieldName === 'string' ? m.sourceFieldName.trim() : ''
+            if (!src) return true
+            // Remove mappings whose sourceFieldName exactly matches or is a
+            // descendant of a path produced by the deleted skill.
+            return !producedPaths.some((p) => src === p || src.startsWith(`${p}/`) || src.startsWith(`${p}/*`))
+          })
+          if (filtered.length === ofm.length) return prev
+          return { ...prev, outputFieldMappings: filtered } as any
+        })
+      }
+    }
 
     // Remove attached edges.
     setEdges((prev) => prev.filter((e) => e.source !== id && e.target !== id))
@@ -2041,11 +2436,11 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
     setDraftIndexError(null)
     setDraftIndexJson('{}')
     if (!indexName) {
-      setDraftIndexError('Index name is not set')
+      setDraftIndexError(t('spbErrIndexNameNotSet'))
       return
     }
     if (!profile) {
-      setDraftIndexError(String((translations as any)?.[language]?.spvErrorProfileUnset ?? 'Connection profile is not initialized'))
+      setDraftIndexError(t('spbErrProfileNotInitialized'))
       return
     }
 
@@ -2057,7 +2452,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
         setDraftIndexJson(JSON.stringify(res.response ?? {}, null, 2))
         setDraftIndexError(null)
       } else {
-        setDraftIndexError(String(res.error?.message ?? 'Failed to fetch index definition'))
+        setDraftIndexError(String(res.error?.message ?? t('spbErrFailedFetchIndex')))
         setDraftIndexJson(JSON.stringify(res.error?.response ?? {}, null, 2))
       }
     })()
@@ -2354,6 +2749,77 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
     pendingFitViewRef.current = true
   }
 
+  // ─── Local save / load / clone handlers ───────────────────────────
+
+  const [localSavedOpen, setLocalSavedOpen] = useState(false)
+
+  /** Overwrite-save to the current slot (or auto-SaveAs if no slot yet). */
+  const onSave = () => {
+    if (currentSavedId) {
+      saveSkillset('save')
+    } else {
+      onSaveAs()
+    }
+  }
+
+  /** Save as a new local entry, prompting for a new name. */
+  const onSaveAs = () => {
+    const newName = window.prompt(t('spbSaveAsPrompt'), skillsetName)
+    if (newName == null) return // cancelled
+    const trimmed = newName.trim() || skillsetName
+    saveSkillset('saveAs', trimmed)
+  }
+
+  /** Load a previously saved local skillset. */
+  const onLoadSaved = (id: string) => {
+    const ok = window.confirm(t('spbLoadConfirm'))
+    if (!ok) return
+
+    setSelectedEdgeId(null)
+    setMainTab('graph')
+    setAddSkillTemplateId('')
+    setRemoteError(null)
+
+    loadSkillset(id)
+    pendingFitViewRef.current = true
+  }
+
+  /** Clone: load an existing local skillset and immediately save it as a new copy. */
+  const onCloneSaved = (id: string) => {
+    const ok = window.confirm(t('spbCloneConfirm'))
+    if (!ok) return
+
+    // Read the name from the saved list before loading (to avoid stale closure).
+    const item = savedSkillsets.find((s) => s.id === id)
+    const baseName = item?.title || 'skillset'
+
+    setSelectedEdgeId(null)
+    setMainTab('graph')
+    setAddSkillTemplateId('')
+    setRemoteError(null)
+
+    loadSkillset(id)
+
+    // After loading, save as a new entry with " (copy)" suffix.
+    const clonedName = baseName + ' (copy)'
+    // Use setTimeout to ensure loadSkillset's state updates are flushed first,
+    // then saveSkillset with nameOverride to guarantee the new name is persisted.
+    setTimeout(() => saveSkillset('saveAs', clonedName), 0)
+    pendingFitViewRef.current = true
+  }
+
+  /** Delete a saved local skillset. */
+  const onDeleteSaved = (id: string) => {
+    const ok = window.confirm(t('spbDeleteConfirm'))
+    if (!ok) return
+    deleteSkillset(id)
+  }
+
+  // Refresh the local saved list when the collapsible opens
+  useEffect(() => {
+    if (localSavedOpen) refreshSavedSkillsets()
+  }, [localSavedOpen, refreshSavedSkillsets])
+
   useEffect(() => {
     if (!pendingFitViewRef.current) return
     if (!flowRef.current) return
@@ -2387,53 +2853,127 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
         <div className="section__title">{t('skillPipelineBuilder')}</div>
         <div className="section__hint">{t('spbIntro')}</div>
 
-        <div className="actions actions--mb10" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div className="field" style={{ minWidth: 280 }}>
-            <span className="field__label">Skillsets (service)</span>
-            <select
-              className="field__input"
-              value={remoteSelected}
-              onChange={(e) => setRemoteSelected(e.target.value)}
-              disabled={!profile || remoteLoading || remoteSkillsets.length === 0}
-            >
-              {remoteSkillsets.length === 0 ? <option value="">(none)</option> : null}
-              {remoteSkillsets.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button type="button" className="btn" onClick={onNewSkillset}>
-            {t('spbNew')}
+        <div
+          className="spb-toolbar"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            flexWrap: 'wrap',
+            padding: '6px 10px',
+            marginBottom: 10,
+            borderRadius: 'var(--radius-sm)',
+            background: 'var(--panel-2)',
+            border: '1px solid var(--border)',
+          }}
+        >
+          <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.7, whiteSpace: 'nowrap' }}>
+            <i className="bi bi-cloud-download" style={{ marginRight: 4 }}></i>{t('spbToolbarSkillsets')}
+          </span>
+          <select
+            className="field__input"
+            style={{ flex: 1, minWidth: 200, maxWidth: 340, padding: '4px 8px', fontSize: 13 }}
+            value={remoteSelected}
+            onChange={(e) => setRemoteSelected(e.target.value)}
+            disabled={!profile || remoteLoading || remoteSkillsets.length === 0}
+          >
+            {remoteSkillsets.length === 0 ? <option value="">{t('spbNone')}</option> : null}
+            {remoteSkillsets.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="btn btn--sm" onClick={refreshRemoteSkillsets} disabled={!profile || remoteLoading} title={t('spbToolbarRefresh')}>
+            <i className="bi bi-arrow-clockwise"></i>
           </button>
-          <button type="button" className="btn" onClick={refreshRemoteSkillsets} disabled={!profile || remoteLoading}>
-            Refresh
+          <button type="button" className="btn btn--sm" onClick={loadRemoteSkillset} disabled={!profile || remoteLoading || !remoteSelected} title={t('spbToolbarLoad')}>
+            <i className="bi bi-box-arrow-in-down"></i>
           </button>
-          <button type="button" className="btn" onClick={loadRemoteSkillset} disabled={!profile || remoteLoading || !remoteSelected}>
-            Load
+          <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
+          <button type="button" className="btn btn--sm" onClick={onNewSkillset} title={t('spbNew')}>
+            <i className="bi bi-file-earmark-plus"></i>
           </button>
-          {remoteError && <div className="notice notice--error builder__notice">{remoteError}</div>}
+          {remoteError && <div className="notice notice--error builder__notice" style={{ fontSize: 12 }}>{remoteError}</div>}
         </div>
 
         {remoteResourcesError ? <div className="notice notice--error builder__notice">{remoteResourcesError}</div> : null}
 
-        <div className="actions actions--mb10" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div className="field" style={{ minWidth: 280 }}>
-            <span className="field__label">{t('spbBuiltInSkillLabel')}</span>
-            <select className="field__input" value={addSkillTemplateId} onChange={(e) => setAddSkillTemplateId(e.target.value)}>
-              <option value="">{t('spbBuiltInSkillNone')}</option>
-              {BUILT_IN_SKILL_TEMPLATES.map((tpl) => (
-                <option key={tpl.id} value={tpl.id}>
-                  {tpl.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button type="button" className="btn" onClick={addSkill}>
-            + {t('spbAddSkill')}
+        {/* ─── Local Skillset Library ─────────────────────── */}
+        <div className="actions actions--mb10" style={{ flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+          <button type="button" className="btn" onClick={onSave} title={currentSavedId ? t('spbSave') : t('spbSaveAs')}>
+            <i className="bi bi-save"></i> {t('spbSave')}
           </button>
+          <button type="button" className="btn" onClick={onSaveAs}>
+            <i className="bi bi-save2"></i> {t('spbSaveAs')}
+          </button>
+          <button
+            type="button"
+            className={'btn ' + (localSavedOpen ? 'btn--active' : '')}
+            onClick={() => setLocalSavedOpen((v) => !v)}
+          >
+            <i className="bi bi-folder2-open"></i> {t('spbSavedSkillsets')} ({savedSkillsets.length})
+          </button>
+          {saveSkillsetError && <div className="notice notice--error builder__notice">{saveSkillsetError}</div>}
         </div>
+
+        {localSavedOpen && (
+          <div
+            style={{
+              maxHeight: 200,
+              overflowY: 'auto',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--panel-2)',
+              padding: '6px 8px',
+              marginBottom: 10,
+              fontSize: 13,
+            }}
+          >
+            <div className="section__hint" style={{ margin: '4px 0 8px 0' }}>{t('spbLocalLibraryHint')}</div>
+            {savedSkillsets.length === 0 ? (
+              <div style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>{t('spbNoSavedSkillsets')}</div>
+            ) : (
+              savedSkillsets.map((item) => (
+                <div
+                  key={item.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '3px 0',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  <span
+                    style={{
+                      flex: 1,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      fontWeight: item.id === currentSavedId ? 700 : 400,
+                    }}
+                    title={item.title + ' — ' + new Date(item.updatedAt).toLocaleString()}
+                  >
+                    {item.title}
+                  </span>
+                  <span style={{ color: 'var(--text-muted)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                    {new Date(item.updatedAt).toLocaleString()}
+                  </span>
+                  <button type="button" className="btn btn--sm" onClick={() => onLoadSaved(item.id)} title={t('spbLoad')}>
+                    <i className="bi bi-box-arrow-in-down"></i>
+                  </button>
+                  <button type="button" className="btn btn--sm" onClick={() => onCloneSaved(item.id)} title={t('spbClone')}>
+                    <i className="bi bi-copy"></i>
+                  </button>
+                  <button type="button" className="btn btn--sm" onClick={() => onDeleteSaved(item.id)} title={t('spbDelete')}>
+                    <i className="bi bi-trash"></i>
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
 
         <div className="actions actions--mb10" style={{ flexWrap: 'wrap' }}>
           <button
@@ -2469,22 +3009,43 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
               <i className="bi bi-clipboard"></i> {t('spbCopySkillsetJson')}
             </button>
           ) : null}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            {debugBusy && debugProgress ? (
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span className="spinner" style={{ width: 12, height: 12, border: '2px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block' }} />
+                {debugProgress}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              className="btn"
+              style={{ fontWeight: 600, padding: '5px 14px', fontSize: 13, background: 'var(--accent)', color: 'var(--accent-fg, #fff)', border: 'none', borderRadius: 'var(--radius-sm)' }}
+              onClick={() => {
+                // Start debug without switching tab – the runner stays mounted in background.
+                debugRunnerRef.current?.startDebug()
+              }}
+              disabled={!profile || debugBusy}
+              title={t('spbDebugStartDebug')}
+            >
+              <i className="bi bi-play-fill" style={{ marginRight: 4 }}></i>
+              {t('spbDebugStartDebug')}
+            </button>
+          </div>
         </div>
 
         <div style={{ position: 'relative', flex: 1, minHeight: 360 }}>
           <div style={{ position: 'absolute', inset: 0, display: mainTab === 'graph' ? 'block' : 'none' }}>
             <div
-              className="spvPipeline"
+              className={'spvPipeline' + (debugBusy ? ' spvPipeline--debugging' : '')}
               style={{
                 position: 'relative',
                 height: '100%',
                 overflow: 'hidden',
-                border: '1px solid var(--border)',
                 borderRadius: 'var(--radius-sm)',
                 background: 'var(--panel-2)',
               }}
               role="region"
-              aria-label="skill pipeline canvas"
+              aria-label={t('spbAriaCanvas')}
               tabIndex={0}
               ref={canvasKeyRef}
               onKeyDown={(e) => {
@@ -2604,7 +3165,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                                       {name}
                                     </button>
                                   ))}
-                                {remoteIndexers.length === 0 ? <div className="text-muted-xs">(none)</div> : null}
+                                {remoteIndexers.length === 0 ? <div className="text-muted-xs">{t('spbNone')}</div> : null}
                               </>
                             ) : null}
 
@@ -2636,7 +3197,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                                       {name}
                                     </button>
                                   ))}
-                                {remoteIndexes.length === 0 ? <div className="text-muted-xs">(none)</div> : null}
+                                {remoteIndexes.length === 0 ? <div className="text-muted-xs">{t('spbNone')}</div> : null}
                               </>
                             ) : null}
                           </div>
@@ -2666,7 +3227,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                     type="button"
                     className="dropdown-item"
                     disabled={!edgeContextMenu.deletable}
-                    title={!edgeContextMenu.deletable ? 'This connection cannot be deleted' : ''}
+                    title={!edgeContextMenu.deletable ? t('spbEdgeCannotDelete') : ''}
                     onClick={() => {
                       const id = edgeContextMenu.edgeId
                       const deletable = edgeContextMenu.deletable
@@ -2679,6 +3240,74 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                   </button>
                 </div>
               ) : null}
+
+              {canvasContextMenu ? (
+                <div
+                  className="dropdown-menu show"
+                  style={{
+                    position: 'fixed',
+                    left: Math.min(canvasContextMenu.x, window.innerWidth - 280),
+                    top: Math.min(canvasContextMenu.y, window.innerHeight - 400),
+                    right: 'auto',
+                    width: 280,
+                    maxHeight: 400,
+                    overflowY: 'auto',
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="dropdown-header" style={{ fontSize: 11, opacity: 0.7, padding: '4px 12px' }}>
+                    {t('spbBuiltInSkillLabel')}
+                  </div>
+                  {BUILT_IN_SKILL_TEMPLATES.map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      className="dropdown-item"
+                      onClick={() => {
+                        const pos = { x: canvasContextMenu.flowX, y: canvasContextMenu.flowY }
+                        addSkillWithTemplate(tpl.id, pos)
+                      }}
+                    >
+                      {t(tpl.label as TranslationKey)}
+                    </button>
+                  ))}
+                  <div className="dropdown-divider" />
+                  <button
+                    type="button"
+                    className="dropdown-item"
+                    onClick={() => {
+                      const pos = { x: canvasContextMenu.flowX, y: canvasContextMenu.flowY }
+                      setCanvasContextMenu(null)
+                      setNodes((prev) => {
+                        const skillCount = prev.filter((x) => (x as any)?.data?.kind === 'skill').length
+                        const n = skillCount + 1
+                        const id = uuidv4()
+                        const skill: SkillPipelineSkillDefinition = {
+                          '@odata.type': '',
+                          name: `skill${n}`,
+                          context: '/document',
+                          inputs: [],
+                          outputs: [],
+                        }
+                        const next: SkillPipelineNode = {
+                          id,
+                          type: 'skill',
+                          position: pos,
+                          data: { kind: 'skill', skill },
+                        }
+                        setSelectedNodeId(id)
+                        setDraftSkillJson(JSON.stringify(skill, null, 2))
+                        setDraftError(null)
+                        return [...prev, next]
+                      })
+                    }}
+                  >
+                    {t('spbBuiltInSkillNone')}
+                  </button>
+                </div>
+              ) : null}
+
               <ReactFlow
                 nodes={nodes}
                 edges={viewEdges}
@@ -2693,24 +3322,35 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
 
                   const sourcePath = sourceNode ? getProducedPathForConnection(sourceNode, connection.sourceHandle) : null
                   let link: SkillPipelineEdgeLinkData | undefined
+                  let nextTargetSkill: SkillPipelineSkillDefinition | null = null
 
                   // Skill/doc -> indexer connection: auto-add outputFieldMappings.
                   // Docs: outputFieldMappings map an enrichment-tree node (sourceFieldName) to an index field (targetFieldName).
                   // https://learn.microsoft.com/azure/search/cognitive-search-output-field-mapping
-                  if (sourcePath && targetNode && targetNode.data.kind === 'indexer') {
+                  // For skills with multiple outputs (e.g. EntityRecognitionSkill: persons, locations, organizations),
+                  // we add a mapping for EVERY output, not just the first one.
+                  if (sourcePath && targetNode && targetNode.data.kind === 'indexer' && sourceNode) {
+                    const allPaths = getAllProducedPaths(sourceNode)
                     setIndexer((prev) => {
                       if (!prev) return prev
-                      return appendOutputFieldMappingToIndexer(prev as unknown as IndexerLike, sourcePath) as any
+                      let updated = prev as unknown as IndexerLike
+                      for (const p of allPaths) {
+                        updated = appendOutputFieldMappingToIndexer(updated, p)
+                      }
+                      return updated as any
                     })
                     return
                   }
 
                   if (sourcePath && targetNode && targetNode.data.kind === 'skill') {
+                    const sourceIsCollection = sourceNode ? isSourceOutputCollection(sourceNode) : false
                     const { nextSkill, link: nextLink } = applyConnectionToTargetSkill({
                       targetSkill: targetNode.data.skill,
                       sourcePath,
+                      sourceIsCollection,
                     })
                     link = nextLink
+                    nextTargetSkill = nextSkill
                     setNodes((prev) =>
                       prev.map((n) => (n.id === targetNode.id ? { ...n, data: { ...n.data, kind: 'skill', skill: nextSkill } } : n)),
                     )
@@ -2721,7 +3361,112 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                     }
                   }
 
-                  setEdges((prev) => addEdge({ ...connection, id: uuidv4(), data: link }, prev))
+                  // When the new edge targets the same input name as an
+                  // existing edge on the same node (e.g. overwriting the
+                  // primary input of a fixed-schema built-in skill), remove
+                  // the stale edge so the canvas stays in sync with the
+                  // skill definition.
+                  const newLinkData = link as SkillPipelineEdgeLinkData | undefined
+                  const allowedInputNames = nextTargetSkill
+                    ? new Set((Array.isArray(nextTargetSkill.inputs) ? nextTargetSkill.inputs : []).map((i) => String(i?.name ?? '')))
+                    : null
+
+                  setEdges((prev) => {
+                    let base = prev
+                    if (connection.target) {
+                      base = prev.filter((e) => {
+                        if (e.target !== connection.target) return true
+                        const eLink = (e as any)?.data as SkillPipelineEdgeLinkData | undefined
+                        const inputName = typeof eLink?.targetInputName === 'string' ? eLink.targetInputName : ''
+                        if (!inputName) return true
+                        if (newLinkData?.targetInputName && inputName === newLinkData.targetInputName) return false
+                        if (allowedInputNames && !allowedInputNames.has(inputName)) return false
+                        return true
+                      })
+                    }
+                    return addEdge({ ...connection, id: uuidv4(), data: link }, base)
+                  })
+                }}
+                onEdgeUpdate={(oldEdge: any, newConnection: Connection) => {
+                  if (!newConnection.source || !newConnection.target) return
+
+                  const oldLink = (oldEdge as any)?.data as SkillPipelineEdgeLinkData | undefined
+                  const oldTargetId = typeof (oldEdge as any)?.target === 'string' ? String((oldEdge as any).target) : ''
+
+                  // Revert the old edge's impact on the previous target skill.
+                  if (oldLink && oldTargetId) {
+                    let nextSelectedSkill: SkillPipelineSkillDefinition | null = null
+                    setNodes((prevNodes) =>
+                      prevNodes.map((n) => {
+                        if (n.id !== oldTargetId) return n
+                        if (n.data.kind !== 'skill') return n
+                        const nextSkill = revertConnectionOnTargetSkill({ targetSkill: n.data.skill, link: oldLink })
+                        if (n.id === selectedNodeId) nextSelectedSkill = nextSkill
+                        return { ...n, data: { ...n.data, kind: 'skill', skill: nextSkill } }
+                      }),
+                    )
+
+                    if (nextSelectedSkill) {
+                      setDraftSkillJson(JSON.stringify(nextSelectedSkill, null, 2))
+                      setDraftError(null)
+                    }
+                  }
+
+                  const sourceNode = nodes.find((n) => n.id === newConnection.source) ?? null
+                  const targetNode = nodes.find((n) => n.id === newConnection.target) ?? null
+
+                  const sourcePath = sourceNode ? getProducedPathForConnection(sourceNode, newConnection.sourceHandle) : null
+                  let link: SkillPipelineEdgeLinkData | undefined
+                  let nextTargetSkill: SkillPipelineSkillDefinition | null = null
+
+                  if (sourcePath && targetNode && targetNode.data.kind === 'skill') {
+                    const sourceIsCollection = sourceNode ? isSourceOutputCollection(sourceNode) : false
+                    const { nextSkill, link: nextLink } = applyConnectionToTargetSkill({
+                      targetSkill: targetNode.data.skill,
+                      sourcePath,
+                      sourceIsCollection,
+                    })
+                    link = nextLink
+                    nextTargetSkill = nextSkill
+
+                    setNodes((prev) =>
+                      prev.map((n) => (n.id === targetNode.id ? { ...n, data: { ...n.data, kind: 'skill', skill: nextSkill } } : n)),
+                    )
+
+                    if (selectedNodeId === targetNode.id) {
+                      setDraftSkillJson(JSON.stringify(nextSkill, null, 2))
+                      setDraftError(null)
+                    }
+                  }
+
+                  const newLinkData = link as SkillPipelineEdgeLinkData | undefined
+                  const allowedInputNames = nextTargetSkill
+                    ? new Set((Array.isArray(nextTargetSkill.inputs) ? nextTargetSkill.inputs : []).map((i) => String(i?.name ?? '')))
+                    : null
+
+                  setEdges((prev) => {
+                    const replaced = prev.map((e) =>
+                      e.id === String((oldEdge as any)?.id)
+                        ? ({ ...e, ...newConnection, data: link } as any)
+                        : e,
+                    )
+
+                    if (!newConnection.target) return replaced
+
+                    // Keep the updated edge, then remove:
+                    // - any other edge pointing at the same input name
+                    // - any edge pointing at an input that no longer exists on the skill
+                    return replaced.filter((e) => {
+                      if (e.id === String((oldEdge as any)?.id)) return true
+                      if (e.target !== newConnection.target) return true
+                      const eLink = (e as any)?.data as SkillPipelineEdgeLinkData | undefined
+                      const inputName = typeof eLink?.targetInputName === 'string' ? eLink.targetInputName : ''
+                      if (!inputName) return true
+                      if (newLinkData?.targetInputName && inputName === newLinkData.targetInputName) return false
+                      if (allowedInputNames && !allowedInputNames.has(inputName)) return false
+                      return true
+                    })
+                  })
                 }}
                 onNodeClick={(e, node) => {
                   // Some pointer event paths can reach here even for non-left clicks;
@@ -2733,6 +3478,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                   setSelectedEdgeId(null)
                   setNodeContextMenu(null)
                   setEdgeContextMenu(null)
+                  setCanvasContextMenu(null)
                   onSelectNode(node.id)
                 }}
                 onNodeContextMenu={(e, node) => {
@@ -2741,6 +3487,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                   canvasKeyRef.current?.focus()
 
                   setEdgeContextMenu(null)
+                  setCanvasContextMenu(null)
 
                   if (node.data.kind === 'skill') {
                     openSkillContextMenu({ nodeId: node.id, x: e.clientX, y: e.clientY })
@@ -2786,16 +3533,25 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                   canvasKeyRef.current?.focus()
 
                   setNodeContextMenu(null)
+                  setCanvasContextMenu(null)
                   setSelectedEdgeId(edge.id)
 
                   const deletable = typeof (edge as any)?.deletable === 'boolean' ? Boolean((edge as any).deletable) : true
                   setEdgeContextMenu({ x: e.clientX, y: e.clientY, edgeId: edge.id, deletable })
+                }}
+                onPaneContextMenu={(e) => {
+                  e.preventDefault()
+                  setNodeContextMenu(null)
+                  setEdgeContextMenu(null)
+                  const flowPos = flowRef.current?.screenToFlowPosition({ x: e.clientX, y: e.clientY }) ?? { x: 0, y: 0 }
+                  setCanvasContextMenu({ x: e.clientX, y: e.clientY, flowX: flowPos.x, flowY: flowPos.y })
                 }}
                 onPaneClick={() => {
                   canvasKeyRef.current?.focus()
                   setSelectedEdgeId(null)
                   setNodeContextMenu(null)
                   setEdgeContextMenu(null)
+                  setCanvasContextMenu(null)
                 }}
                 onInit={(instance) => {
                   flowRef.current = instance
@@ -2806,7 +3562,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                 <Background />
                 <Panel position="top-right">
                   <button type="button" className="btn btn--tab" onClick={doLayout}>
-                    Layout
+                    {t('spbToolbarLayout')}
                   </button>
                 </Panel>
               </ReactFlow>
@@ -2823,7 +3579,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                 background: 'var(--panel-2)',
               }}
               role="region"
-              aria-label="skillset json"
+              aria-label={t('spbAriaSkillsetJson')}
             >
               <ExpandableCodeMirror
                 t={(k) => String(translations[language][k] ?? '')}
@@ -2850,9 +3606,10 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                 padding: 10,
               }}
               role="region"
-              aria-label="debug runner"
+              aria-label={t('spbAriaDebugRunner')}
             >
               <SkillPipelineDebugRunner
+                ref={debugRunnerRef}
                 t={t}
                 profile={profile}
                 apiVersion={apiVersion}
@@ -2861,6 +3618,8 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                 skillsetJson={skillsetJson}
                 defaultSkillsetName={skillsetName}
                 onFetchedDocs={setDebugFetchedDocs}
+                onBusyChange={setDebugBusy}
+                onProgressChange={setDebugProgress}
               />
             </div>
           </div>
@@ -2876,7 +3635,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                 padding: 10,
               }}
               role="region"
-              aria-label="enrichment tree preview"
+              aria-label={t('spbAriaEnrichmentTree')}
             >
               <SkillPipelineEnrichmentTreePreview t={t as any} nodes={nodes} indexer={indexer} fetchedDocs={debugFetchedDocs} />
             </div>

@@ -241,6 +241,45 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  border: 1px solid var(--border);
+  transition: border-color 0.3s ease;
+}
+
+/* Debug running – animate each node's border with diagonal stripe pattern */
+.spvPipeline--debugging .spvStage {
+  border-color: transparent;
+  position: relative;
+  overflow: visible;
+}
+
+.spvPipeline--debugging .spvStage::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  padding: 3px;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--accent),
+    var(--accent) 4px,
+    #7c3aed 4px,
+    #7c3aed 8px,
+    #06b6d4 8px,
+    #06b6d4 12px
+  );
+  background-size: 200% 200%;
+  animation: debugStripesMarch 0.6s linear infinite;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes debugStripesMarch {
+  0%   { background-position: 0 0; }
+  100% { background-position: 24px 0; }
 }
 
 .spvPipeline__row {
@@ -2832,6 +2871,684 @@ html[data-theme='light'] .rawJsonViewer {
   outline-offset: 1px;
 }
 
+/* ── Debug Values panel (right pane, per-node debug output) ── */
+.spbDebugValues {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.spbDebugValues__subtitle {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 10px 0 4px;
+}
+
+.spbDebugValues__table {
+  overflow-x: auto;
+  margin-bottom: 6px;
+}
+
+.spbDebugValues__table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: fixed;
+}
+
+.spbDebugValues__table th {
+  text-align: left;
+  font-weight: 650;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.spbDebugValues__table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.spbDebugValues__table tr:hover td {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.spbDebugValues__val {
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.spbDebugValues__expandBtn {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  vertical-align: middle;
+}
+
+.spbDebugValues__expandBtn:hover {
+  text-decoration: underline;
+}
+
+/* ─── Skill Execution Explanation Callout ───────────────────────────────── */
+.seExplain {
+  margin: 0 0 6px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.seExplain__header {
+  font-weight: 650;
+  font-size: 12px;
+  margin-bottom: 4px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+}
+
+.seExplain__close {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+  opacity: 0.6;
+}
+
+.seExplain__close:hover {
+  opacity: 1;
+  color: var(--text);
+}
+
+.seExplain__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.seExplain__item {
+  position: relative;
+  padding-left: 14px;
+  color: var(--text);
+}
+
+.seExplain__item::before {
+  content: '•';
+  position: absolute;
+  left: 2px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.seExplain__item--sub {
+  padding-left: 24px;
+  color: var(--muted);
+}
+
+.seExplain__item--sub::before {
+  content: '';
+  display: none;
+}
+
+.seExplain--warn {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+  background: color-mix(in srgb, var(--danger) 6%, var(--panel));
+}
+
+.seExplain__item--warn {
+  color: var(--danger, #c44);
+  padding-left: 4px;
+}
+
+.seExplain__item--warn::before {
+  content: '';
+  display: none;
+}
+
+.spbDebugValues__pager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+  color: var(--muted);
+  user-select: none;
+}
+
+.spbDebugValues__pager button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+}
+
+.spbDebugValues__pager button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.spbDebugValues__pager button:not(:disabled):hover {
+  background: var(--btn2);
+}
+
+/* ─── Skill Editor (spreadsheet-style unified grid) ────────────────────── */
+.skillEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--panel2);
+  overflow: visible;
+}
+
+/* The single unified grid table — use separate borders for border-radius */
+.seGrid {
+  width: 100%;
+  border-spacing: 0;
+  border-collapse: separate;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 13px;
+  table-layout: auto;
+  max-width: 100%;
+}
+
+.seGrid__colKey { width: auto; min-width: 100px; }
+.seGrid__colVal { width: 100%; }
+.seGrid__colAct { width: 28px; }
+
+/* Section header rows — use inner div for flex layout instead of flex on td */
+.seGrid__sectionRow td {
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel2));
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  padding: 6px 8px;
+  border-top: 6px solid color-mix(in srgb, var(--border) 40%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+
+.seGrid__sectionRow td .seGrid__sectionInner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.seGrid tbody tr:first-child.seGrid__sectionRow td {
+  border-top: none;
+}
+
+/* Column sub-headers (name / source etc.) */
+.seGrid__colHeader td {
+  background: color-mix(in srgb, var(--border) 15%, var(--panel));
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* All regular cells share continuous borders */
+.seGrid td {
+  box-sizing: border-box;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  padding: 0;
+  vertical-align: top;
+  overflow: hidden;
+  background: transparent;
+}
+
+.seGrid td:last-child {
+  border-right: none;
+}
+
+.seGrid tr:last-child td {
+  border-bottom: none;
+}
+
+/* Key cells (left column) — high specificity to survive hover */
+.seGrid td.seGrid__key,
+.seGrid tr:hover td.seGrid__key {
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 5px 8px;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--border) 25%, var(--panel));
+}
+
+/* Value cells — inputs fill the cell edge-to-edge */
+.seGrid__val input,
+.seGrid__val textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 5px 8px;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.seGrid__val input:focus,
+.seGrid__val textarea:focus {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.seGrid__val input[readonly] {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.seGrid__val textarea {
+  min-height: 48px;
+  max-height: 200px;
+  resize: vertical;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  white-space: pre;
+}
+
+/* Checkbox cells */
+.seGrid__checkWrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Action cells (× delete buttons) */
+.seGrid__act {
+  text-align: center;
+  vertical-align: middle !important;
+}
+
+.seGrid__act button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  border-radius: 3px;
+  line-height: 1;
+}
+
+.seGrid__act button:hover {
+  background: color-mix(in srgb, var(--danger, #e55) 14%, transparent);
+  color: var(--danger, #e55);
+}
+
+/* Inline "+" button inside section header */
+.seGrid__addInline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 8px;
+  min-width: 20px;
+  height: 22px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 3px;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  vertical-align: middle;
+  line-height: 1;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.seGrid__addInline--icon {
+  width: 20px;
+  padding: 0;
+}
+
+.seGrid__addInline--label {
+  width: auto;
+  padding: 0 10px;
+  margin-left: 0;
+}
+
+.seGrid__addInline:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.seGrid__addInline:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Context auto-suggest hint */
+.seGrid__suggest {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.seGrid__suggestText {
+  color: var(--muted);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seGrid__suggestBtn {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.seGrid__suggestBtn:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Add-property row at the bottom */
+.seGrid__addRow td {
+  border-top: 2px solid var(--border);
+  padding: 4px !important;
+}
+
+.seGrid__addRow td:last-child {
+  text-align: left;
+}
+
+.seGrid__addRow input {
+  padding: 4px 8px !important;
+}
+
+/* Row hover — exclude key cells (they keep their own background) */
+.seGrid tbody tr:not(.seGrid__sectionRow):not(.seGrid__colHeader):not(.seGrid__addRow):hover td:not(.seGrid__key) {
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+/* JSON toggle (below the grid) */
+.skillEditor__jsonToggle {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.skillEditor__jsonToggle .btn--ghost {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 2px 6px;
+}
+
+.skillEditor__jsonToggle .btn--ghost:hover {
+  color: var(--accent);
+}
+
+/* ── EnrichmentPathPicker ──────────────────────────────────────────────── */
+
+.epPicker {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.epPicker__inputWrap {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.epPicker__input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+
+.epPicker__input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.epPicker__toggle {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  margin-left: 2px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.epPicker__toggle:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.epPicker__hint {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--muted);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.epPicker__hint--loop {
+  color: var(--accent);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+/* Dropdown */
+
+.epPicker__dropdown {
+  position: fixed;
+  z-index: 9999;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px var(--shadow);
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+}
+
+.epPicker__filter {
+  padding: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.epPicker__filterInput {
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+
+.epPicker__filterInput:focus {
+  border-color: var(--accent);
+}
+
+.epPicker__list {
+  overflow-y: auto;
+  max-height: 270px;
+  padding: 2px 0;
+}
+
+.epPicker__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: 'Cascadia Code', 'Consolas', monospace;
+  color: var(--text);
+  border-radius: 0;
+}
+
+.epPicker__item:hover,
+.epPicker__item--hl {
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+
+.epPicker__item--selected {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.epPicker__icon {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.epPicker__item--selected .epPicker__icon {
+  color: var(--accent);
+}
+
+.epPicker__path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.epPicker__ann {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--muted);
+  font-family: sans-serif;
+  opacity: 0.85;
+}
+
+.epPicker__item--custom {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  font-style: italic;
+}
+
+.epPicker__item--custom .epPicker__icon {
+  color: var(--accent);
+}
+
+/* Fit within seGrid table cells */
+.seGrid__val .epPicker {
+  position: relative;
+}
+
+.seGrid__val .epPicker__inputWrap {
+  min-height: 28px;
+}
+
+.seGrid__val .epPicker__input {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 5px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.seGrid__val .epPicker__input:focus {
+  box-shadow: none;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.seGrid__val .epPicker__toggle {
+  border: none;
+  background: transparent;
+  width: 24px;
+  height: 28px;
+}
+
+.seGrid__val .epPicker__hint {
+  margin: 0;
+  margin-top: 1px;
+  padding: 1px 6px;
+}
+
+.btn--ghost {
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
 /* ResultViewPanel: refactored from inline styles */
 .resultViewPanel__header {
   display: flex;
@@ -3606,5 +4323,11 @@ html[data-theme='light'] .rawJsonViewer {
   }
   100% {
     background-position: 0% 50%;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }

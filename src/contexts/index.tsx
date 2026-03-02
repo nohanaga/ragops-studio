@@ -9,6 +9,7 @@
 import { createContext, useContext, useState, useMemo, useCallback, type ReactNode, type Dispatch, type SetStateAction } from 'react'
 import type { Node, Edge } from '@xyflow/react'
 import type { AppSettings, ConnectionProfile, Run } from '../lib/model'
+import type { JsonValue } from '../lib/aiSearchRest'
 import type { ThemePreference, LabMode, BuilderMode, SearchFormState, AgenticFormState, AnalyzeFormState, LatestResponse, UiLogEntry } from '../types'
 import type { Language } from '../lib/translations'
 import { getInitialThemePreference, getBrowserLanguage } from '../utils'
@@ -134,7 +135,7 @@ type SkillPipelineStateContextValue = {
   savedSkillsets: PersistedSkillPipelineItem[]
   refreshSavedSkillsets: () => void
   newSkillset: () => void
-  saveSkillset: (mode: 'save' | 'saveAs') => void
+  saveSkillset: (mode: 'save' | 'saveAs', nameOverride?: string) => void
   loadSkillset: (id: string) => void
   deleteSkillset: (id: string) => void
 
@@ -160,6 +161,9 @@ type SkillPipelineStateContextValue = {
   setDraftIndexJson: Dispatch<SetStateAction<string>>
   draftIndexError: string | null
   setDraftIndexError: Dispatch<SetStateAction<string | null>>
+
+  debugFetchedDocs: JsonValue | null
+  setDebugFetchedDocs: Dispatch<SetStateAction<JsonValue | null>>
 }
 
 const SkillPipelineStateContext = createContext<SkillPipelineStateContextValue | null>(null)
@@ -713,6 +717,8 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
   const [draftIndexJson, setDraftIndexJson] = useState('{}')
   const [draftIndexError, setDraftIndexError] = useState<string | null>(null)
 
+  const [debugFetchedDocs, setDebugFetchedDocs] = useState<JsonValue | null>(null)
+
   const refreshSavedSkillsets = useCallback(() => {
     setSavedSkillsets(listSkillPipelines())
   }, [])
@@ -765,9 +771,15 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
   }, [setEdges, setNodes, setSkillsetDescription, setSkillsetName])
 
   const saveSkillset = useCallback(
-    (mode: 'save' | 'saveAs') => {
+    (mode: 'save' | 'saveAs', nameOverride?: string) => {
       const id = mode === 'save' && currentSavedId ? currentSavedId : uuidv4()
-      const title = skillsetName.trim() || 'skillset'
+      const effectiveName = nameOverride ?? skillsetName
+      const title = effectiveName.trim() || 'skillset'
+
+      // When a nameOverride is provided, also update the in-memory state.
+      if (nameOverride != null && nameOverride !== skillsetName) {
+        setSkillsetName(nameOverride)
+      }
 
       try {
         upsertSkillPipeline({
@@ -775,7 +787,7 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
           title,
           updatedAt: Date.now(),
           state: {
-            skillsetName,
+            skillsetName: effectiveName,
             skillsetDescription,
             indexProjections,
             knowledgeStore,
@@ -789,7 +801,7 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
         setCurrentSavedId(id)
         setBaselineSkillsetJson(
           computeSkillsetJsonSnapshot({
-            skillsetName,
+            skillsetName: effectiveName,
             skillsetDescription,
             indexProjections,
             knowledgeStore,
@@ -801,7 +813,7 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
         setSaveSkillsetError(e instanceof Error ? e.message : String(e))
       }
     },
-    [currentSavedId, edges, nodes, refreshSavedSkillsets, skillsetDescription, skillsetName, indexProjections, knowledgeStore, indexer],
+    [currentSavedId, edges, nodes, refreshSavedSkillsets, skillsetDescription, skillsetName, indexProjections, knowledgeStore, indexer, setSkillsetName],
   )
 
   const loadSkillset = useCallback(
@@ -905,6 +917,9 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       setDraftIndexJson,
       draftIndexError,
       setDraftIndexError,
+
+      debugFetchedDocs,
+      setDebugFetchedDocs,
     }),
     [
       skillsetName,
@@ -928,6 +943,7 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       draftIndexerError,
       draftIndexJson,
       draftIndexError,
+      debugFetchedDocs,
     ],
   )
 

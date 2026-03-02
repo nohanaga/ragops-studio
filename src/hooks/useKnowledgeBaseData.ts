@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import type { ConnectionProfile } from '../lib/model'
 import type { AgenticFormState, LabMode } from '../types'
@@ -19,6 +19,21 @@ export function useKnowledgeBaseData(params: {
   const [knowledgeBaseNamesLoading, setKnowledgeBaseNamesLoading] = useState(false)
   const [knowledgeBaseNamesError, setKnowledgeBaseNamesError] = useState<string | null>(null)
   const [availableKnowledgeSources, setAvailableKnowledgeSources] = useState<string[]>([])
+
+  // Reset knowledgeSourceParams when knowledgeBaseName changes so the
+  // fetch-and-init guard (length === 0) works correctly on KB switch.
+  // Skip the first render to preserve persisted state.
+  const prevKbNameRef = useRef(knowledgeBaseName)
+  useEffect(() => {
+    if (prevKbNameRef.current !== knowledgeBaseName) {
+      prevKbNameRef.current = knowledgeBaseName
+      setAvailableKnowledgeSources([])
+      setAgenticForm((prev) => ({
+        ...prev,
+        knowledgeSourceParams: [],
+      }))
+    }
+  }, [knowledgeBaseName, setAgenticForm])
 
   useEffect(() => {
     if (labMode !== 'agentic' || !knowledgeBaseName.trim() || !activeProfile) {
