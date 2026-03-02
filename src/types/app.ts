@@ -126,9 +126,16 @@ export type SearchFormState = {
 
 export type KnowledgeSourceParamItem = {
   knowledgeSourceName: string
+  kind: string
   includeReferences: boolean
   includeReferenceSourceData: boolean
   alwaysQuerySource: boolean
+}
+
+/** Lightweight info about a knowledge source inside a knowledge base. */
+export type KnowledgeSourceInfo = {
+  name: string
+  kind: string
 }
 
 export type AgenticFormState = {

@@ -9,7 +9,7 @@ import type React from 'react'
 
 import type { Language } from '../../lib/translations'
 import { translations } from '../../lib/translations'
-import type { AgenticFormState } from '../../types'
+import type { AgenticFormState, KnowledgeSourceInfo } from '../../types'
 import { InfoTooltip } from '../InfoTooltip'
 
 type TranslationKey = keyof typeof translations.ja
@@ -21,7 +21,7 @@ export type AgenticBuilderFormProps = {
   agenticForm: AgenticFormState
   setAgenticForm: React.Dispatch<React.SetStateAction<AgenticFormState>>
 
-  availableKnowledgeSources: string[]
+  availableKnowledgeSources: KnowledgeSourceInfo[]
 }
 
 export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
@@ -137,9 +137,12 @@ export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
           <div className="agenticKs__empty">{t('noKnowledgeSources')}</div>
         )}
 
-        {availableKnowledgeSources.map((sourceName) => {
+        {availableKnowledgeSources.map((sourceInfo) => {
+          const sourceName = sourceInfo.name
+          const sourceKind = sourceInfo.kind
           const existingParam = agenticForm.knowledgeSourceParams.find((p) => p.knowledgeSourceName === sourceName)
           const isSelected = !!existingParam
+          const isSearchIndex = sourceKind === 'searchIndex'
 
           return (
             <div key={sourceName} className={'agenticKsItem' + (isSelected ? ' agenticKsItem--selected' : '')}>
@@ -155,7 +158,8 @@ export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
                           ...p.knowledgeSourceParams,
                           {
                             knowledgeSourceName: sourceName,
-                            includeReferences: true,
+                            kind: sourceKind,
+                            includeReferences: isSearchIndex,
                             includeReferenceSourceData: false,
                             alwaysQuerySource: false,
                           },
@@ -173,9 +177,10 @@ export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
                   className="agenticKsItem__checkbox"
                 />
                 <span className="agenticKsItem__name">{sourceName}</span>
+                <span className="agenticKsItem__kind">{sourceKind}</span>
               </label>
 
-              {isSelected && existingParam && (
+              {isSelected && existingParam && isSearchIndex && (
                 <div className="agenticKsItem__options">
                   <label className="agenticKsOption">
                     <input

@@ -10,7 +10,7 @@ import type React from 'react'
 import type { AppSettings, ConnectionProfile } from '../../lib/model'
 import type { Language } from '../../lib/translations'
 import { translations } from '../../lib/translations'
-import type { AgenticFormState, AnalyzeFormState, BuilderMode, LabMode, SearchFormState, UiLogEntry } from '../../types'
+import type { AgenticFormState, AnalyzeFormState, BuilderMode, KnowledgeSourceInfo, LabMode, SearchFormState, UiLogEntry } from '../../types'
 import { AgenticBuilderForm } from './AgenticBuilderForm'
 import { AnalyzeBuilderForm } from './AnalyzeBuilderForm'
 import { BuilderActions } from './BuilderActions'
@@ -62,7 +62,7 @@ export type BuilderTabPaneProps = {
   knowledgeBaseNamesError: string | null
   knowledgeBaseNameOptions: string[]
 
-  availableKnowledgeSources: string[]
+  availableKnowledgeSources: KnowledgeSourceInfo[]
 
   // Forms
   searchForm: SearchFormState

@@ -2050,6 +2050,16 @@ select:focus {
   color: var(--fg);
 }
 
+.agenticKsItem__kind {
+  margin-left: 6px;
+  font-size: 0.75em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-alt, #e0e0e0);
+  color: var(--fg-muted, #666);
+  font-weight: 500;
+}
+
 .agenticKsItem--selected .agenticKsItem__name {
   color: var(--accent);
 }

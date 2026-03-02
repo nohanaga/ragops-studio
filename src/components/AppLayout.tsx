@@ -1,6 +1,7 @@
 import { useMemo, type Dispatch, type ReactElement, type RefObject, type SetStateAction } from 'react'
 import type {
   CenterTab,
+  KnowledgeSourceInfo,
   PaneSizes,
   ResultView,
 } from '../types'
@@ -106,7 +107,7 @@ export function AppLayout(props: {
   knowledgeBaseNamesLoading: boolean
   knowledgeBaseNamesError: string | null
   knowledgeBaseNameOptions: string[]
-  availableKnowledgeSources: string[]
+  availableKnowledgeSources: KnowledgeSourceInfo[]
 
   isLoadingRequestBuilderSchema: boolean
   requestBuilderIndexFieldNames: string[]
