@@ -3287,7 +3287,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                     return addEdge({ ...connection, id: uuidv4(), data: link }, base)
                   })
                 }}
-                onEdgeUpdate={(oldEdge: any, newConnection: Connection) => {
+                onReconnect={(oldEdge, newConnection: Connection) => {
                   if (!newConnection.source || !newConnection.target) return
 
                   const oldLink = (oldEdge as any)?.data as SkillPipelineEdgeLinkData | undefined

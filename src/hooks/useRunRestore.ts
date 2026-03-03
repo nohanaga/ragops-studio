@@ -142,6 +142,7 @@ export function useRunRestore(params: {
             .filter((ks): ks is JsonObject => isJsonObject(ks))
             .map((ks) => ({
               knowledgeSourceName: typeof ks.knowledgeSourceName === 'string' ? ks.knowledgeSourceName : '',
+              kind: typeof ks.kind === 'string' ? ks.kind : '',
               includeReferences: typeof ks.includeReferences === 'boolean' ? ks.includeReferences : true,
               includeReferenceSourceData:
                 typeof ks.includeReferenceSourceData === 'boolean' ? ks.includeReferenceSourceData : true,

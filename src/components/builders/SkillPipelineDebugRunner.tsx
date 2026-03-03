@@ -1040,7 +1040,7 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
   }
 
   // Expose startDebug to parent via ref (must be after startDebug definition)
-  useImperativeHandle(ref, () => ({ startDebug }))  // eslint-disable-line react-hooks/exhaustive-deps
+  useImperativeHandle(ref, () => ({ startDebug }))
 
   return (
     <div style={{ height: '100%', overflow: 'auto' }}>

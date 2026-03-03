@@ -127,13 +127,18 @@ export function EnrichmentPathPicker(props: EnrichmentPathPickerProps) {
     }
   }, [open])
 
-  // Close dropdown when value changes externally (e.g. user selected a different node)
-  const [prevValue, setPrevValue] = useState(value)
-  if (value !== prevValue) {
-    setPrevValue(value)
-    if (open) setOpen(false)
-    if (filter) setFilter('')
-  }
+  // Close dropdown when value changes externally (e.g. user selected a different node).
+  // This effect intentionally calls setState to dismiss the dropdown when a parent
+  // component changes the controlled `value` prop (e.g. selecting a different node).
+  // The ref comparison ensures it only fires on external changes, not user input.
+  useEffect(() => {
+    if (value !== lastInternalValue.current) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: sync UI with externally-driven prop change
+      setOpen(false)
+      setFilter('')
+    }
+    lastInternalValue.current = value
+  }, [value])
 
   // Filter paths — always include the full list when filter is empty.
   // If current value is not in paths, prepend it as a custom entry.

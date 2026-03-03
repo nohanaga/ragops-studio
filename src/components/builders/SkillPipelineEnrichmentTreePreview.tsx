@@ -17,7 +17,7 @@ function getFetchedDocsRows(input: JsonValue | null | undefined): Record<string,
   if (!input || !isRecord(input)) return []
   const raw = input['value']
   if (!Array.isArray(raw)) return []
-  return raw.filter((x): x is Record<string, unknown> => isRecord(x))
+  return (raw as unknown[]).filter((x): x is Record<string, unknown> => isRecord(x))
 }
 
 const TRUNCATE_LEN = 240
