@@ -105,6 +105,52 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 ![](./docs/images/screenshot9_jp.png)
 
 
+#### Skill Pipeline Builder（スキルパイプラインビルダー）
+
+Azure AI Search のスキルセットをビジュアルフローエディターでオーサリングできるビルダーです。各スキルをノード、入出力をエッジとして左から右への DAG（有向非巡回グラフ）で可視化します。
+
+- **ビジュアルフローエディター**: ReactFlow + dagre による自動レイアウトの DAG 表示
+  - ドキュメントノード → スキルノード → インデクサーノード → インデックスノードの4層構造
+  - ドラッグ＆ドロップでスキル間の入出力を接続
+  - ノードの選択・移動・削除、エッジの接続・削除を GUI で操作
+- **スキルセットの CRUD 操作**:
+  - 既存のスキルセット一覧表示・読み込み（`listSkillsets` / `getSkillset`）
+  - スキルセットの作成・更新（`createOrUpdateSkillset`）、削除（`deleteSkillset`）
+  - JSON のインポート/エクスポート（クリップボードコピー、ファイル読み込み）
+- **ビルトインスキルテンプレート（15種類）**: ワンクリックでスキルノードを追加
+  - テキスト系: Text Split, Key Phrase Extraction, Language Detection, PII Detection, Text Translation, Sentiment V3, Entity Recognition V3, Entity Linking V3, Text Merge
+  - ビジョン系: OCR, Image Analysis
+  - ユーティリティ系: Conditional, Document Extraction
+  - AI 系: Azure OpenAI Embedding, ChatCompletion (GenAI Prompt), Custom Web API
+- **エンリッチメントツリー（`/document/…` パス）**:
+  - スキル間の入出力パスをツリー構造で可視化
+  - パス補完付きの EnrichmentPathPicker コンボボックス
+  - 配列出力の自動 `/*` ワイルドカード伝播（Collection 型スキル出力を自動検出）
+- **インデクサー連携**:
+  - 既存インデクサーの読み込み（`listIndexers` / `getIndexerDefinition`）
+  - `outputFieldMappings` の GUI 編集（エンリッチメントパス → インデックスフィールド）
+  - インデクサーノードからインデックスノードへの接続
+- **右ペイン: スキル JSON 編集**:
+  - 選択スキルの JSON を CodeMirror で編集
+  - スキルセットレベルプロパティ（`indexProjections`, `knowledgeStore`, `cognitiveServices` 等）の編集
+  - 変更前後の JSON 差分ハイライト表示
+- **Debug Runner（デバッグランナー）**:
+  - Azure Blob Storage 接続設定（接続文字列、コンテナ名）
+  - デバッグ用の一時リソース（データソース、インデックス、インデクサー、スキルセット）の自動プロビジョニング
+  - Knowledge Store プロジェクション経由でスキル出力を実データでプレビュー
+  - Shaper スキルの自動生成
+  - プロビジョニング → 実行 → 取得 → クリーンアップの4ステップ UI
+  - 自動クリーンアップ機能（デバッグ完了後に一時リソースを自動削除）
+- **エンリッチメントツリープレビュー**:
+  - デバッグ実行後のスキル出力値を `/document/…` パスごとにツリー表示
+  - 実際のエンリッチメント結果の展開・折りたたみ表示
+  - フィールドマッピングの可視化
+- **パイプライン状態の保存/復元**:
+  - LocalStorage によるパイプライン構成の永続化
+  - 複数パイプラインの保存・切替・削除
+
+![](./docs/images/screenshot24_jp.png)
+
 ### 3. **開発者ツール**
 
 #### Search Pipeline Visualizer（検索パイプライン可視化）
@@ -269,6 +315,8 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 - **DOMPurify 3.3** - XSS 対策（HTML サニタイゼーション）
 - **uuid 13.0** - UUID v4 生成
 - **undici 7.16** - 高速 HTTP クライアント（fetch polyfill）
+- **@xyflow/react 12** - フローチャート可視化（Skill Pipeline Builder で使用）
+- **dagre 0.8** - 有向グラフの自動レイアウト
 
 ### 開発ツール
 - **ESLint 9.39** + **typescript-eslint 8.46** - コード品質チェック
@@ -340,6 +388,11 @@ ragops-studio/
 │   │   │   ├── KnowledgeBaseBuilder.tsx      # ナレッジベースビルダー
 │   │   │   ├── KnowledgeSourceBuilder.tsx    # ナレッジソースビルダー
 │   │   │   ├── SearchParameterAutoTuning.tsx # 検索パラメータ自動チューニング
+│   │   │   ├── SkillPipelineBuilder.tsx       # スキルパイプラインビルダー
+│   │   │   ├── SkillPipelineDebugRunner.tsx   # デバッグランナー
+│   │   │   ├── SkillPipelineEnrichmentTreePreview.tsx # エンリッチメントツリー
+│   │   │   ├── SkillPipelineRightPane.tsx     # スキルパイプライン右ペイン
+│   │   │   ├── EnrichmentPathPicker.tsx       # エンリッチメントパスピッカー
 │   │   │   ├── SynonymMapBuilder.tsx         # シノニムマップビルダー
 │   │   │   └── VectorOptimizerBuilder.tsx    # ベクトルオプティマイザー
 │   │   ├── modals/          # モーダルダイアログ
@@ -359,6 +412,7 @@ ragops-studio/
 │   │   └── useApiOperations.ts  # API 操作フック（Execute処理）
 │   ├── lib/                 # コアロジック
 │   │   ├── aiSearchRest.ts  # Azure AI Search REST API クライアント
+│   │   ├── azureBlobStorage.ts # Azure Blob Storage REST クライアント
 │   │   ├── analyzeCatalog.ts # アナライザーカタログ定義
 │   │   ├── db.ts            # IndexedDB 操作
 │   │   ├── diffText.ts      # テキスト差分計算
@@ -372,9 +426,12 @@ ragops-studio/
 │   ├── utils/               # ユーティリティ関数
 │   │   ├── apiHelpers.ts           # API ヘルパー関数
 │   │   ├── appRequestBodies.ts     # リクエストボディ構築
+│   │   ├── debugRunnerHelpers.ts   # デバッグランナーヘルパー
+│   │   ├── enrichmentTree.ts       # エンリッチメントツリー構築
 │   │   ├── helpers.ts              # 汎用ヘルパー
 │   │   ├── localStorage.ts         # ローカルストレージ操作
 │   │   ├── searchFacets.ts         # ファセット抽出
+│   │   ├── skillPipelineOutputFieldMappings.ts # outputFieldMappings ヘルパー
 │   │   └── index.ts                # エクスポート
 │   └── App.tsx              # メインアプリケーションコンポーネント
 ├── scripts/                 # ビルドスクリプト
@@ -500,6 +557,22 @@ ragops-studio/
   - **getSynonymMap**: GET /synonymmaps/{name}（取得）
   - **createOrUpdateSynonymMap**: PUT /synonymmaps/{name}（作成/更新）
   - **deleteSynonymMap**: DELETE /synonymmaps/{name}（削除）
+  - **listSkillsets**: GET /skillsets（スキルセット一覧）
+  - **getSkillset**: GET /skillsets/{name}（スキルセット取得）
+  - **createOrUpdateSkillset**: PUT /skillsets/{name}（スキルセット作成/更新）
+  - **deleteSkillset**: DELETE /skillsets/{name}（スキルセット削除）
+  - **listIndexers**: GET /indexers（インデクサー一覧）
+  - **getIndexerDefinition**: GET /indexers/{name}（インデクサー定義取得）
+  - **createOrUpdateIndexer**: PUT /indexers/{name}（インデクサー作成/更新）
+  - **deleteIndexer**: DELETE /indexers/{name}（インデクサー削除）
+  - **runIndexer**: POST /indexers/{name}/run（インデクサー実行）
+  - **getIndexerStatus**: GET /indexers/{name}/status（インデクサー状態取得）
+  - **createOrUpdateDataSource**: PUT /datasources/{name}（データソース作成/更新）
+  - **deleteDataSource**: DELETE /datasources/{name}（データソース削除）
+- **Azure Blob Storage REST クライアント** (`src/lib/azureBlobStorage.ts`):
+  - Account SAS トークンのクライアントサイド生成（Web Crypto API / HMAC-SHA256）
+  - Blob 一覧取得、JSON Blob の読み込み、コンテナ削除
+  - Knowledge Store プロジェクションデータの取得・解析
 - エラーハンドリング: RestResult 型で成功/失敗を統一的に処理
 - リクエスト ID トラッキング: `x-ms-client-request-id`（UUID v4）を自動付与、レスポンスの `request-id` ヘッダーを取得
 - 開発環境プロキシ: `import.meta.env.DEV` 時は `/api-proxy` 経由で Azure へ接続（CORS 回避）
