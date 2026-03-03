@@ -22,7 +22,8 @@ A web-based development tool for learning and experimenting with advanced featur
 ## Features
 
 - 🔍 **4 Search Modes**: Classic search, Semantic & Vector search, Agentic search (Knowledge Retrieval API), Text analysis
-- 🛠️ **Builder Tools**: Create and manage indexes, knowledge sources, knowledge bases, and synonym maps
+- 🛠️ **Builder Tools**: Create and manage indexes, knowledge sources, knowledge bases, synonym maps, and skillsets (visual pipeline builder)
+- 🧩 **Skill Pipeline Builder**: Visual DAG editor for skillset authoring with built-in skill templates, enrichment tree preview, and debug runner
 - 📊 **Performance Testing**: QPS tester, search pipeline visualizer
 - 🎯 **Search Parameter AutoTuning**: Automatically optimize search parameters using evaluation datasets
 - 🧪 **Experiment Management**: Save query history, compare results, export/import
@@ -101,6 +102,8 @@ npm run gen:synonymmap
 - **Vite 7.2** - Fast build tool
 - **Bootstrap 5.3** - UI components
 - **CodeMirror 6** - Code editor
+- **ReactFlow (@xyflow/react)** - Flow chart visualization
+- **dagre** - Automatic graph layout
 - **IndexedDB (idb)** - Client-side database
 
 ## Project Structure

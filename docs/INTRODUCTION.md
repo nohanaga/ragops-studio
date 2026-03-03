@@ -102,6 +102,33 @@ This is **my first attempt ever** to bring the philosophy of machine learning ex
 
 This enables **scientific optimization of search systems, just as data scientists optimize machine learning models**.
 
+## Innovation ③: Visual Skill Pipeline Builder — Bringing IDE-like Skillset Authoring to the Browser
+
+![](./images/screenshot24_en.png)
+
+Azure AI Search **skillsets** are the backbone of AI enrichment pipelines — they orchestrate how documents are cracked, analyzed, embedded, and enriched before reaching your search index. Yet authoring them has traditionally meant hand-editing deeply nested JSON, mentally tracking `/document/…` enrichment paths, and deploying an indexer just to see if your changes work.
+
+**Skill Pipeline Builder** changes that by introducing a **visual DAG (Directed Acyclic Graph) editor** directly inside RAGOps Studio.
+
+**Comparison with Traditional Approach**
+| Aspect | Traditional JSON Editing | Skill Pipeline Builder |
+|------|--------|----------------------------|
+| Skill wiring | Manually copy-paste `/document/…` paths | Drag-and-drop edges between nodes |
+| Pipeline overview | Scroll through hundreds of JSON lines | Visual left-to-right flow at a glance |
+| Adding a skill | Write boilerplate JSON from docs | One-click from 15 built-in templates |
+| Debug & verify | Deploy indexer, check index, guess what went wrong | Debug Runner: provision → run → fetch → preview, all in-browser |
+| Enrichment paths | Memorize context / output / input paths | Auto-completed EnrichmentPathPicker with tree preview |
+| Array handling | Manually add `/*` to context and sources | Automatic wildcard propagation for Collection-type outputs |
+
+**Key Capabilities**
+- **15 built-in skill templates**: Text Split, Key Phrase Extraction, OCR, Azure OpenAI Embedding, ChatCompletion, Custom Web API, and more
+- **Enrichment tree visualization**: See every `/document/…` path, who produces it, and who consumes it
+- **Debug Runner**: Automatically provisions temporary resources (data source, index, indexer, skillset) against Azure Blob Storage, runs the enrichment, fetches projected results via Knowledge Store, and cleans up — all without leaving the builder
+- **Indexer integration**: Load existing indexers, visually edit `outputFieldMappings`
+- **Pipeline state persistence**: Save and restore multiple pipeline configurations in LocalStorage
+
+This brings the **iterative, visual development experience** that developers expect from modern IDEs to the world of Azure AI Search skillset authoring.
+
 # 🧪 Four Search Lab Modes - Complete Coverage of All Azure AI Search Features
 
 ## 1. Query Mode - Mastering Classic Search
@@ -325,6 +352,27 @@ Revolutionary UI/UX for synonym management.
 - **Validation**: Real-time checking of 20,000 rule limit, format verification
 - **File import**: Bulk import from CSV files
 - **Preview function**: Confirm Solr format before saving
+
+### Skill Pipeline Builder
+
+A **visual DAG editor** for authoring Azure AI Search skillsets. Each skill is represented as a node, and inputs/outputs are connected as edges in a left-to-right flow.
+
+**Visual Authoring**
+- ReactFlow + dagre for auto-layout DAG visualization
+- 4-layer structure: Document → Skills → Indexer → Index
+- 15 built-in skill templates (Text Split, OCR, Azure OpenAI Embedding, ChatCompletion, Custom Web API, etc.)
+- EnrichmentPathPicker with path auto-completion and tree preview
+
+**Debug Runner**
+- Auto-provision temporary debug resources (data source, index, indexer, skillset)
+- Knowledge Store projection for real-data skill output preview
+- 4-step workflow: Provision → Run → Fetch → Cleanup
+- Automatic Shaper skill generation and auto-cleanup
+
+**Collaboration with Existing Resources**
+- Load existing skillsets and indexers from your search service
+- Visual editing of `outputFieldMappings`
+- Pipeline state save/restore via LocalStorage
 
 # 🧑‍💻 Maximum Developer Experience (DX)
 

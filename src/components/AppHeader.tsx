@@ -169,7 +169,7 @@ export function AppHeader({
             <div className="aboutMenu__header">
               <div className="aboutMenu__title">RAGOps Studio — for Azure AI Search</div>
               <div className="aboutMenu__versionRow">
-                <div className="aboutMenu__version">Version 0.0.1</div>
+                <div className="aboutMenu__version">Version 0.0.2</div>
                 <a
                   href="https://github.com/nohanaga/ragops-studio"
                   target="_blank"

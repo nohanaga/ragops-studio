@@ -100,6 +100,52 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
 
 ![](./docs/images/screenshot9_en.png)
 
+### Skill Pipeline Builder
+
+A visual flow editor for authoring Azure AI Search skillsets. Each skill is represented as a node, and inputs/outputs are connected as edges in a left-to-right DAG (Directed Acyclic Graph).
+
+- **Visual flow editor**: DAG visualization with auto-layout powered by ReactFlow + dagre
+  - 4-layer structure: Document node → Skill nodes → Indexer node → Index node
+  - Drag & drop to connect skill inputs/outputs
+  - GUI operations for node selection, movement, deletion, and edge connection/removal
+- **Skillset CRUD operations**:
+  - List and load existing skillsets (`listSkillsets` / `getSkillset`)
+  - Create/update skillsets (`createOrUpdateSkillset`), delete (`deleteSkillset`)
+  - JSON import/export (clipboard copy, file import)
+- **Built-in skill template catalog (15 types)**: Add skill nodes with one click
+  - Text: Text Split, Key Phrase Extraction, Language Detection, PII Detection, Text Translation, Sentiment V3, Entity Recognition V3, Entity Linking V3, Text Merge
+  - Vision: OCR, Image Analysis
+  - Utility: Conditional, Document Extraction
+  - AI: Azure OpenAI Embedding, ChatCompletion (GenAI Prompt), Custom Web API
+- **Enrichment tree (`/document/…` paths)**:
+  - Visualize skill input/output paths as a tree structure
+  - EnrichmentPathPicker combo-box with path auto-completion
+  - Automatic `/*` wildcard propagation for array outputs (auto-detection of Collection-type skill outputs)
+- **Indexer integration**:
+  - Load existing indexers (`listIndexers` / `getIndexerDefinition`)
+  - GUI editing of `outputFieldMappings` (enrichment path → index field)
+  - Connection from indexer node to index node
+- **Right pane: Skill JSON editing**:
+  - Edit selected skill JSON with CodeMirror
+  - Edit skillset-level properties (`indexProjections`, `knowledgeStore`, `cognitiveServices`, etc.)
+  - JSON diff highlight display showing before/after changes
+- **Debug Runner**:
+  - Azure Blob Storage connection settings (connection string, container name)
+  - Auto-provisioning of temporary debug resources (data source, index, indexer, skillset)
+  - Preview skill outputs with real data via Knowledge Store projections
+  - Automatic Shaper skill generation
+  - 4-step UI: Provision → Run → Fetch → Cleanup
+  - Auto-cleanup feature (automatically delete temporary resources after debug)
+- **Enrichment tree preview**:
+  - Display skill output values in tree structure by `/document/…` path after debug run
+  - Expandable/collapsible display of actual enrichment results
+  - Field mapping visualization
+- **Pipeline state save/restore**:
+  - Persist pipeline configurations in LocalStorage
+  - Save, switch, and delete multiple pipelines
+
+![](./docs/images/screenshot24_en.png)
+
 ## 3. Developer Tools
 
 ### Search Pipeline Visualizer
@@ -263,6 +309,8 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
 - **DOMPurify 3.3** - XSS protection (HTML sanitization)
 - **uuid 13.0** - UUID v4 generation
 - **undici 7.16** - Fast HTTP client (fetch polyfill)
+- **@xyflow/react 12** - Flow chart visualization (used by Skill Pipeline Builder)
+- **dagre 0.8** - Automatic directed graph layout
 
 ### Development Tools
 - **ESLint 9.39** + **typescript-eslint 8.46** - Code quality checking
@@ -289,6 +337,11 @@ ragops-studio/
 │   │   │   ├── KnowledgeBaseBuilder.tsx      # Knowledge base builder
 │   │   │   ├── KnowledgeSourceBuilder.tsx    # Knowledge source builder
 │   │   │   ├── SearchParameterAutoTuning.tsx # Search parameter auto-tuning
+│   │   │   ├── SkillPipelineBuilder.tsx       # Skill pipeline builder
+│   │   │   ├── SkillPipelineDebugRunner.tsx   # Debug runner
+│   │   │   ├── SkillPipelineEnrichmentTreePreview.tsx # Enrichment tree preview
+│   │   │   ├── SkillPipelineRightPane.tsx     # Skill pipeline right pane
+│   │   │   ├── EnrichmentPathPicker.tsx       # Enrichment path picker
 │   │   │   ├── SynonymMapBuilder.tsx         # Synonym map builder
 │   │   │   └── VectorOptimizerBuilder.tsx    # Vector optimizer
 │   │   ├── modals/          # Modal dialogs
@@ -308,6 +361,7 @@ ragops-studio/
 │   │   └── useApiOperations.ts  # API operations hook (Execute logic)
 │   ├── lib/                 # Core logic
 │   │   ├── aiSearchRest.ts  # Azure AI Search REST API client
+│   │   ├── azureBlobStorage.ts # Azure Blob Storage REST client
 │   │   ├── analyzeCatalog.ts # Analyzer catalog definitions
 │   │   ├── db.ts            # IndexedDB operations
 │   │   ├── diffText.ts      # Text diff calculation
@@ -321,9 +375,12 @@ ragops-studio/
 │   ├── utils/               # Utility functions
 │   │   ├── apiHelpers.ts           # API helper functions
 │   │   ├── appRequestBodies.ts     # Request body construction
+│   │   ├── debugRunnerHelpers.ts   # Debug runner helpers
+│   │   ├── enrichmentTree.ts       # Enrichment tree construction
 │   │   ├── helpers.ts              # General helpers
 │   │   ├── localStorage.ts         # Local storage operations
 │   │   ├── searchFacets.ts         # Facet extraction
+│   │   ├── skillPipelineOutputFieldMappings.ts # outputFieldMappings helpers
 │   │   └── index.ts                # Exports
 │   └── App.tsx              # Main application component
 ├── scripts/                 # Build scripts
@@ -449,6 +506,22 @@ During development (`npm run dev`), a Vite development proxy is automatically us
   - **getSynonymMap**: GET /synonymmaps/{name} (get)
   - **createOrUpdateSynonymMap**: PUT /synonymmaps/{name} (create/update)
   - **deleteSynonymMap**: DELETE /synonymmaps/{name} (delete)
+  - **listSkillsets**: GET /skillsets (skillset list)
+  - **getSkillset**: GET /skillsets/{name} (get skillset)
+  - **createOrUpdateSkillset**: PUT /skillsets/{name} (create/update skillset)
+  - **deleteSkillset**: DELETE /skillsets/{name} (delete skillset)
+  - **listIndexers**: GET /indexers (indexer list)
+  - **getIndexerDefinition**: GET /indexers/{name} (get indexer definition)
+  - **createOrUpdateIndexer**: PUT /indexers/{name} (create/update indexer)
+  - **deleteIndexer**: DELETE /indexers/{name} (delete indexer)
+  - **runIndexer**: POST /indexers/{name}/run (run indexer)
+  - **getIndexerStatus**: GET /indexers/{name}/status (get indexer status)
+  - **createOrUpdateDataSource**: PUT /datasources/{name} (create/update data source)
+  - **deleteDataSource**: DELETE /datasources/{name} (delete data source)
+- **Azure Blob Storage REST client** (`src/lib/azureBlobStorage.ts`):
+  - Client-side Account SAS token generation (Web Crypto API / HMAC-SHA256)
+  - Blob listing, JSON blob reading, container deletion
+  - Knowledge Store projection data retrieval and parsing
 - Error handling: Unified success/failure handling with RestResult type
 - Request ID tracking: Automatically adds `x-ms-client-request-id` (UUID v4), retrieves response `request-id` header
 - Development proxy: Connects to Azure via `/api-proxy` when `import.meta.env.DEV` (CORS workaround)
