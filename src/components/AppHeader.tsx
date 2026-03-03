@@ -27,6 +27,7 @@ export type AppHeaderProps = {
   onOpenKnowledgeBaseBuilder: () => void
   onOpenKnowledgeSourceBuilder: () => void
   onOpenSynonymMapBuilder: () => void
+  onOpenSkillPipelineBuilder: () => void
   onOpenSearchPipelineVisualizer: () => void
 }
 
@@ -45,6 +46,7 @@ export function AppHeader({
   onOpenKnowledgeBaseBuilder,
   onOpenKnowledgeSourceBuilder,
   onOpenSynonymMapBuilder,
+  onOpenSkillPipelineBuilder,
   onOpenSearchPipelineVisualizer,
 }: AppHeaderProps) {
   return (
@@ -100,6 +102,9 @@ export function AppHeader({
             </button>
             <button type="button" className="dropdown-item" onClick={onOpenSynonymMapBuilder}>
               📖 Synonym Map Builder
+            </button>
+            <button type="button" className="dropdown-item" onClick={onOpenSkillPipelineBuilder}>
+              🧩 {t('skillPipelineBuilder')}
             </button>
 
             <div className="dropdown__divider" role="separator" />

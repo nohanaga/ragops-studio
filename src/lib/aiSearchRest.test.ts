@@ -245,7 +245,7 @@ describe('lib/aiSearchRest', () => {
   })
 
   it('returns status=0 with a localized network error message when fetch throws', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'))
 
     const result = await searchDocuments({
       profile: {

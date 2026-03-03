@@ -82,6 +82,8 @@ function App() {
     setIsSynonymMapBuilderOpen,
     isIndexBuilderOpen,
     setIsIndexBuilderOpen,
+    isSkillPipelineBuilderOpen,
+    setIsSkillPipelineBuilderOpen,
     isVectorOptimizerOpen,
     setIsVectorOptimizerOpen,
     isFilterBuilderOpen,
@@ -691,6 +693,7 @@ function App() {
     isKnowledgeBaseBuilderOpen,
     isSynonymMapBuilderOpen,
     isIndexBuilderOpen,
+    isSkillPipelineBuilderOpen,
     isVectorOptimizerOpen,
   })
 
@@ -731,6 +734,7 @@ function App() {
     setIsKnowledgeBaseBuilderOpen,
     setIsSynonymMapBuilderOpen,
     setIsIndexBuilderOpen,
+    setIsSkillPipelineBuilderOpen,
     setIsVectorOptimizerOpen,
   })
 
@@ -756,6 +760,7 @@ function App() {
     setIsKnowledgeBaseBuilderOpen,
     setIsSynonymMapBuilderOpen,
     setIsIndexBuilderOpen,
+    setIsSkillPipelineBuilderOpen,
     setIsVectorOptimizerOpen,
   })
 

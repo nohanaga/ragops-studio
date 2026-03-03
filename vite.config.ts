@@ -13,9 +13,10 @@ import { fetch as undiciFetch, ProxyAgent } from 'undici'
  * Allow-list for proxy targets.
  *
  * The dev proxy intentionally restricts upstream hosts to Azure AI Search
- * domains to avoid turning the dev server into an open proxy.
+ * domains **and** Azure Blob Storage (for Knowledge Store projection reads)
+ * to avoid turning the dev server into an open proxy.
  */
-const AIS_ALLOWED_HOST_SUFFIXES = ['.search.windows.net', '.search.azure.com']
+const AIS_ALLOWED_HOST_SUFFIXES = ['.search.windows.net', '.search.azure.com', '.blob.core.windows.net']
 
 /**
  * Reads a proxy URL from common environment variable names.

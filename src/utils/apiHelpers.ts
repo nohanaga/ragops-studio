@@ -100,13 +100,18 @@ export function buildSearchBodyFromForm(mode: LabMode, s: SearchFormState, langu
 }
 
 export function buildAgenticBodyFromForm(s: AgenticFormState): JsonValue {
-  const knowledgeSourceParams = s.knowledgeSourceParams.map(ks => ({
-    knowledgeSourceName: ks.knowledgeSourceName,
-    kind: 'searchIndex',
-    includeReferences: ks.includeReferences,
-    includeReferenceSourceData: ks.includeReferenceSourceData,
-    alwaysQuerySource: ks.alwaysQuerySource,
-  }))
+  const knowledgeSourceParams = s.knowledgeSourceParams.map((ks) => {
+    const base: Record<string, unknown> = {
+      knowledgeSourceName: ks.knowledgeSourceName,
+      kind: ks.kind || 'searchIndex',
+    }
+    if (ks.kind === 'searchIndex' || !ks.kind) {
+      base.includeReferences = ks.includeReferences
+      base.includeReferenceSourceData = ks.includeReferenceSourceData
+      base.alwaysQuerySource = ks.alwaysQuerySource
+    }
+    return base
+  })
   
   return {
     messages: [

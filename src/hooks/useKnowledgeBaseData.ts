@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import type { ConnectionProfile } from '../lib/model'
-import type { AgenticFormState, LabMode } from '../types'
+import type { AgenticFormState, KnowledgeSourceInfo, LabMode } from '../types'
 import type { Language } from '../lib/translations'
 import { translations } from '../lib/translations'
 import { getKnowledgeBase, listKnowledgeBases } from '../lib/aiSearchRest'
@@ -18,7 +18,22 @@ export function useKnowledgeBaseData(params: {
   const [availableKnowledgeBaseNames, setAvailableKnowledgeBaseNames] = useState<string[]>([])
   const [knowledgeBaseNamesLoading, setKnowledgeBaseNamesLoading] = useState(false)
   const [knowledgeBaseNamesError, setKnowledgeBaseNamesError] = useState<string | null>(null)
-  const [availableKnowledgeSources, setAvailableKnowledgeSources] = useState<string[]>([])
+  const [availableKnowledgeSources, setAvailableKnowledgeSources] = useState<KnowledgeSourceInfo[]>([])
+
+  // Reset knowledgeSourceParams when knowledgeBaseName changes so the
+  // fetch-and-init guard (length === 0) works correctly on KB switch.
+  // Skip the first render to preserve persisted state.
+  const prevKbNameRef = useRef(knowledgeBaseName)
+  useEffect(() => {
+    if (prevKbNameRef.current !== knowledgeBaseName) {
+      prevKbNameRef.current = knowledgeBaseName
+      setAvailableKnowledgeSources([])
+      setAgenticForm((prev) => ({
+        ...prev,
+        knowledgeSourceParams: [],
+      }))
+    }
+  }, [knowledgeBaseName, setAgenticForm])
 
   useEffect(() => {
     if (labMode !== 'agentic' || !knowledgeBaseName.trim() || !activeProfile) {
@@ -37,11 +52,11 @@ export function useKnowledgeBaseData(params: {
         if (abortController.signal.aborted) return
 
         if (result.ok && result.response && typeof result.response === 'object') {
-          const kb = result.response as { knowledgeSources?: Array<{ name: string }> }
-          const sources = Array.isArray(kb.knowledgeSources)
+          const kb = result.response as { knowledgeSources?: Array<{ name: string; kind?: string }> }
+          const sources: KnowledgeSourceInfo[] = Array.isArray(kb.knowledgeSources)
             ? kb.knowledgeSources
-                .map((ks) => ks.name)
-                .filter((name): name is string => typeof name === 'string')
+                .filter((ks): ks is { name: string; kind?: string } => typeof ks.name === 'string')
+                .map((ks) => ({ name: ks.name, kind: typeof ks.kind === 'string' ? ks.kind : 'searchIndex' }))
             : []
 
           setAvailableKnowledgeSources(sources)
@@ -50,10 +65,11 @@ export function useKnowledgeBaseData(params: {
             if (prev.knowledgeSourceParams.length === 0 && sources.length > 0) {
               return {
                 ...prev,
-                knowledgeSourceParams: sources.map((name: string) => ({
-                  knowledgeSourceName: name,
-                  includeReferences: true,
-                  includeReferenceSourceData: true,
+                knowledgeSourceParams: sources.map((src) => ({
+                  knowledgeSourceName: src.name,
+                  kind: src.kind,
+                  includeReferences: src.kind === 'searchIndex',
+                  includeReferenceSourceData: src.kind === 'searchIndex',
                   alwaysQuerySource: false,
                 })),
               }

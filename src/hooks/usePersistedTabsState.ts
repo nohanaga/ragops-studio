@@ -17,6 +17,7 @@ export function usePersistedTabsState(params: {
   isKnowledgeBaseBuilderOpen: boolean
   isSynonymMapBuilderOpen: boolean
   isIndexBuilderOpen: boolean
+  isSkillPipelineBuilderOpen: boolean
   isVectorOptimizerOpen: boolean
 }) {
   const {
@@ -31,6 +32,7 @@ export function usePersistedTabsState(params: {
     isKnowledgeBaseBuilderOpen,
     isSynonymMapBuilderOpen,
     isIndexBuilderOpen,
+    isSkillPipelineBuilderOpen,
     isVectorOptimizerOpen,
   } = params
 
@@ -72,6 +74,7 @@ export function usePersistedTabsState(params: {
       isKnowledgeBaseBuilderOpen: isKnowledgeBaseBuilderOpen || normalizedCenterTab === 'knowledge-base-builder',
       isSynonymMapBuilderOpen: isSynonymMapBuilderOpen || normalizedCenterTab === 'synonym-map-builder',
       isIndexBuilderOpen: isIndexBuilderOpen || normalizedCenterTab === 'index-builder',
+      isSkillPipelineBuilderOpen: isSkillPipelineBuilderOpen || normalizedCenterTab === 'skill-pipeline-builder',
       isVectorOptimizerOpen: isVectorOptimizerOpen || normalizedCenterTab === 'vector-optimizer',
     }
 
@@ -104,6 +107,7 @@ export function usePersistedTabsState(params: {
     isKnowledgeBaseBuilderOpen,
     isSynonymMapBuilderOpen,
     isIndexBuilderOpen,
+    isSkillPipelineBuilderOpen,
     isVectorOptimizerOpen,
   ])
 }

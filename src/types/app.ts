@@ -22,6 +22,7 @@ export type CenterTab =
   | 'knowledge-base-builder'
   | 'synonym-map-builder'
   | 'index-builder'
+  | 'skill-pipeline-builder'
 
 export type ResultView = {
   id: 'latest' | `run:${string}`
@@ -125,9 +126,16 @@ export type SearchFormState = {
 
 export type KnowledgeSourceParamItem = {
   knowledgeSourceName: string
+  kind: string
   includeReferences: boolean
   includeReferenceSourceData: boolean
   alwaysQuerySource: boolean
+}
+
+/** Lightweight info about a knowledge source inside a knowledge base. */
+export type KnowledgeSourceInfo = {
+  name: string
+  kind: string
 }
 
 export type AgenticFormState = {
