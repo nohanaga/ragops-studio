@@ -315,7 +315,7 @@ export async function readBlobAsJson(params: {
   }
   try {
     return JSON.parse(text)
-  } catch (e) {
+  } catch {
     throw new Error(
       `Read blob returned non-JSON content (${text.length} bytes). First 200 chars: ${text.slice(0, 200)}`,
     )

@@ -1486,7 +1486,6 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
     newSkillset,
     currentSavedId,
     saveSkillsetError,
-    setSaveSkillsetError,
     savedSkillsets,
     refreshSavedSkillsets,
     saveSkillset,
@@ -1518,7 +1517,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
   const [debugBusy, setDebugBusy] = useState(false)
   const [debugProgress, setDebugProgress] = useState<string | null>(null)
   const debugRunnerRef = useRef<SkillPipelineDebugRunnerHandle | null>(null)
-  const [addSkillTemplateId, setAddSkillTemplateId] = useState<string>('')
+  const [_addSkillTemplateId, setAddSkillTemplateId] = useState<string>('')
   const [nodeContextMenu, setNodeContextMenu] = useState<
     | { kind: 'skill'; x: number; y: number; nodeId: string }
     | { kind: 'doc'; x: number; y: number; nodeId: string }
@@ -1650,105 +1649,6 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
 
   const copySkillset = async () => {
     await copyToClipboard(skillsetJson)
-  }
-
-  const addSkill = () => {
-    setNodes((prev) => {
-      const skillCount = prev.filter((x) => (x as any)?.data?.kind === 'skill').length
-      const n = skillCount + 1
-      const id = uuidv4()
-
-      const skill: SkillPipelineSkillDefinition = addSkillTemplateId
-        ? cloneBuiltInSkillTemplate(addSkillTemplateId, n)
-        : {
-            '@odata.type': '',
-            name: `skill${n}`,
-            context: '/document',
-            inputs: [],
-            outputs: [],
-          }
-
-      if (addSkillTemplateId) {
-        const baseName = typeof skill.name === 'string' ? skill.name.trim() : ''
-        if (baseName && !/\d+$/.test(baseName)) skill.name = `${baseName}${n}`
-      }
-
-      // Ensure the new skill's output targetNames don't collide with existing skills.
-      const existingPaths = collectExistingOutputPaths(prev)
-      deduplicateOutputTargetNames(skill, existingPaths)
-
-      const next: SkillPipelineNode = {
-        id,
-        type: 'skill',
-        position: { x: 80 + (n - 1) * 40, y: 80 + (n - 1) * 30 },
-        data: {
-          kind: 'skill',
-          skill,
-        },
-      }
-      const out = [...prev, next]
-      setSelectedNodeId(id)
-      setDraftSkillJson(JSON.stringify((next.data as any).skill, null, 2))
-      setDraftError(null)
-
-      // Auto-connect based on default inputs (e.g. /document/content).
-      const inputsRaw = (skill as any)?.inputs
-      const inputs = Array.isArray(inputsRaw) ? inputsRaw : []
-      const docRoot = DOC_ROOT_DEFAULT
-      const producedByLengthDesc = computeProducedPaths(out.filter((x) => (x as any)?.data?.kind === 'skill'))
-
-      setEdges((prevEdges) => {
-        const nextEdges = [...prevEdges]
-        const seen = new Set(
-          prevEdges
-            .map((e: any) => {
-              const link = (e as any)?.data as SkillPipelineEdgeLinkData | undefined
-              const sp = typeof link?.sourcePath === 'string' ? link.sourcePath : ''
-              const tn = typeof link?.targetInputName === 'string' ? link.targetInputName : ''
-              const sh = typeof (e as any)?.sourceHandle === 'string' ? String((e as any).sourceHandle) : ''
-              return `${String((e as any)?.source)}(${sh})->${String((e as any)?.target)}|${tn}|${sp}`
-            })
-            .filter(Boolean),
-        )
-
-        for (const input of inputs) {
-          const r = isRecord(input) ? input : {}
-          const source = typeof (r as any)?.source === 'string' ? String((r as any).source).trim() : ''
-          const inputName = typeof (r as any)?.name === 'string' ? String((r as any).name) : ''
-          if (!source || !inputName) continue
-          if (source.startsWith("='")) continue
-          if (source.startsWith('=') && source.includes('$(')) continue
-
-          let sourceId: string | null = null
-          let sourceHandle: string | undefined
-
-          const producerId = findDeterministicProducerId({ source, producedByLengthDesc })
-          if (producerId && producerId !== id) {
-            sourceId = producerId
-          } else if (source === docRoot || source.startsWith(`${docRoot}/`)) {
-            sourceId = SKILL_PIPELINE_DOC_NODE_ID
-            sourceHandle = inferDocSourceHandleForPath(source, docRoot) ?? 'root'
-          }
-
-          if (!sourceId) continue
-          const link: SkillPipelineEdgeLinkData = {
-            sourcePath: source,
-            targetInputName: inputName,
-            created: false,
-            prevSource: '',
-          }
-
-          const k = `${sourceId}(${sourceHandle ?? ''})->${id}|${inputName}|${source}`
-          if (seen.has(k)) continue
-          seen.add(k)
-          nextEdges.push({ id: uuidv4(), source: sourceId, sourceHandle, target: id, data: link } as any)
-        }
-
-        return nextEdges
-      })
-
-      return out
-    })
   }
 
   const isSkillNode = (n: SkillPipelineNode): n is SkillPipelineNode & { data: { kind: 'skill'; skill: SkillPipelineSkillDefinition } } =>

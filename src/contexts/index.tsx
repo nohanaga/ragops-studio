@@ -928,6 +928,8 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       knowledgeStore,
       indexer,
       currentSavedId,
+      baselineSkillsetJson,
+      saveSkillsetError,
       savedSkillsets,
       refreshSavedSkillsets,
       newSkillset,

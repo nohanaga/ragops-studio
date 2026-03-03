@@ -128,13 +128,12 @@ export function EnrichmentPathPicker(props: EnrichmentPathPickerProps) {
   }, [open])
 
   // Close dropdown when value changes externally (e.g. user selected a different node)
-  useEffect(() => {
-    if (value !== lastInternalValue.current) {
-      setOpen(false)
-      setFilter('')
-    }
-    lastInternalValue.current = value
-  }, [value])
+  const [prevValue, setPrevValue] = useState(value)
+  if (value !== prevValue) {
+    setPrevValue(value)
+    if (open) setOpen(false)
+    if (filter) setFilter('')
+  }
 
   // Filter paths — always include the full list when filter is empty.
   // If current value is not in paths, prepend it as a custom entry.

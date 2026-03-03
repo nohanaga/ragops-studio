@@ -562,7 +562,7 @@ export function SkillPipelineRightPane(props: {
   )
 
   /** Remove a top-level property from the skill. */
-  const removeSkillField = useCallback(
+  const _removeSkillField = useCallback(
     (key: string) => {
       if (!selectedSkillObject) return
       const updated = { ...selectedSkillObject }
@@ -634,7 +634,7 @@ export function SkillPipelineRightPane(props: {
   }, [selectedSkillObject, commitSkillUpdate, newPropKey])
 
   /** Smartly update an extra property value — detect type and parse. */
-  const updateExtraProperty = useCallback(
+  const _updateExtraProperty = useCallback(
     (key: string, rawValue: string) => {
       if (!selectedSkillObject) return
       let parsed: unknown = rawValue
@@ -708,7 +708,7 @@ export function SkillPipelineRightPane(props: {
   )
 
   /** Remove a field from the indexer. */
-  const removeIndexerField = useCallback(
+  const _removeIndexerField = useCallback(
     (key: string) => {
       if (!indexer) return
       const updated = { ...indexer }
@@ -780,7 +780,7 @@ export function SkillPipelineRightPane(props: {
   }, [indexer, commitIndexerUpdate, newIndexerPropKey])
 
   /** Smartly parse extra property values for indexer. */
-  const updateIndexerExtraProperty = useCallback(
+  const _updateIndexerExtraProperty = useCallback(
     (key: string, rawValue: string) => {
       if (!indexer) return
       let parsed: unknown = rawValue
