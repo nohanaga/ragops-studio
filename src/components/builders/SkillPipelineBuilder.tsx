@@ -2803,6 +2803,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
           <button type="button" className="btn btn--sm" onClick={copySkillset} title={t('spbCopySkillsetJson')}>
             <i className="bi bi-clipboard"></i>
           </button>
+          <span style={{ flex: 1 }} />
           <button
             type="button"
             className="btn btn--sm"
@@ -3576,6 +3577,11 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
         publishCandidateJson={publishFlow.publishCandidateJson}
         semanticDiff={publishFlow.semanticDiff}
         normalizedDiffLineSets={publishFlow.normalizedDiffLineSets}
+        publishTargetName={publishFlow.publishTargetName}
+        isNewSkillset={publishFlow.isNewSkillset}
+        refetchingBaseline={publishFlow.refetchingBaseline}
+        onChangeTargetName={publishFlow.changeTargetName}
+        existingSkillsetNames={publishFlow.existingSkillsetNames}
       />
     </div>
   )

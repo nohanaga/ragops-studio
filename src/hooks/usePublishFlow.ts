@@ -15,7 +15,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { diffLines } from 'diff'
 
 import type { ConnectionProfile, SearchApiVersion } from '../lib/model'
-import { createOrUpdateSkillset, getSkillset } from '../lib/aiSearchRest'
+import { createOrUpdateSkillset, getSkillset, listSkillsets } from '../lib/aiSearchRest'
 import { useSkillPipelineState } from '../contexts'
 import type { Language } from '../lib/translations'
 import { translations } from '../lib/translations'
@@ -66,6 +66,14 @@ export interface UsePublishFlowReturn {
   publishOkMessage: string | null
   diffViewMode: 'semantic' | 'text'
   setDiffViewMode: (mode: 'semantic' | 'text') => void
+  /** The name under which the skillset will be published to Azure. */
+  publishTargetName: string
+  /** Whether the target skillset does not exist on Azure (will be created). */
+  isNewSkillset: boolean
+  /** Whether a baseline re-fetch is in progress. */
+  refetchingBaseline: boolean
+  /** Names of skillsets that already exist on Azure (fetched when the dialog opens). */
+  existingSkillsetNames: string[]
 
   /* computed */
   publishBaselineText: string
@@ -83,6 +91,8 @@ export interface UsePublishFlowReturn {
   closeDiffDialog: () => void
   /** Dismiss error / ok message. */
   clearMessages: () => void
+  /** Change the target skillset name and re-fetch the baseline. */
+  changeTargetName: (name: string) => void
 }
 
 export function usePublishFlow({ profile, apiVersion, language, t }: UsePublishFlowArgs): UsePublishFlowReturn {
@@ -106,6 +116,10 @@ export function usePublishFlow({ profile, apiVersion, language, t }: UsePublishF
   const [publishError, setPublishError] = useState<string | null>(null)
   const [publishOkMessage, setPublishOkMessage] = useState<string | null>(null)
   const [diffViewMode, setDiffViewMode] = useState<'semantic' | 'text'>('semantic')
+  const [publishTargetName, setPublishTargetName] = useState('')
+  const [isNewSkillset, setIsNewSkillset] = useState(false)
+  const [refetchingBaseline, setRefetchingBaseline] = useState(false)
+  const [existingSkillsetNames, setExistingSkillsetNames] = useState<string[]>([])
 
   // ── Computed baseline & candidate ────────────────────────────────────
   const publishBaselineText = useMemo(() => {
@@ -207,19 +221,38 @@ export function usePublishFlow({ profile, apiVersion, language, t }: UsePublishF
     }
 
     const name = skillsetName.trim() || 'skillset1'
+    setPublishTargetName(name)
     setPublishOkMessage(null)
     setPublishError(null)
     setPublishLoading(true)
 
     try {
-      const res = await getSkillset({ profile, skillsetName: name, apiVersion, language })
+      // Fetch baseline and existing skillset list in parallel.
+      const [res, listRes] = await Promise.all([
+        getSkillset({ profile, skillsetName: name, apiVersion, language }),
+        listSkillsets({ profile, apiVersion, language }),
+      ])
+
+      // Populate existing skillset names for the dropdown.
+      if (listRes.ok) {
+        const value = (listRes.response as any)?.value
+        const names = Array.isArray(value)
+          ? value
+              .map((x: any) => (x && typeof x.name === 'string' ? x.name : null))
+              .filter((x: any): x is string => typeof x === 'string')
+          : []
+        setExistingSkillsetNames(names)
+      }
+
       if (res.ok) {
         const obj = res.response as any
         const { ['@odata.etag']: _etag, ...rest } = obj && typeof obj === 'object' ? obj : ({} as any)
         setPublishBeforeJson(JSON.stringify(rest, null, 2))
+        setIsNewSkillset(false)
       } else {
         if (res.status === 404) {
           setPublishBeforeJson('')
+          setIsNewSkillset(true)
         } else {
           setPublishError(res.error.message)
           return
@@ -243,7 +276,7 @@ export function usePublishFlow({ profile, apiVersion, language, t }: UsePublishF
       return
     }
 
-    const name = skillsetName.trim() || 'skillset1'
+    const name = publishTargetName.trim() || skillsetName.trim() || 'skillset1'
     setPublishOkMessage(null)
     setPublishError(null)
     setPublishLoading(true)
@@ -254,7 +287,7 @@ export function usePublishFlow({ profile, apiVersion, language, t }: UsePublishF
         skillsetName: name,
         apiVersion,
         language,
-        body: publishCandidateObject as any,
+        body: { ...publishCandidateObject, name } as any,
       })
       if (!put.ok) {
         setPublishError(put.error.message)
@@ -270,7 +303,33 @@ export function usePublishFlow({ profile, apiVersion, language, t }: UsePublishF
     } finally {
       setPublishLoading(false)
     }
-  }, [profile, skillsetName, apiVersion, language, publishCandidateObject, setBaselineSkillsetJson, t])
+  }, [profile, publishTargetName, skillsetName, apiVersion, language, publishCandidateObject, setBaselineSkillsetJson, t])
+
+  /** Change the target skillset name and re-fetch the Azure baseline. */
+  const changeTargetName = useCallback((newName: string) => {
+    setPublishTargetName(newName)
+    if (!profile || !newName.trim()) return
+
+    // Re-fetch baseline for the new target name.
+    setRefetchingBaseline(true)
+    setPublishError(null)
+    getSkillset({ profile, skillsetName: newName.trim(), apiVersion, language })
+      .then((res) => {
+        if (res.ok) {
+          const obj = res.response as any
+          const { ['@odata.etag']: _etag, ...rest } = obj && typeof obj === 'object' ? obj : ({} as any)
+          setPublishBeforeJson(JSON.stringify(rest, null, 2))
+          setIsNewSkillset(false)
+        } else if (res.status === 404) {
+          setPublishBeforeJson('')
+          setIsNewSkillset(true)
+        } else {
+          setPublishError(res.error.message)
+        }
+      })
+      .catch((e) => setPublishError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setRefetchingBaseline(false))
+  }, [profile, apiVersion, language])
 
   const closeDiffDialog = useCallback(() => {
     setSaveDiffOpen(false)
@@ -288,6 +347,10 @@ export function usePublishFlow({ profile, apiVersion, language, t }: UsePublishF
     publishOkMessage,
     diffViewMode,
     setDiffViewMode,
+    publishTargetName,
+    isNewSkillset,
+    refetchingBaseline,
+    existingSkillsetNames,
     publishBaselineText,
     publishCandidateJson,
     publishCandidateObject,
@@ -297,5 +360,6 @@ export function usePublishFlow({ profile, apiVersion, language, t }: UsePublishF
     publishToAzure,
     closeDiffDialog,
     clearMessages,
+    changeTargetName,
   }
 }

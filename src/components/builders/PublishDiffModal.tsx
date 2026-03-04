@@ -9,7 +9,7 @@
  * both the center-pane toolbar and the right-pane buttons.
  */
 
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { ExpandableCodeMirror } from '../viewers/ExpandableCodeMirror'
 import { githubDark, githubLight } from '@uiw/codemirror-theme-github'
@@ -140,6 +140,17 @@ export interface PublishDiffModalProps {
   publishCandidateJson: string
   semanticDiff: SkillsetDiffResult | null
   normalizedDiffLineSets: { left: Set<number>; right: Set<number> }
+
+  /** The target skillset name on Azure. */
+  publishTargetName: string
+  /** Whether the target is a new skillset (404). */
+  isNewSkillset: boolean
+  /** Whether a baseline re-fetch is in progress. */
+  refetchingBaseline: boolean
+  /** Called when the user changes the target name. */
+  onChangeTargetName: (name: string) => void
+  /** Names of existing skillsets on Azure (for the dropdown). */
+  existingSkillsetNames: string[]
 }
 
 // ── Component ───────────────────────────────────────────────────────────
@@ -160,7 +171,39 @@ export function PublishDiffModal(props: PublishDiffModalProps) {
     publishCandidateJson,
     semanticDiff,
     normalizedDiffLineSets,
+    publishTargetName,
+    isNewSkillset,
+    refetchingBaseline,
+    onChangeTargetName,
+    existingSkillsetNames,
   } = props
+
+  // ── Dropdown "create new" mode ───────────────────────────────────────
+  const CREATE_NEW_SENTINEL = '__create_new__'
+  const [creatingNew, setCreatingNew] = useState(false)
+
+  // When the dialog opens, decide initial mode based on existing names.
+  useEffect(() => {
+    if (open) {
+      const nameInList = existingSkillsetNames.includes(publishTargetName)
+      setCreatingNew(!nameInList)
+    }
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSelectChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const val = e.target.value
+      if (val === CREATE_NEW_SENTINEL) {
+        setCreatingNew(true)
+        // Clear to an empty new name (user will type).
+        onChangeTargetName('')
+      } else {
+        setCreatingNew(false)
+        onChangeTargetName(val)
+      }
+    },
+    [onChangeTargetName],
+  )
 
   const codeMirrorTheme = useMemo(() => {
     const isLight = theme === 'light' || theme === 'solarized'
@@ -229,6 +272,70 @@ export function PublishDiffModal(props: PublishDiffModalProps) {
           </div>
         </div>
         <div className="modal-body" style={{ padding: 12 }}>
+          {/* ── Target Skillset Name ──────────────────────────── */}
+          <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <label style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}>
+              <i className="bi bi-cloud-upload" style={{ marginRight: 4 }}></i>
+              {t('spbPublishTargetName')}:
+            </label>
+
+            {/* Dropdown: existing skillsets + "Create new" option */}
+            <select
+              value={creatingNew ? CREATE_NEW_SENTINEL : publishTargetName}
+              onChange={handleSelectChange}
+              style={{ flex: '0 1 280px', fontSize: 13 }}
+            >
+              {existingSkillsetNames.length > 0 && (
+                <optgroup label={t('spbPublishSelectExisting')}>
+                  {existingSkillsetNames.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </optgroup>
+              )}
+              <option value={CREATE_NEW_SENTINEL}>{t('spbPublishCreateNewOption')}</option>
+            </select>
+
+            {/* When "create new" is selected, show a text input for the name */}
+            {creatingNew && (
+              <input
+                type="text"
+                value={publishTargetName}
+                onChange={(e) => onChangeTargetName(e.target.value)}
+                placeholder={t('spbPublishNewNamePlaceholder')}
+                style={{ flex: '1 1 200px', maxWidth: 300, fontSize: 13 }}
+                autoFocus
+              />
+            )}
+
+            {refetchingBaseline ? (
+              <span style={{ fontSize: 11, opacity: 0.7 }}>
+                <i className="bi bi-arrow-repeat" style={{ marginRight: 3 }}></i>
+                {t('spbPublishRefetching')}
+              </span>
+            ) : (
+              <span
+                style={{
+                  display: 'inline-block',
+                  padding: '2px 8px',
+                  borderRadius: 4,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: isNewSkillset ? '#22863a' : '#0366d6',
+                  background: isNewSkillset ? '#dcffe4' : '#dbedff',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {isNewSkillset ? t('spbPublishCreateNew') : t('spbPublishUpdateExisting')}
+              </span>
+            )}
+          </div>
+          {creatingNew && (
+            <div className="section__hint" style={{ marginBottom: 8, fontSize: 12, color: 'var(--success, #22863a)' }}>
+              <i className="bi bi-info-circle" style={{ marginRight: 4 }}></i>
+              {t('spbPublishTargetNameHint')}
+            </div>
+          )}
+
           <div className="section__hint" style={{ marginBottom: 10 }}>
             {t('spbSaveConfirmHint')}
             <br />
@@ -366,7 +473,13 @@ export function PublishDiffModal(props: PublishDiffModalProps) {
               onClick={onConfirmPublish}
               disabled={(semanticDiff?.identical && publishBaselineText === publishCandidateJson) || publishLoading}
               title={semanticDiff?.identical ? t('spbFormatOnlyChanges') : ''}
+              style={
+                (semanticDiff?.identical && publishBaselineText === publishCandidateJson) || publishLoading
+                  ? undefined
+                  : { background: 'var(--accent)', color: 'var(--accent-fg, #fff)', border: 'none' }
+              }
             >
+              <i className="bi bi-cloud-upload" style={{ marginRight: 4 }}></i>
               {publishLoading ? t('spbPublishing') : t('spbSaveConfirmPublish')}
             </button>
           </div>
