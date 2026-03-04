@@ -18,6 +18,7 @@ import { formatLocalDateTime } from '../../utils/helpers'
 import { unifiedDiff } from '../../lib/diffText'
 import type { JsonValue } from '../../lib/aiSearchRest'
 import { JsonViewer } from './JsonViewer'
+import { AgenticActivityTimeline } from './AgenticActivityTimeline'
 import { JSON_VIEWER_MAX_STRING_LENGTH } from '../../app/constants'
 import DOMPurify from 'dompurify'
 
@@ -571,120 +572,10 @@ export function ResultViewPanel({ view, currentPage, onPageChange, t, compareMod
                     </div>
                   )}
                   
-                  {/* Activity Array */}
+                  {/* Activity Array (hierarchical timeline) */}
                   {activity && activity.length > 0 && (
                     <div className="section">
-                      <div className="section__title">Activity (Query Plan)</div>
-                      <div className="resultList">
-                        {activity.map((actValue, idx) => {
-                          if (!isJsonObject(actValue)) return null
-
-                          const actType = typeof actValue.type === 'string' ? actValue.type : ''
-                          const id = (typeof actValue.id === 'string' || typeof actValue.id === 'number') ? String(actValue.id) : ''
-
-                          const elapsedMs = typeof actValue.elapsedMs === 'number' ? actValue.elapsedMs : undefined
-                          const inputTokens = typeof actValue.inputTokens === 'number' ? actValue.inputTokens : undefined
-                          const outputTokens = typeof actValue.outputTokens === 'number' ? actValue.outputTokens : undefined
-                          const reasoningTokens = typeof actValue.reasoningTokens === 'number' ? actValue.reasoningTokens : undefined
-                          const count = typeof actValue.count === 'number' ? actValue.count : undefined
-                          const knowledgeSourceName = typeof actValue.knowledgeSourceName === 'string' ? actValue.knowledgeSourceName : ''
-
-                          const retrievalReasoningEffortObj = isJsonObject(actValue.retrievalReasoningEffort)
-                            ? actValue.retrievalReasoningEffort
-                            : null
-                          const retrievalReasoningEffortKind = typeof retrievalReasoningEffortObj?.kind === 'string'
-                            ? retrievalReasoningEffortObj.kind
-                            : ''
-
-                          const searchIndexArguments = isJsonObject(actValue.searchIndexArguments) ? actValue.searchIndexArguments : null
-                          const search = typeof searchIndexArguments?.search === 'string' ? searchIndexArguments.search : ''
-                          
-                          return (
-                            <div key={idx} className={'resultCard' + (compareMode ? ' resultCard--compare' : '')}>
-                              {compareMode ? (
-                                <div className="resultCard__top">
-                                  <div className="resultCard__title">{actType} (id: {id})</div>
-                                </div>
-                              ) : (
-                                <>
-                                  <div className="resultCard__top">
-                                    <div className="resultCard__title">
-                                      {actType} (id: {id})
-                                    </div>
-                                  </div>
-                                  <div className="kv">
-                                    {elapsedMs !== undefined && (
-                                      <div className="kv__row">
-                                        <div className="kv__k">elapsedMs</div>
-                                        <div className="kv__v mono">{elapsedMs}</div>
-                                      </div>
-                                    )}
-                                    {inputTokens !== undefined && (
-                                      <div className="kv__row">
-                                        <div className="kv__k">inputTokens</div>
-                                        <div className="kv__v mono">{inputTokens}</div>
-                                      </div>
-                                    )}
-                                    {outputTokens !== undefined && (
-                                      <div className="kv__row">
-                                        <div className="kv__k">outputTokens</div>
-                                        <div className="kv__v mono">{outputTokens}</div>
-                                      </div>
-                                    )}
-                                    {reasoningTokens !== undefined && (
-                                      <div className="kv__row">
-                                        <div className="kv__k">reasoningTokens</div>
-                                        <div className="kv__v mono">{reasoningTokens}</div>
-                                      </div>
-                                    )}
-                                    {retrievalReasoningEffortKind && (
-                                      <div className="kv__row">
-                                        <div className="kv__k">retrievalReasoningEffort</div>
-                                        <div className="kv__v mono">{retrievalReasoningEffortKind}</div>
-                                      </div>
-                                    )}
-                                    {count !== undefined && (
-                                      <div className="kv__row">
-                                        <div className="kv__k">count</div>
-                                        <div className="kv__v mono">{count}</div>
-                                      </div>
-                                    )}
-                                    {knowledgeSourceName && (
-                                      <div className="kv__row">
-                                        <div className="kv__k">knowledgeSourceName</div>
-                                        <div className="kv__v mono">{knowledgeSourceName}</div>
-                                      </div>
-                                    )}
-                                    {search && (
-                                      <div className="kv__row">
-                                        <div className="kv__k">search</div>
-                                        <div className="kv__v mono">{search}</div>
-                                      </div>
-                                    )}
-                                  </div>
-                                  <LazyDetails
-                                    key={`${rawDetailsResetKey}:raw-activity:${idx}`}
-                                    className="resultCard__details"
-                                    summaryText="RAW ACTIVITY"
-                                    render={() => (
-                                      <div className="mono jsonViewer__body rawJsonViewer">
-                                        <JsonViewer
-                                          data={actValue as unknown as JsonValue}
-                                          initialOpenDepth={2}
-                                          maxStringLength={JSON_VIEWER_MAX_STRING_LENGTH}
-                                          hideRootObjectToggle
-                                          collapseArraysByDefault
-                                          t={t}
-                                        />
-                                      </div>
-                                    )}
-                                  />
-                                </>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
+                      <AgenticActivityTimeline activity={activity} t={t} />
                     </div>
                   )}
                 </>

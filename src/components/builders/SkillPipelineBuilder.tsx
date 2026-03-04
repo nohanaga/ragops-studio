@@ -53,6 +53,8 @@ import {
   removeOutputFieldMappingFromIndexer,
   type IndexerLike,
 } from '../../utils/skillPipelineOutputFieldMappings'
+import { usePublishFlow } from '../../hooks/usePublishFlow'
+import { PublishDiffModal } from './PublishDiffModal'
 
 type SkillPipelineEdgeLinkData = {
   sourcePath?: string
@@ -1512,6 +1514,9 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
     setDebugFetchedDocs,
   } = useSkillPipelineState()
 
+  // ── Publish-to-Azure flow (shared with RightPane) ───────────────────
+  const publishFlow = usePublishFlow({ profile, apiVersion, language, t })
+
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const [mainTab, setMainTab] = useState<'graph' | 'skillsetJson' | 'debugRunner' | 'enrichmentTree'>('graph')
   const [debugBusy, setDebugBusy] = useState(false)
@@ -2788,12 +2793,30 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
             <i className="bi bi-arrow-clockwise"></i>
           </button>
           <button type="button" className="btn btn--sm" onClick={loadRemoteSkillset} disabled={!profile || remoteLoading || !remoteSelected} title={t('spbToolbarLoad')}>
-            <i className="bi bi-box-arrow-in-down"></i>
+            <i className="bi bi-file-earmark-play"></i>
           </button>
           <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
           <button type="button" className="btn btn--sm" onClick={onNewSkillset} title={t('spbNew')}>
             <i className="bi bi-file-earmark-plus"></i>
           </button>
+          <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px' }} />
+          <button type="button" className="btn btn--sm" onClick={copySkillset} title={t('spbCopySkillsetJson')}>
+            <i className="bi bi-clipboard"></i>
+          </button>
+          <span style={{ flex: 1 }} />
+          <button
+            type="button"
+            className="btn btn--sm"
+            onClick={publishFlow.onPublishClick}
+            disabled={publishFlow.publishLoading}
+            title={t('spbPublish')}
+            style={publishFlow.publishLoading ? undefined : { background: 'var(--accent)', color: 'var(--accent-fg, #fff)', border: 'none' }}
+          >
+            <i className="bi bi-cloud-upload" style={{ marginRight: 4 }}></i>
+            {publishFlow.publishLoading ? t('spbPublishing') : t('spbPublish')}
+          </button>
+          {publishFlow.publishError && <span className="notice notice--error builder__notice" style={{ fontSize: 12 }}>{publishFlow.publishError}</span>}
+          {publishFlow.publishOkMessage && <span style={{ fontSize: 12, color: 'var(--success, #22863a)' }}>{publishFlow.publishOkMessage}</span>}
           {remoteError && <div className="notice notice--error builder__notice" style={{ fontSize: 12 }}>{remoteError}</div>}
         </div>
 
@@ -2861,7 +2884,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                     {new Date(item.updatedAt).toLocaleString()}
                   </span>
                   <button type="button" className="btn btn--sm" onClick={() => onLoadSaved(item.id)} title={t('spbLoad')}>
-                    <i className="bi bi-box-arrow-in-down"></i>
+                    <i className="bi bi-file-earmark-play"></i>
                   </button>
                   <button type="button" className="btn btn--sm" onClick={() => onCloneSaved(item.id)} title={t('spbClone')}>
                     <i className="bi bi-copy"></i>
@@ -2904,11 +2927,6 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
           >
             {t('spbTabEnrichmentTree')}
           </button>
-          {mainTab === 'skillsetJson' ? (
-            <button type="button" className="btn" onClick={copySkillset}>
-              <i className="bi bi-clipboard"></i> {t('spbCopySkillsetJson')}
-            </button>
-          ) : null}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
             {debugBusy && debugProgress ? (
               <span style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -3542,6 +3560,29 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
           </div>
         </div>
       </div>
+
+      {/* ── Publish to Azure confirmation modal (rendered always, controlled by hook) ─── */}
+      <PublishDiffModal
+        t={t}
+        language={language}
+        theme={theme}
+        copyToClipboard={copyToClipboard}
+        open={publishFlow.saveDiffOpen}
+        onClose={publishFlow.closeDiffDialog}
+        onConfirmPublish={publishFlow.publishToAzure}
+        publishLoading={publishFlow.publishLoading}
+        diffViewMode={publishFlow.diffViewMode}
+        setDiffViewMode={publishFlow.setDiffViewMode}
+        publishBaselineText={publishFlow.publishBaselineText}
+        publishCandidateJson={publishFlow.publishCandidateJson}
+        semanticDiff={publishFlow.semanticDiff}
+        normalizedDiffLineSets={publishFlow.normalizedDiffLineSets}
+        publishTargetName={publishFlow.publishTargetName}
+        isNewSkillset={publishFlow.isNewSkillset}
+        refetchingBaseline={publishFlow.refetchingBaseline}
+        onChangeTargetName={publishFlow.changeTargetName}
+        existingSkillsetNames={publishFlow.existingSkillsetNames}
+      />
     </div>
   )
 }
