@@ -116,6 +116,8 @@ export type BuilderTabPaneProps = {
   // JSON builder mode
   requestJson: string
   setRequestJson: React.Dispatch<React.SetStateAction<string>>
+  runNote: string
+  setRunNote: React.Dispatch<React.SetStateAction<string>>
 
   // Errors + log
   uiError: string | null
@@ -204,6 +206,8 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
     toggleCsvSelection,
     requestJson,
     setRequestJson,
+    runNote,
+    setRunNote,
     uiError,
     uiLog,
     setUiError,
@@ -530,6 +534,26 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
         {builderMode === 'json' && (
           <RequestJsonEditor requestJson={requestJson} setRequestJson={setRequestJson} />
         )}
+
+        <details className="advancedPanel">
+          <summary className="advancedPanel__summary">
+            {t('experimentNote')} <i className="bi bi-journal-text"></i>
+          </summary>
+
+          <div className="advancedPanel__content">
+            <div className="field__hint">{t('experimentNoteHint')}</div>
+            <label className="field field--full">
+              <span className="field__label">{t('experimentNote')}</span>
+              <textarea
+                className="field__textarea"
+                rows={4}
+                value={runNote}
+                onChange={(e) => setRunNote(e.target.value)}
+                placeholder={t('experimentNotePlaceholder')}
+              />
+            </label>
+          </div>
+        </details>
 
         <BuilderErrorNotice
         t={t}

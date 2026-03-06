@@ -380,6 +380,8 @@ type BuilderStateContextValue = {
   setAnalyzeForm: Dispatch<SetStateAction<AnalyzeFormState>>
   requestJson: string
   setRequestJson: Dispatch<SetStateAction<string>>
+  runNote: string
+  setRunNote: Dispatch<SetStateAction<string>>
   indexName: string
   setIndexName: Dispatch<SetStateAction<string>>
   knowledgeBaseName: string
@@ -410,6 +412,7 @@ export function BuilderStateProvider(props: { children: ReactNode; language: Lan
     tokenFilters: '',
   })
   const [requestJson, setRequestJson] = useState('')
+  const [runNote, setRunNote] = useState('')
   const [indexName, setIndexName] = useState('')
   const [knowledgeBaseName, setKnowledgeBaseName] = useState('')
 
@@ -427,12 +430,14 @@ export function BuilderStateProvider(props: { children: ReactNode; language: Lan
       setAnalyzeForm,
       requestJson,
       setRequestJson,
+      runNote,
+      setRunNote,
       indexName,
       setIndexName,
       knowledgeBaseName,
       setKnowledgeBaseName,
     }),
-    [labMode, builderMode, searchForm, agenticForm, analyzeForm, requestJson, indexName, knowledgeBaseName]
+    [labMode, builderMode, searchForm, agenticForm, analyzeForm, requestJson, runNote, indexName, knowledgeBaseName]
   )
 
   return <BuilderStateContext.Provider value={value}>{props.children}</BuilderStateContext.Provider>

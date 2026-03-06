@@ -25,6 +25,7 @@ export function useApiOperations(args: {
   selectedExperimentId: string | null
   requestJson: string
   searchForm: SearchFormState
+  runNote: string
   language: Language
   t: (key: TranslationKey) => string
   setUiError: (error: string | null) => void
@@ -44,6 +45,7 @@ export function useApiOperations(args: {
     selectedExperimentId,
     requestJson,
     searchForm,
+    runNote,
     language,
     t,
     setUiError,
@@ -122,6 +124,7 @@ export function useApiOperations(args: {
         context,
         params: body,
         metrics: {},
+        note: runNote.trim() || undefined,
       })
 
       // Persist the exact request JSON as an artifact.
@@ -367,6 +370,7 @@ export function useApiOperations(args: {
           context,
           params: body,
           metrics: {},
+          note: runNote.trim() || undefined,
         })
 
         const requestPretty = JSON.stringify(body ?? {}, null, 2)

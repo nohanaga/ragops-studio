@@ -26,6 +26,7 @@ import {
   TextToVectorModal,
   VectorOptimizerBuilder,
 } from './index'
+import { extractQueryString } from '../utils'
 import { QueryPerformanceTester } from './viewers/QueryPerformanceTester'
 import { useTheme, useSettings, useModalState, useUiState, useBuilderState, useExperiment } from '../contexts'
 
@@ -238,6 +239,8 @@ export function AppLayout(props: {
     setAnalyzeForm,
     requestJson,
     setRequestJson,
+    runNote,
+    setRunNote,
     indexName,
     setIndexName,
     knowledgeBaseName,
@@ -257,9 +260,9 @@ export function AppLayout(props: {
     const q = runQueryFilterText.trim().toLowerCase()
     if (!q) return runs
     return runs.filter((run) => {
-      const params = run.params as Record<string, unknown>
-      const queryText = params?.search ?? params?.query ?? ''
-      return String(queryText).toLowerCase().includes(q)
+      const preview = extractQueryString(run.params)
+      const note = run.note?.trim() ?? ''
+      return preview.toLowerCase().includes(q) || note.toLowerCase().includes(q)
     })
   }, [runs, runQueryFilterText])
 
@@ -827,6 +830,8 @@ export function AppLayout(props: {
                 toggleCsvSelection={toggleCsvSelection}
                 requestJson={requestJson}
                 setRequestJson={setRequestJson}
+                runNote={runNote}
+                setRunNote={setRunNote}
                 uiError={uiError}
                 uiLog={uiLog}
                 setUiError={setUiError}
@@ -870,6 +875,7 @@ export function AppLayout(props: {
                 defaultIdFieldName={props.requestBuilderKeyFieldName}
                 searchForm={searchForm}
                 setSearchForm={setSearchForm}
+                runNote={runNote}
                 selectedExperimentId={selectedExperimentId}
                 reloadRuns={reloadRuns}
                 restoreRunId={autoTuningRestoreRunId}
@@ -947,6 +953,7 @@ export function AppLayout(props: {
                   activeProfile={activeProfile}
                   indexName={indexName}
                   searchForm={searchForm}
+                  runNote={runNote}
                   selectedExperimentId={selectedExperimentId}
                   reloadRuns={reloadRuns}
                   restoreRunId={qpsTesterRestoreRunId}

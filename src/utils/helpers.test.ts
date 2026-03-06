@@ -32,6 +32,19 @@ describe('utils/helpers', () => {
     expect(extractQueryString({ text: 'analyze me' })).toBe('analyze me')
   })
 
+  it('extractQueryString returns agentic message content when present', () => {
+    expect(
+      extractQueryString({
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: 'agentic prompt text' }],
+          },
+        ],
+      }),
+    ).toBe('agentic prompt text')
+  })
+
   it('extractQueryString returns empty for unknown shapes', () => {
     expect(extractQueryString(null)).toBe('')
     expect(extractQueryString({})).toBe('')

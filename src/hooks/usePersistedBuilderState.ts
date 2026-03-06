@@ -8,6 +8,7 @@ type PersistedBuilderState = {
   agenticForm?: AgenticFormState
   analyzeForm?: AnalyzeFormState
   requestJson?: string
+  runNote?: string
   indexName?: string
   knowledgeBaseName?: string
 }
@@ -42,6 +43,7 @@ export function loadPersistedBuilderState(experimentId: string): PersistedBuilde
     if (isBuilderMode(parsed.builderMode)) next.builderMode = parsed.builderMode
 
     if (typeof parsed.requestJson === 'string') next.requestJson = parsed.requestJson
+    if (typeof parsed.runNote === 'string') next.runNote = parsed.runNote
     if (typeof parsed.indexName === 'string') next.indexName = parsed.indexName
     if (typeof parsed.knowledgeBaseName === 'string') next.knowledgeBaseName = parsed.knowledgeBaseName
 
@@ -76,6 +78,9 @@ export function usePersistedBuilderState(params: {
   requestJson: string
   setRequestJson: (v: string) => void
 
+  runNote: string
+  setRunNote: (v: string) => void
+
   indexName: string
   setIndexName: (v: string) => void
 
@@ -96,6 +101,8 @@ export function usePersistedBuilderState(params: {
     setAnalyzeForm,
     requestJson,
     setRequestJson,
+    runNote,
+    setRunNote,
     indexName,
     setIndexName,
     knowledgeBaseName,
@@ -153,6 +160,7 @@ export function usePersistedBuilderState(params: {
     if (restored.analyzeForm) setAnalyzeForm(restored.analyzeForm)
 
     if (typeof restored.requestJson === 'string') setRequestJson(restored.requestJson)
+  if (typeof restored.runNote === 'string') setRunNote(restored.runNote)
 
     // Mark restoration as complete
     hasRestoredRef.current = true
@@ -164,6 +172,7 @@ export function usePersistedBuilderState(params: {
     setIndexName,
     setKnowledgeBaseName,
     setLabMode,
+    setRunNote,
     setRequestJson,
     setSearchForm,
   ])
@@ -180,6 +189,7 @@ export function usePersistedBuilderState(params: {
       agenticForm,
       analyzeForm,
       requestJson,
+      runNote,
       indexName,
       knowledgeBaseName,
     }
@@ -197,6 +207,7 @@ export function usePersistedBuilderState(params: {
     agenticForm,
     analyzeForm,
     requestJson,
+    runNote,
     indexName,
     knowledgeBaseName,
   ])
