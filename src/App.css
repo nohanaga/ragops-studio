@@ -1108,6 +1108,7 @@ summary.section__title {
 
 .advancedPanel {
   grid-column: 1 / -1;
+  margin-top: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
@@ -2358,8 +2359,14 @@ select:focus {
   display: flex;
   gap: 8px;
   align-items: baseline;
+  justify-content: space-between;
   min-width: 0;
   overflow: hidden;
+}
+
+.run__timestamp {
+  flex: 0 0 auto;
+  text-align: right;
 }
 
 .run__type {
@@ -2450,6 +2457,52 @@ html[data-theme='solarized'] .run__type--auto_tuning {
   color: var(--subtle);
   min-width: 0;
   overflow: hidden;
+}
+
+.run__summaryRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.run__identityRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.run__metrics {
+  flex: 0 0 auto;
+  text-align: right;
+  color: var(--subtle);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  opacity: 0.9;
+}
+
+.run__note {
+  flex: 1 1 auto;
+  font-size: 10px;
+  color: var(--subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+.run__id {
+  flex: 0 0 auto;
+  text-align: right;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.run__icon {
+  margin-right: 6px;
+  opacity: 0.8;
+  font-size: 0.95em;
 }
 
 .run--success {

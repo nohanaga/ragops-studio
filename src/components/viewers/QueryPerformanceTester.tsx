@@ -103,6 +103,7 @@ export type QueryPerformanceTesterProps = {
   activeProfile: ConnectionProfile | null
   indexName: string
   searchForm: SearchFormState
+  runNote: string
   selectedExperimentId: string | null
   reloadRuns: (experimentId: string | null) => Promise<void>
   restoreRunId?: string | null
@@ -110,7 +111,7 @@ export type QueryPerformanceTesterProps = {
 }
 
 export function QueryPerformanceTester(props: QueryPerformanceTesterProps) {
-  const { t, language, activeProfile, indexName, searchForm, selectedExperimentId, reloadRuns, restoreRunId, disabled } = props
+  const { t, language, activeProfile, indexName, searchForm, runNote, selectedExperimentId, reloadRuns, restoreRunId, disabled } = props
 
   const [isRunning, setIsRunning] = useState(false)
   const [progressText, setProgressText] = useState<string | null>(null)
@@ -226,6 +227,7 @@ export function QueryPerformanceTester(props: QueryPerformanceTesterProps) {
         },
         params: representativeBody,
         metrics: {},
+        note: runNote.trim() || undefined,
       })
       runId = run.runId
 

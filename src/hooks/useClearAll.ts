@@ -34,6 +34,7 @@ export function useClearAll(params: {
   setAgenticForm: Dispatch<SetStateAction<AgenticFormState>>
   setAnalyzeForm: Dispatch<SetStateAction<AnalyzeFormState>>
   setRequestJson: Dispatch<SetStateAction<string>>
+  setRunNote: Dispatch<SetStateAction<string>>
   setLatestResponse: Dispatch<SetStateAction<LatestResponse | null>>
   setRunResultMap: Dispatch<SetStateAction<Record<string, { run: Run; response: LatestResponse | null }>>>
   setResultPages: Dispatch<SetStateAction<Record<string, number>>>
@@ -48,6 +49,7 @@ export function useClearAll(params: {
     setAgenticForm,
     setAnalyzeForm,
     setRequestJson,
+    setRunNote,
     setLatestResponse,
     setRunResultMap,
     setResultPages,
@@ -137,6 +139,7 @@ export function useClearAll(params: {
 
     // Clear request JSON
     setRequestJson('')
+    setRunNote('')
 
     // Clear results and response
     setLatestResponse(null)

@@ -71,13 +71,34 @@ export function extractQueryString(params: unknown): string {
   if (typeof p.text === 'string' && p.text.trim()) {
     return truncate(p.text)
   }
+
+  // If `messages` exists (agentic retrieval request shape).
+  if (Array.isArray(p.messages) && p.messages.length > 0) {
+    const msg = p.messages[0]
+    if (msg && typeof msg === 'object' && !Array.isArray(msg)) {
+      const msgObj = msg as Record<string, unknown>
+      if (typeof msgObj.content === 'string' && msgObj.content.trim()) {
+        return truncate(msgObj.content)
+      }
+
+      if (Array.isArray(msgObj.content) && msgObj.content.length > 0) {
+        const firstContent = msgObj.content[0]
+        if (firstContent && typeof firstContent === 'object' && !Array.isArray(firstContent)) {
+          const contentObj = firstContent as Record<string, unknown>
+          if (typeof contentObj.text === 'string' && contentObj.text.trim()) {
+            return truncate(contentObj.text)
+          }
+        }
+      }
+    }
+  }
   
-  // If `userMessages` exists (agentic).
+  // If `userMessages` exists (legacy agentic shape).
   if (Array.isArray(p.userMessages) && p.userMessages.length > 0) {
     const msg = p.userMessages[0]
     if (msg && typeof msg === 'object' && !Array.isArray(msg)) {
       const msgObj = msg as Record<string, unknown>
-      if (typeof msgObj.content === 'string') {
+      if (typeof msgObj.content === 'string' && msgObj.content.trim()) {
         return truncate(msgObj.content)
       }
     }

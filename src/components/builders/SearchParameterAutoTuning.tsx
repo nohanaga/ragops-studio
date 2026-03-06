@@ -232,6 +232,7 @@ export type SearchParameterAutoTuningProps = {
 
   searchForm: SearchFormState
   setSearchForm: React.Dispatch<React.SetStateAction<SearchFormState>>
+  runNote: string
 
   selectedExperimentId: string | null
   reloadRuns: (experimentId: string | null) => Promise<void>
@@ -253,6 +254,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
     defaultIdFieldName,
     searchForm,
     setSearchForm,
+    runNote,
 
     selectedExperimentId,
     reloadRuns,
@@ -935,6 +937,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
         },
         params: representativeBody,
         metrics: {},
+        note: runNote.trim() || undefined,
       })
       runId = run.runId
 

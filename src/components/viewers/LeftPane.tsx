@@ -194,6 +194,16 @@ export function LeftPane(props: LeftPaneProps) {
         {filteredRuns.map((run) => {
           const checked = selectedRunIds.includes(run.runId)
           const isActive = !!activeRunId && activeRunId === run.runId
+          const runQuery = extractQueryString(run.params) || run.runId
+          const runNote = run.note?.trim()
+          const runMeta = [
+            run.metrics.latencyMs !== undefined ? `${run.metrics.latencyMs}ms` : null,
+            run.metrics.resultCount !== undefined ? `${run.metrics.resultCount}hits` : null,
+          ]
+            .filter(Boolean)
+            .join('/')
+          const runTextMaxWidth = `${Math.max(50, paneSizes.leftPx - 160)}px`
+          const runShortId = run.runId.split('-')[0] || run.runId
           return (
             <div
               key={run.runId}
@@ -221,20 +231,40 @@ export function LeftPane(props: LeftPaneProps) {
               <div className={`run run--${run.status} run--clickable`} onClick={() => onRestoreRun(run.runId)}>
                 <div className="run__top">
                   <span className={`run__type run__type--${run.runType}`}>{run.runType}</span>
-                  {extractQueryString(run.params) && (
-                    <span
-                      className="run__queryPreview"
-                      style={{ maxWidth: `${Math.max(50, paneSizes.leftPx - 200)}px` }}
-                    >
-                      {extractQueryString(run.params)}
+                  <span className="run__timestamp mono mono--ellipsesSm">
+                    {formatLocalDateTime(run.startedAt)}
+                  </span>
+                </div>
+                <div className="run__bottom run__summaryRow">
+                  <span
+                    className="run__queryPreview"
+                    style={{ maxWidth: runTextMaxWidth }}
+                    title={runQuery}
+                  >
+                    <i className="bi bi-search run__icon" aria-hidden="true"></i>
+                    {runQuery}
+                  </span>
+                  {runMeta && (
+                    <span className="run__metrics mono mono--ellipsesSm" title={runMeta}>
+                      <i className="bi bi-speedometer2 run__icon" aria-hidden="true"></i>
+                      {runMeta}
                     </span>
                   )}
                 </div>
-                <div className="run__bottom">
-                  <span className="mono mono--ellipsesSm">{formatLocalDateTime(run.startedAt)}</span>
-                </div>
-                <div className="run__bottom">
-                  <span className="mono mono--ellipsesXsMuted">ID: {run.runId}</span>
+                <div className="run__bottom run__identityRow">
+                  <span className="run__note" style={{ maxWidth: runTextMaxWidth }} title={runNote || ''}>
+                    {runNote ? (
+                      <>
+                        <i className="bi bi-journal-text run__icon" aria-hidden="true"></i>
+                        {runNote}
+                      </>
+                    ) : (
+                      ''
+                    )}
+                  </span>
+                  <span className="run__id mono mono--ellipsesSm" title={`#${run.runId}`}>
+                    #{runShortId}
+                  </span>
                 </div>
               </div>
             </div>

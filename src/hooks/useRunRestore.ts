@@ -20,6 +20,7 @@ export function useRunRestore(params: {
   setIndexName: Dispatch<SetStateAction<string>>
   setAnalyzeForm: Dispatch<SetStateAction<AnalyzeFormState>>
   setSearchForm: Dispatch<SetStateAction<SearchFormState>>
+  setRunNote: Dispatch<SetStateAction<string>>
   setQpsTesterRestoreRunId: Dispatch<SetStateAction<string | null>>
   setIsQpsTesterOpen: Dispatch<SetStateAction<boolean>>
   setAutoTuningRestoreRunId: Dispatch<SetStateAction<string | null>>
@@ -39,6 +40,7 @@ export function useRunRestore(params: {
     setIndexName,
     setAnalyzeForm,
     setSearchForm,
+    setRunNote,
     setQpsTesterRestoreRunId,
     setIsQpsTesterOpen,
     setAutoTuningRestoreRunId,
@@ -65,6 +67,8 @@ export function useRunRestore(params: {
         alert(format('runNotFound', { runId }))
         return
       }
+
+      setRunNote(run.note ?? '')
 
       const artifacts = await listArtifactsByRun(runId)
 

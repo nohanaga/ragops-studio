@@ -47,7 +47,7 @@ describe('hooks/useApiOperations', () => {
       }),
     )
 
-    const { ensureSeedData, listExperiments } = await import('../lib/db')
+    const { ensureSeedData, getRun, listExperiments, listRunsByExperiment } = await import('../lib/db')
     await ensureSeedData()
     const exps = await listExperiments()
     expect(exps.length).toBeGreaterThan(0)
@@ -76,6 +76,7 @@ describe('hooks/useApiOperations', () => {
         knowledgeBaseName: '',
         selectedExperimentId: exps[0].experimentId,
         requestJson: JSON.stringify({ search: 'hi', queryType: 'simple', top: 3, skip: 0, count: true }),
+        runNote: 'saved note',
         // Not used in json mode path, but required by signature.
         searchForm: {
           search: '',
@@ -153,5 +154,10 @@ describe('hooks/useApiOperations', () => {
     expect(latest.status).toBe(200)
     expect(latest.requestId).toBe('req-123')
     expect(latest.url).toContain('/indexes/myindex/docs/search')
+
+    const runs = await listRunsByExperiment(exps[0].experimentId)
+    expect(runs.length).toBeGreaterThan(0)
+    const storedRun = await getRun(runs[0].runId)
+    expect(storedRun?.note).toBe('saved note')
   })
 })
