@@ -48,9 +48,19 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
 - **Output control**: `outputMode`, `maxRuntimeInSeconds`, `maxOutputSize`
 - **Search efficiency**: `retrievalReasoningEffort` (`low` / `medium` / `minimal`)
 - **Activity log**: Visualize process with `includeActivity`
+- **Agentic Activity Timeline**: Hierarchical flow visualization of agentic retrieval activity
+  - Round-based grouping: `modelQueryPlanning` → source searches (parallel) → `agenticReasoning` → `modelAnswerSynthesis`
+  - Color-coded type badges for each activity type (planning, source search, reasoning, synthesis)
+  - Key metrics display per step: elapsed time (ms), input/output/reasoning tokens, hit count
+  - Parallel lane display for concurrent source searches within a round
+  - Inline display of search queries and Knowledge Source names
+  - Expandable raw JSON view for each step
+  - Summary bar: total steps, total elapsed time, total tokens
 - **API version**: Automatically uses `2025-11-01-preview`
 
 ![](./docs/images/screenshot4_en.png)
+
+![](./docs/images/screenshot25_en.png)
 
 ### Analyze Mode (Text Analysis)
 - **Analyze API**: Execute text analysis on indexes
@@ -140,11 +150,23 @@ A visual flow editor for authoring Azure AI Search skillsets. Each skill is repr
   - Display skill output values in tree structure by `/document/…` path after debug run
   - Expandable/collapsible display of actual enrichment results
   - Field mapping visualization
+- **Publish to Azure with Diff Confirmation**:
+  - Publish (create/update) skillsets directly to Azure AI Search from the builder
+  - Full-screen diff confirmation dialog before publish
+  - **Semantic diff view**: Structural change table showing added/removed/changed/reordered skills and properties
+  - **Text diff view**: Normalized JSON side-by-side comparison with line highlighting (CodeMirror)
+  - Target skillset name selection: dropdown of existing skillsets or create new
+  - Auto-detection of new vs update (CREATE NEW / UPDATE EXISTING badges)
+  - Noise reduction: ignores `@odata.etag`, JSON key ordering, `null` vs missing, empty arrays vs missing
+  - Diff summary clipboard copy
+  - Format-only change detection notification
 - **Pipeline state save/restore**:
   - Persist pipeline configurations in LocalStorage
   - Save, switch, and delete multiple pipelines
 
 ![](./docs/images/screenshot24_en.png)
+
+![](./docs/images/screenshot27_jp.gif)
 
 ## 3. Developer Tools
 
@@ -252,6 +274,10 @@ A visual flow editor for authoring Azure AI Search skillsets. Each skill is repr
 - **Run selection**: Select multiple runs (max 10) to compare results side by side
 - **Delete runs**: Delete individual runs
 - **Query filter**: Filter runs by query text
+- **Experiment note**: Record notes before execution to annotate the next saved run
+  - Collapsible note panel in the builder area
+  - Notes are persisted as part of the Run data (`note` field)
+  - Note preview displayed in the run list with journal icon
 
 ### Artifacts
 - **Save artifacts**: Additional data tied to runs
@@ -342,6 +368,7 @@ ragops-studio/
 │   │   │   ├── SkillPipelineEnrichmentTreePreview.tsx # Enrichment tree preview
 │   │   │   ├── SkillPipelineRightPane.tsx     # Skill pipeline right pane
 │   │   │   ├── EnrichmentPathPicker.tsx       # Enrichment path picker
+│   │   │   ├── PublishDiffModal.tsx           # Skillset publish diff confirmation
 │   │   │   ├── SynonymMapBuilder.tsx         # Synonym map builder
 │   │   │   └── VectorOptimizerBuilder.tsx    # Vector optimizer
 │   │   ├── modals/          # Modal dialogs
@@ -356,6 +383,7 @@ ragops-studio/
 │   │       ├── RequestJsonEditor.tsx         # Request JSON editor
 │   │       ├── ResultViewPanel.tsx           # Result display panel
 │   │       ├── RightJsonViewerPane.tsx       # Right pane (JSON viewer)
+│   │       ├── AgenticActivityTimeline.tsx    # Agentic activity timeline
 │   │       └── SearchPipelineVisualizer.tsx  # Search pipeline visualizer
 │   ├── hooks/               # Custom hooks
 │   │   └── useApiOperations.ts  # API operations hook (Execute logic)
@@ -381,6 +409,7 @@ ragops-studio/
 │   │   ├── localStorage.ts         # Local storage operations
 │   │   ├── searchFacets.ts         # Facet extraction
 │   │   ├── skillPipelineOutputFieldMappings.ts # outputFieldMappings helpers
+│   │   ├── skillsetDiff.ts                 # Skillset semantic diff calculation
 │   │   └── index.ts                # Exports
 │   └── App.tsx              # Main application component
 ├── scripts/                 # Build scripts

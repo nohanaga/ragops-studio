@@ -49,9 +49,19 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 - **出力制御**: `outputMode`, `maxRuntimeInSeconds`, `maxOutputSize`
 - **検索効率**: `retrievalReasoningEffort` (`low` / `medium` / `minimal`)
 - **アクティビティログ**: `includeActivity` でプロセスを可視化
+- **Agentic Activity Timeline（アクティビティタイムライン）**: エージェント検索アクティビティの階層的フロー可視化
+  - ラウンドベースのグルーピング: `modelQueryPlanning` → ソース検索（並列） → `agenticReasoning` → `modelAnswerSynthesis`
+  - アクティビティタイプ別のカラーバッジ（プランニング、ソース検索、推論、合成）
+  - 各ステップのメトリクス表示: 経過時間（ms）、入力/出力/推論トークン数、ヒット数
+  - 同一ラウンド内の複数ソース検索を並列レーンで表示
+  - 検索クエリと Knowledge Source 名のインライン表示
+  - 各ステップの展開可能な RAW JSON ビュー
+  - サマリーバー: ステップ総数、合計経過時間、合計トークン数
 - **API バージョン**: `2025-11-01-preview` を自動使用
 
 ![](./docs/images/screenshot4_jp.png)
+
+![](./docs/images/screenshot25_jp.jpg)
 
 #### Analyze モード（テキスト分析）
 - **Analyze API**: インデックスに対してテキスト分析を実行
@@ -145,11 +155,23 @@ Azure AI Search のスキルセットをビジュアルフローエディター�
   - デバッグ実行後のスキル出力値を `/document/…` パスごとにツリー表示
   - 実際のエンリッチメント結果の展開・折りたたみ表示
   - フィールドマッピングの可視化
+- **Azure への Publish（差分確認付き公開）**:
+  - ビルダーから直接 Azure AI Search にスキルセットを Publish（作成/更新）
+  - Publish 前にフルスクリーンの差分確認ダイアログを表示
+  - **セマンティック Diff ビュー**: 追加/削除/変更/並び替えを構造的に表示するテーブル
+  - **テキスト Diff ビュー**: 正規化済み JSON の左右並列比較（CodeMirror による行ハイライト）
+  - ターゲットスキルセット名の選択: 既存スキルセットのドロップダウンまたは新規作成
+  - 新規 vs 更新の自動判別（CREATE NEW / UPDATE EXISTING バッジ）
+  - ノイズ除去: `@odata.etag`、JSON キー順序、`null` vs 欠損、空配列 vs 欠損を自動無視
+  - 差分サマリーのクリップボードコピー
+  - フォーマットのみの変更検出通知
 - **パイプライン状態の保存/復元**:
   - LocalStorage によるパイプライン構成の永続化
   - 複数パイプラインの保存・切替・削除
 
 ![](./docs/images/screenshot24_jp.png)
+
+![](./docs/images/screenshot27_jp.gif)
 
 ### 3. **開発者ツール**
 
@@ -258,6 +280,12 @@ Azure AI Search のスキルセットをビジュアルフローエディター�
 - **ラン選択**: 複数ラン（最大10件）を選択して結果を並べて比較
 - **ラン削除**: 個別ランの削除
 - **クエリフィルター**: クエリテキストでランを絞り込み
+- **実験ノート**: 実行前にメモを記録し、次に保存される Run に注釈を紐付け
+  - ビルダーエリアに折りたたみ可能なノートパネル
+  - ノートは Run データの一部として IndexedDB に永続化（`note` フィールド）
+  - ラン一覧でジャーナルアイコン付きでノートプレビューを表示
+
+![](./docs/images/screenshot26_jp.jpg)
 
 #### アーティファクト（Artifacts）
 - **アーティファクト保存**: ランに紐づく追加データ
@@ -393,6 +421,7 @@ ragops-studio/
 │   │   │   ├── SkillPipelineEnrichmentTreePreview.tsx # エンリッチメントツリー
 │   │   │   ├── SkillPipelineRightPane.tsx     # スキルパイプライン右ペイン
 │   │   │   ├── EnrichmentPathPicker.tsx       # エンリッチメントパスピッカー
+│   │   │   ├── PublishDiffModal.tsx           # スキルセット Publish 差分確認
 │   │   │   ├── SynonymMapBuilder.tsx         # シノニムマップビルダー
 │   │   │   └── VectorOptimizerBuilder.tsx    # ベクトルオプティマイザー
 │   │   ├── modals/          # モーダルダイアログ
@@ -407,6 +436,7 @@ ragops-studio/
 │   │       ├── RequestJsonEditor.tsx         # リクエスト JSON エディター
 │   │       ├── ResultViewPanel.tsx           # 結果表示パネル
 │   │       ├── RightJsonViewerPane.tsx       # 右ペイン（JSON ビューアー）
+│   │       ├── AgenticActivityTimeline.tsx    # エージェントアクティビティタイムライン
 │   │       └── SearchPipelineVisualizer.tsx  # 検索パイプライン可視化
 │   ├── hooks/               # カスタムフック
 │   │   └── useApiOperations.ts  # API 操作フック（Execute処理）
@@ -432,6 +462,7 @@ ragops-studio/
 │   │   ├── localStorage.ts         # ローカルストレージ操作
 │   │   ├── searchFacets.ts         # ファセット抽出
 │   │   ├── skillPipelineOutputFieldMappings.ts # outputFieldMappings ヘルパー
+│   │   ├── skillsetDiff.ts                 # スキルセットセマンティック差分計算
 │   │   └── index.ts                # エクスポート
 │   └── App.tsx              # メインアプリケーションコンポーネント
 ├── scripts/                 # ビルドスクリプト
