@@ -129,6 +129,8 @@ Azure AI Search **skillsets** are the backbone of AI enrichment pipelines — th
 
 This brings the **iterative, visual development experience** that developers expect from modern IDEs to the world of Azure AI Search skillset authoring.
 
+![image.png](./images/screenshot27_jp.gif)
+
 # 🧪 Four Search Lab Modes - Complete Coverage of All Azure AI Search Features
 
 ## 1. Query Mode - Mastering Classic Search
@@ -194,7 +196,18 @@ https://qiita.com/nohanaga/items/26c27574f552c4bfc033
 - How many documents were retrieved
 - How many tokens were used in generating the final response
 
-![image.png](./images/screenshot21_en.png)
+**Agentic Activity Timeline**
+
+The new **Agentic Activity Timeline** component provides a hierarchical flow visualization of the entire agentic retrieval process:
+
+- **Round-based grouping**: Activities are automatically classified into rounds following the flow: `modelQueryPlanning` → source searches (parallel) → `agenticReasoning` → `modelAnswerSynthesis`
+- **Parallel lane display**: Multiple source searches within a round are displayed in a parallel grid layout
+- **Per-step metrics**: Each step shows elapsed time (ms), input/output/reasoning token counts, and hit count as colored pills
+- **Search query display**: Inline code display of the search query sent to each Knowledge Source
+- **Expandable raw JSON**: Click to expand and inspect the raw response data for each activity step
+- **Summary bar**: Total steps, total elapsed time, and total token usage at a glance
+
+![image.png](./images/screenshot25_en.png)
 
 By **visualizing these processes step-by-step**, we can demystify the black box of Agentic Retrieval.
 
@@ -369,6 +382,16 @@ A **visual DAG editor** for authoring Azure AI Search skillsets. Each skill is r
 - 4-step workflow: Provision → Run → Fetch → Cleanup
 - Automatic Shaper skill generation and auto-cleanup
 
+**Publish to Azure with Diff Confirmation**
+- Publish (create/update) skillsets directly to Azure AI Search from the builder
+- Full-screen diff confirmation dialog with two view modes:
+  - **Semantic diff**: Structural change table showing added/removed/changed/reordered skills and properties with color-coded badges
+  - **Text diff**: Normalized JSON side-by-side comparison with line highlighting in CodeMirror
+- Target skillset selection: choose from existing skillsets or create new
+- Auto-detection of new vs update with CREATE NEW / UPDATE EXISTING badges
+- Intelligent noise reduction: ignores `@odata.etag`, JSON key ordering, `null` vs missing, and empty arrays vs missing
+- Diff summary clipboard copy and format-only change detection
+
 **Collaboration with Existing Resources**
 - Load existing skillsets and indexers from your search service
 - Visual editing of `outputFieldMappings`
@@ -382,6 +405,7 @@ A **visual DAG editor** for authoring Azure AI Search skillsets. Each skill is r
 
 - **Experiment**: Management at project level
 - **Run (execution history)**: Save individual search execution results, display up to 200 items on screen
+- **Experiment Note**: Record notes before execution to annotate runs with context, hypotheses, and observations
 - **Artifact**: Persist QPS test and AutoTuning results
     - IndexedDB
     ![image.png](./images/screenshot19_en.png)
