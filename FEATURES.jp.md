@@ -136,6 +136,7 @@ Azure AI Search のスキルセットをビジュアルフローエディター�
   - スキル間の入出力パスをツリー構造で可視化
   - パス補完付きの EnrichmentPathPicker コンボボックス
   - 配列出力の自動 `/*` ワイルドカード伝播（Collection 型スキル出力を自動検出）
+  ![](./docs/images/screenshot31_jp.png)
 - **インデクサー連携**:
   - 既存インデクサーの読み込み（`listIndexers` / `getIndexerDefinition`）
   - `outputFieldMappings` の GUI 編集（エンリッチメントパス → インデックスフィールド）
@@ -155,11 +156,15 @@ Azure AI Search のスキルセットをビジュアルフローエディター�
   - デバッグ実行後のスキル出力値を `/document/…` パスごとにツリー表示
   - 実際のエンリッチメント結果の展開・折りたたみ表示
   - フィールドマッピングの可視化
+  ![](./docs/images/screenshot30_jp.png)
+
 - **Azure への Publish（差分確認付き公開）**:
   - ビルダーから直接 Azure AI Search にスキルセットを Publish（作成/更新）
   - Publish 前にフルスクリーンの差分確認ダイアログを表示
   - **セマンティック Diff ビュー**: 追加/削除/変更/並び替えを構造的に表示するテーブル
+    ![](./docs/images/screenshot29_jp.png)
   - **テキスト Diff ビュー**: 正規化済み JSON の左右並列比較（CodeMirror による行ハイライト）
+    ![](./docs/images/screenshot28_jp.png)
   - ターゲットスキルセット名の選択: 既存スキルセットのドロップダウンまたは新規作成
   - 新規 vs 更新の自動判別（CREATE NEW / UPDATE EXISTING バッジ）
   - ノイズ除去: `@odata.etag`、JSON キー順序、`null` vs 欠損、空配列 vs 欠損を自動無視
