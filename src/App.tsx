@@ -235,7 +235,7 @@ function App() {
     setIndexInspectorReloadToken,
   } = indexInspector
 
-  const jwtDecoder = useJwtDecoderModal()
+  const jwtDecoder = useJwtDecoderModal(language)
 
   // IndexName dropdown refs and state
   const {

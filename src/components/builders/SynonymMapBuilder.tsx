@@ -826,7 +826,7 @@ export function SynonymMapBuilder({ profile, language, theme }: SynonymMapBuilde
                       title={map.name}
                     >
                       <div className="list__primary">{map.name}</div>
-                      <div className="list__secondary">シノニムルール ({ruleCount})</div>
+                      <div className="list__secondary">{format('synonymMapRuleCount', { count: ruleCount })}</div>
                     </button>
                     <button
                       type="button"

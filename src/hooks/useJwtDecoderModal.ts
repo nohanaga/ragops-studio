@@ -1,13 +1,15 @@
 import { useCallback, useState } from 'react'
 import type { JsonValue } from '../lib/aiSearchRest'
 import type { JwtDecoderResult } from '../components/modals/JwtDecoderModal'
+import { translations, type Language } from '../lib/translations'
 
 /**
  * JWT decoder modal state + helpers.
  *
  * Keeps the decode/format logic out of App.tsx.
  */
-export function useJwtDecoderModal() {
+export function useJwtDecoderModal(language: Language = 'en') {
+  const t = useCallback((key: keyof typeof translations.ja) => translations[language][key], [language])
   const [isJwtDecoderOpen, setIsJwtDecoderOpen] = useState(false)
   const [jwtDecoderResult, setJwtDecoderResult] = useState<JwtDecoderResult>(null)
 
@@ -48,7 +50,7 @@ export function useJwtDecoderModal() {
   const openJwtDecoder = useCallback((rawInputValue: string) => {
     const rawInput = rawInputValue.trim()
     if (!rawInput) {
-      setJwtDecoderResult({ raw: '', error: 'token が未入力です' })
+      setJwtDecoderResult({ raw: '', error: t('jwtTokenEmpty') })
       setIsJwtDecoderOpen(true)
       return
     }
@@ -67,18 +69,18 @@ export function useJwtDecoderModal() {
         setJwtDecoderResult({
           raw: token,
           error:
-            'JWE (5 parts) は header のみ decode できます。payload は暗号化されているため表示できません。\n\nheader: ' +
+            t('jwtJweHeaderOnly') +
             JSON.stringify(header, null, 2),
         })
       } else {
-        setJwtDecoderResult({ raw: token, error: 'JWT/JWE として解釈できません（segments が不正です）' })
+        setJwtDecoderResult({ raw: token, error: t('jwtInvalidSegments') })
       }
     } catch (e) {
       setJwtDecoderResult({ raw: token, error: e instanceof Error ? e.message : String(e) })
     }
 
     setIsJwtDecoderOpen(true)
-  }, [decodeJwtJsonPart])
+  }, [decodeJwtJsonPart, t])
 
   return {
     isJwtDecoderOpen,

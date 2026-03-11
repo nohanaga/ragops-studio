@@ -122,7 +122,7 @@ export function BuilderConnectionSection(props: BuilderConnectionSectionProps) {
                   className="btn btn--icon"
                   onClick={() => openJwtDecoder(activeProfile.bearerToken ?? '')}
                   disabled={!activeProfile?.bearerToken?.trim()}
-                  title="JWT を decode"
+                  title={t('jwtDecodeTitle')}
                 >
                   <i className="bi bi-eye"></i>
                 </button>
@@ -168,7 +168,7 @@ export function BuilderConnectionSection(props: BuilderConnectionSectionProps) {
                 className="btn btn--icon"
                 onClick={() => openJwtDecoder(activeProfile?.querySourceAuthorization ?? '')}
                 disabled={!activeProfile?.querySourceAuthorization?.trim()}
-                title="JWT を decode"
+                title={t('jwtDecodeTitle')}
               >
                 <i className="bi bi-eye"></i>
               </button>

@@ -391,7 +391,7 @@ export function FilterQueryBuilder(props: {
     if (serialized === 'true' || serialized === 'false') return ''
     return serialized
   }, [ast])
-  const warnings = useMemo(() => lintODataFilter(ast), [ast])
+  const warnings = useMemo(() => lintODataFilter(ast, props.language), [ast, props.language])
 
   const applyUi = (nextRoot: UiNode) => {
     setUiRoot(nextRoot)
@@ -612,7 +612,7 @@ export function FilterQueryBuilder(props: {
       return (
         <div>
           <div className="fqb__title">
-            {expr.kind === 'and' ? 'AND' : 'OR'} グループ:
+            {expr.kind === 'and' ? 'AND' : 'OR'} {t('fqbGroup')}:
           </div>
           {items.map((item, i) => (
             <div key={i} className="fqb__lambdaGroupItem">
@@ -623,7 +623,7 @@ export function FilterQueryBuilder(props: {
             </div>
           ))}
           <button type="button" className="btn btn--mt4" onClick={addItem}>
-            + 条件を追加
+            {t('fqbLambdaAddCondition')}
           </button>
         </div>
       )

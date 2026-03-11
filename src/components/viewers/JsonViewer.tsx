@@ -39,7 +39,7 @@ function JsonString(props: { value: string; maxStringLength: number; t?: (key: T
         className="btn btn--mini jsonViewer__inlineBtn"
         onClick={() => setExpanded((v) => !v)}
       >
-        {expanded ? (t ? t('showLessText') : '省略') : (t ? t('showFullText') : '全文')}
+        {expanded ? (t ? t('showLessText') : 'Less') : (t ? t('showFullText') : 'Full')}
       </button>
     </span>
   )
