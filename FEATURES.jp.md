@@ -289,8 +289,7 @@ Azure AI Search のスキルセットをビジュアルフローエディター�
   - ビルダーエリアに折りたたみ可能なノートパネル
   - ノートは Run データの一部として IndexedDB に永続化（`note` フィールド）
   - ラン一覧でジャーナルアイコン付きでノートプレビューを表示
-
-![](./docs/images/screenshot26_jp.jpg)
+  ![](./docs/images/screenshot26_jp.jpg)
 
 #### アーティファクト（Artifacts）
 - **アーティファクト保存**: ランに紐づく追加データ
