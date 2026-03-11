@@ -8,6 +8,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { v4 as uuidv4 } from 'uuid';
 import type { Artifact, Experiment, Run, SettingsRecord } from './model';
+import { translations, type Language } from './translations';
 
 export type RunsExportBundleV1 = {
   kind: 'ragops-studio:runs';
@@ -92,7 +93,7 @@ export async function getDb(): Promise<IDBPDatabase<LabDbSchema>> {
   return dbPromise;
 }
 
-export async function ensureSeedData(): Promise<void> {
+export async function ensureSeedData(language: Language = 'en'): Promise<void> {
   const db = await getDb();
 
   const tx = db.transaction(['experiments', 'settings'], 'readwrite');
@@ -127,7 +128,7 @@ export async function ensureSeedData(): Promise<void> {
     await experimentsStore.put({
       experimentId: uuidv4(),
       name: 'Experiment 1',
-      description: '最初のExperiment（自動作成）',
+      description: translations[language].dbFirstExperimentDescription,
       tags: [],
       pinned: true,
       createdAt,

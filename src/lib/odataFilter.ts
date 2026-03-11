@@ -1,3 +1,5 @@
+import { translations, type Language } from './translations'
+
 /**
  * Lightweight OData $filter parser/serializer + linter.
  *
@@ -506,14 +508,23 @@ export function serializeODataFilter(expr: ODataFilterExpr): string {
   }
 }
 
-export function lintODataFilter(expr: ODataFilterExpr): string[] {
+export function lintODataFilter(expr: ODataFilterExpr, language: Language = 'en'): string[] {
+  const t = (key: keyof typeof translations.ja, params?: Record<string, string>) => {
+    let text = String(translations[language][key] ?? '')
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        text = text.replaceAll(`{${k}}`, v)
+      }
+    }
+    return text
+  }
   const warnings: string[] = []
 
   const walk = (e: ODataFilterExpr) => {
     if (e.kind === 'compare') {
       // Common pitfall: not X gt 5 (should be not (X gt 5))
       if (e.left.kind === 'not') {
-        warnings.push('`not` は比較式全体にかけるため、`not (X gt 5)` のように括弧を推奨します。')
+        warnings.push(t('odataNotWarning'))
       }
     }
 
@@ -523,7 +534,7 @@ export function lintODataFilter(expr: ODataFilterExpr): string[] {
       const hasVar = !!e.varName
       const hasExpr = !!e.expr
       if (hasVar !== hasExpr) {
-        warnings.push(`ラムダ式 ${e.collection}/${e.op} は変数名と条件式の両方が必要です。空にする場合は両方を省略してください。`)
+        warnings.push(t('odataLambdaWarning', { collection: e.collection, op: e.op }))
       }
     }
 

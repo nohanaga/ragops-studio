@@ -988,6 +988,21 @@ export const translations = {
     charFiltersTooltip: '文字フィルターを選択します（analyzerと排他）',
     tokenFiltersTooltip: 'トークンフィルターを選択します（analyzerと排他）',
     textToAnalyzeTooltip: '解析するテキストを入力します',
+    // JWT Decoder
+    jwtDecodeTitle: 'JWT を decode',
+    jwtTokenEmpty: 'token が未入力です',
+    jwtJweHeaderOnly: 'JWE (5 parts) は header のみ decode できます。payload は暗号化されているため表示できません。\n\nheader: ',
+    jwtInvalidSegments: 'JWT/JWE として解釈できません（segments が不正です）',
+    // FilterQueryBuilder – lambda
+    fqbLambdaGroupLabel: '{kind} グループ:',
+    fqbLambdaAddCondition: '+ 条件を追加',
+    // SynonymMapBuilder
+    synonymMapRuleCount: 'シノニムルール ({count})',
+    // OData Filter lint
+    odataNotWarning: '`not` は比較式全体にかけるため、`not (X gt 5)` のように括弧を推奨します。',
+    odataLambdaWarning: 'ラムダ式 {collection}/{op} は変数名と条件式の両方が必要です。空にする場合は両方を省略してください。',
+    // DB seed
+    dbFirstExperimentDescription: '最初のExperiment（自動作成）',
   },
   en: {
     // Header
@@ -1967,6 +1982,21 @@ export const translations = {
     charFiltersTooltip: 'Select character filters to use (exclusive with analyzer)',
     tokenFiltersTooltip: 'Select token filters to use (exclusive with analyzer)',
     textToAnalyzeTooltip: 'Enter text to analyze',
+    // JWT Decoder
+    jwtDecodeTitle: 'Decode JWT',
+    jwtTokenEmpty: 'Token is empty',
+    jwtJweHeaderOnly: 'JWE (5 parts): only the header can be decoded. The payload is encrypted.\n\nheader: ',
+    jwtInvalidSegments: 'Cannot parse as JWT/JWE (invalid number of segments)',
+    // FilterQueryBuilder – lambda
+    fqbLambdaGroupLabel: '{kind} group:',
+    fqbLambdaAddCondition: '+ Add condition',
+    // SynonymMapBuilder
+    synonymMapRuleCount: 'Synonym rules ({count})',
+    // OData Filter lint
+    odataNotWarning: '`not` applies to the entire comparison; use parentheses like `not (X gt 5)`.',
+    odataLambdaWarning: 'Lambda {collection}/{op} requires both a variable name and a predicate. Omit both for an empty lambda.',
+    // DB seed
+    dbFirstExperimentDescription: 'First Experiment (auto-created)',
   },
 } as const
 
@@ -1975,6 +2005,8 @@ export type TranslationKey = keyof typeof translations.ja
 // Parameter tooltips with multilingual support
 export const paramTooltips = {
   ja: {
+    // Header
+    searchParameterAutoTuning: 'Search Parameter AutoTuning',
     // Request headers
     xMsQuerySourceAuthorization:
       'ドキュメントレベルのアクセス制御や一部の Knowledge Source で、検索時に「ユーザー」の Microsoft Entra トークンを渡すためのヘッダー（例: Bearer <user-token>）。アプリの認可（api-key / Authorization）とは別に、ユーザー/グループ/スコープに基づいて結果がフィルタされます。',
