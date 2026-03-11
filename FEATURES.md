@@ -131,6 +131,7 @@ A visual flow editor for authoring Azure AI Search skillsets. Each skill is repr
   - Visualize skill input/output paths as a tree structure
   - EnrichmentPathPicker combo-box with path auto-completion
   - Automatic `/*` wildcard propagation for array outputs (auto-detection of Collection-type skill outputs)
+  ![image.png](./docs/images/screenshot31_en.png)
 - **Indexer integration**:
   - Load existing indexers (`listIndexers` / `getIndexerDefinition`)
   - GUI editing of `outputFieldMappings` (enrichment path → index field)
@@ -150,11 +151,14 @@ A visual flow editor for authoring Azure AI Search skillsets. Each skill is repr
   - Display skill output values in tree structure by `/document/…` path after debug run
   - Expandable/collapsible display of actual enrichment results
   - Field mapping visualization
+  ![image.png](./docs/images/screenshot30_en.png)
 - **Publish to Azure with Diff Confirmation**:
   - Publish (create/update) skillsets directly to Azure AI Search from the builder
   - Full-screen diff confirmation dialog before publish
   - **Semantic diff view**: Structural change table showing added/removed/changed/reordered skills and properties
+    ![image.png](./docs/images/screenshot29_en.png)
   - **Text diff view**: Normalized JSON side-by-side comparison with line highlighting (CodeMirror)
+    ![image.png](./docs/images/screenshot28_en.png)
   - Target skillset name selection: dropdown of existing skillsets or create new
   - Auto-detection of new vs update (CREATE NEW / UPDATE EXISTING badges)
   - Noise reduction: ignores `@odata.etag`, JSON key ordering, `null` vs missing, empty arrays vs missing
@@ -278,7 +282,7 @@ A visual flow editor for authoring Azure AI Search skillsets. Each skill is repr
   - Collapsible note panel in the builder area
   - Notes are persisted as part of the Run data (`note` field)
   - Note preview displayed in the run list with journal icon
-
+  ![image.png](./docs/images/screenshot26_en.jpg)
 ### Artifacts
 - **Save artifacts**: Additional data tied to runs
   - QPS test results

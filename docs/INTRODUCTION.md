@@ -386,7 +386,9 @@ A **visual DAG editor** for authoring Azure AI Search skillsets. Each skill is r
 - Publish (create/update) skillsets directly to Azure AI Search from the builder
 - Full-screen diff confirmation dialog with two view modes:
   - **Semantic diff**: Structural change table showing added/removed/changed/reordered skills and properties with color-coded badges
+    ![image.png](./images/screenshot29_en.png)
   - **Text diff**: Normalized JSON side-by-side comparison with line highlighting in CodeMirror
+    ![image.png](./images/screenshot28_en.png)
 - Target skillset selection: choose from existing skillsets or create new
 - Auto-detection of new vs update with CREATE NEW / UPDATE EXISTING badges
 - Intelligent noise reduction: ignores `@odata.etag`, JSON key ordering, `null` vs missing, and empty arrays vs missing
@@ -406,6 +408,8 @@ A **visual DAG editor** for authoring Azure AI Search skillsets. Each skill is r
 - **Experiment**: Management at project level
 - **Run (execution history)**: Save individual search execution results, display up to 200 items on screen
 - **Experiment Note**: Record notes before execution to annotate runs with context, hypotheses, and observations
+    ![image.png](./images/screenshot26_en.jpg)
+
 - **Artifact**: Persist QPS test and AutoTuning results
     - IndexedDB
     ![image.png](./images/screenshot19_en.png)
