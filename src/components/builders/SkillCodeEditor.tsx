@@ -526,8 +526,15 @@ export function SkillCodeEditor({ language, theme, onReturnToSkillPipelineBuilde
       // Build full Custom Skill endpoint URL including skillset_name if applicable
       let fullEndpointUrl = executeUrl
       if (effectiveSkillsetName) {
-        const sep = fullEndpointUrl.includes('?') ? '&' : '?'
-        fullEndpointUrl = `${fullEndpointUrl}${sep}skillset_name=${encodeURIComponent(effectiveSkillsetName)}`
+        try {
+          const u = new URL(fullEndpointUrl)
+          u.searchParams.set('skillset_name', effectiveSkillsetName)
+          fullEndpointUrl = u.toString()
+        } catch {
+          const stripped = fullEndpointUrl.replace(/([?&])skillset_name=[^&]*/g, '').replace(/\?$/, '')
+          const sep = stripped.includes('?') ? '&' : '?'
+          fullEndpointUrl = `${stripped}${sep}skillset_name=${encodeURIComponent(effectiveSkillsetName)}`
+        }
       }
       setRuntimeUrl(executeUrl)
       setHealthStatus('unknown')

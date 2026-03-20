@@ -196,8 +196,15 @@ export async function executeRemoteSkill(
 ): Promise<SimulateResponse> {
   let url = resolveRuntimeExecuteUrl(config.runtimeUrl)
   if (skillsetName) {
-    const sep = url.includes('?') ? '&' : '?'
-    url = `${url}${sep}skillset_name=${encodeURIComponent(skillsetName)}`
+    try {
+      const u = new URL(url)
+      u.searchParams.set('skillset_name', skillsetName)
+      url = u.toString()
+    } catch {
+      const stripped = url.replace(/([?&])skillset_name=[^&]*/g, '').replace(/\?$/, '')
+      const sep = stripped.includes('?') ? '&' : '?'
+      url = `${stripped}${sep}skillset_name=${encodeURIComponent(skillsetName)}`
+    }
   }
   const startedAt = typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
