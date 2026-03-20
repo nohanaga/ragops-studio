@@ -893,7 +893,6 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
       setMessage({ type: 'info', text: t('spbDebugMsgProjectionSkippedNoToken') })
       await fetchDocs()
       return true
-      return
     }
     if (storageAuthMode === 'connectionString' && !storageConnectionString.trim()) {
       setMessage({ type: 'error', text: t('spbDebugErrStorageConnRequired') })

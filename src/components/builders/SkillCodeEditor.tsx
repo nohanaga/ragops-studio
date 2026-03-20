@@ -221,7 +221,7 @@ export function SkillCodeEditor({ language, theme, onReturnToSkillPipelineBuilde
     if (linkedSkillInputs.length === 0 && linkedSkillOutputs.length === 0) return null
 
     const inputStatuses: IoConnectionStatus[] = linkedSkillInputs
-      .filter((i): i is { name: string; source?: string } => typeof i?.name === 'string' && i.name.trim() !== '')
+      .filter((i): i is { name: string; source: string } => typeof i?.name === 'string' && i.name.trim() !== '')
       .map((input) => ({
         name: input.name,
         source: typeof input.source === 'string' ? input.source : undefined,
