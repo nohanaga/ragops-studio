@@ -1523,6 +1523,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
   const [mainTab, setMainTab] = useState<'graph' | 'skillsetJson' | 'debugRunner' | 'enrichmentTree'>('graph')
   const [debugBusy, setDebugBusy] = useState(false)
   const [debugProgress, setDebugProgress] = useState<string | null>(null)
+  const [enrichmentTreeUpdated, setEnrichmentTreeUpdated] = useState(false)
   const debugRunnerRef = useRef<SkillPipelineDebugRunnerHandle | null>(null)
   const [_addSkillTemplateId, setAddSkillTemplateId] = useState<string>('')
   const [nodeContextMenu, setNodeContextMenu] = useState<
@@ -2928,15 +2929,15 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
           </button>
           <button
             type="button"
-            className={'btn btn--tab ' + (mainTab === 'debugRunner' ? 'btn--active' : '')}
+            className={'btn btn--tab ' + (mainTab === 'debugRunner' ? 'btn--active' : '') + (debugBusy && mainTab !== 'debugRunner' ? ' btn--tab-debugging' : '')}
             onClick={() => setMainTab('debugRunner')}
           >
             {t('spbTabDebugRunner')}
           </button>
           <button
             type="button"
-            className={'btn btn--tab ' + (mainTab === 'enrichmentTree' ? 'btn--active' : '')}
-            onClick={() => setMainTab('enrichmentTree')}
+            className={'btn btn--tab ' + (mainTab === 'enrichmentTree' ? 'btn--active' : '') + (enrichmentTreeUpdated && mainTab !== 'enrichmentTree' ? ' btn--tab-updated' : '')}
+            onClick={() => { setMainTab('enrichmentTree'); setEnrichmentTreeUpdated(false) }}
           >
             {t('spbTabEnrichmentTree')}
           </button>
@@ -3565,7 +3566,10 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                 theme={theme}
                 skillsetJson={skillsetJson}
                 defaultSkillsetName={skillsetName}
-                onFetchedDocs={setDebugFetchedDocs}
+                onFetchedDocs={(docs) => {
+                  setDebugFetchedDocs(docs)
+                  if (mainTab !== 'enrichmentTree') setEnrichmentTreeUpdated(true)
+                }}
                 onBusyChange={setDebugBusy}
                 onProgressChange={setDebugProgress}
               />

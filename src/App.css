@@ -1345,6 +1345,50 @@ summary.section__title {
   border-color: color-mix(in srgb, var(--accent) 85%, var(--fg));
 }
 
+/* Debug Runner tab – animated stripe border while debugging */
+.btn--tab.btn--tab-debugging {
+  position: relative;
+  border-color: transparent;
+  overflow: visible;
+  z-index: 0;
+}
+.btn--tab.btn--tab-debugging::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  padding: 2px;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--accent),
+    var(--accent) 4px,
+    #7c3aed 4px,
+    #7c3aed 8px,
+    #06b6d4 8px,
+    #06b6d4 12px
+  );
+  background-size: 200% 200%;
+  animation: debugStripesMarch 0.6s linear infinite;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Enrichment Tree tab – attention pulse when data is updated */
+.btn--tab.btn--tab-updated {
+  animation: tabAttentionPulse 1.5s ease-in-out infinite;
+  border-color: var(--accent);
+  color: var(--fg);
+  font-weight: 600;
+}
+@keyframes tabAttentionPulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 50%, transparent); }
+  50%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent); }
+}
+
 .btn--mini {
   padding: 4px 8px;
   font-size: 11px;
@@ -3683,6 +3727,26 @@ html[data-theme='light'] .rawJsonViewer {
   background: color-mix(in srgb, #2196f3 12%, var(--panel-2));
   padding: 10px 12px;
   margin-top: 10px;
+  position: relative;
+}
+
+.notice__close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s, background 0.15s;
+}
+.notice__close:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
 }
 
 .notice--success {

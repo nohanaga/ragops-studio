@@ -184,6 +184,7 @@ export function SkillCodeEditor({ language, theme, onReturnToSkillPipelineBuilde
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadSuccessMessage, setUploadSuccessMessage] = useState('')
+  const [uploadedEndpointUrl, setUploadedEndpointUrl] = useState('')
 
   // Remote load state
   const [isLoadingFromRuntime, setIsLoadingFromRuntime] = useState(false)
@@ -490,13 +491,15 @@ export function SkillCodeEditor({ language, theme, onReturnToSkillPipelineBuilde
   const handlePublishToBlob = useCallback(async () => {
     if (!runtimeUrl.trim()) {
       setUploadSuccessMessage('')
+      setUploadedEndpointUrl('')
       setUploadError(t('sceNoRuntimeUrl'))
-      return
+      return;
     }
 
     setIsUploading(true)
     setUploadError(null)
     setUploadSuccessMessage('')
+    setUploadedEndpointUrl('')
 
     try {
       const config: SkillRuntimeConfig = {
@@ -520,9 +523,16 @@ export function SkillCodeEditor({ language, theme, onReturnToSkillPipelineBuilde
       }
 
       const executeUrl = resolveRuntimeExecuteUrl(runtimeUrl.trim())
+      // Build full Custom Skill endpoint URL including skillset_name if applicable
+      let fullEndpointUrl = executeUrl
+      if (effectiveSkillsetName) {
+        const sep = fullEndpointUrl.includes('?') ? '&' : '?'
+        fullEndpointUrl = `${fullEndpointUrl}${sep}skillset_name=${encodeURIComponent(effectiveSkillsetName)}`
+      }
       setRuntimeUrl(executeUrl)
       setHealthStatus('unknown')
       setUploadSuccessMessage(result.message ?? t('sceUploadSuccess'))
+      setUploadedEndpointUrl(fullEndpointUrl)
       const uploadedHash = result.codeHash || localCodeHash
       if (uploadedHash) setRemoteCodeHash(uploadedHash)
       setBlobCode(skillCode)
@@ -530,7 +540,7 @@ export function SkillCodeEditor({ language, theme, onReturnToSkillPipelineBuilde
       if (skillEditorLinkedNodeId && linkedSkill) {
         updateSkillNode(skillEditorLinkedNodeId, (skill) => ({
           ...skill,
-          uri: executeUrl,
+          uri: fullEndpointUrl,
         }))
         upsertSkillEditorDraft(skillEditorLinkedNodeId, {
           skillCode,
@@ -913,6 +923,7 @@ export function SkillCodeEditor({ language, theme, onReturnToSkillPipelineBuilde
     if (uploadError) {
       return (
         <div className="notice notice--error">
+          <button type="button" className="notice__close" onClick={() => setUploadError(null)} aria-label="Close"><i className="bi bi-x-lg" /></button>
           <div className="notice__title">{t('sceUploadToBlob')}</div>
           <div className="notice__meta">{uploadError}</div>
         </div>
@@ -921,7 +932,27 @@ export function SkillCodeEditor({ language, theme, onReturnToSkillPipelineBuilde
 
     return (
       <div className="notice notice--success">
+        <button type="button" className="notice__close" onClick={() => { setUploadSuccessMessage(''); setUploadedEndpointUrl('') }} aria-label="Close"><i className="bi bi-x-lg" /></button>
         <div className="notice__meta">{uploadSuccessMessage}</div>
+        {uploadedEndpointUrl && (
+          <>
+            <div className="notice__meta" style={{ marginTop: 4 }}>
+              <span style={{ fontWeight: 600 }}>{t('sceEndpointUrlLabel')}</span>{' '}
+              <code className="mono" style={{ userSelect: 'all', wordBreak: 'break-all' }}>{uploadedEndpointUrl}</code>{' '}
+              <button
+                type="button"
+                className="btn btn--icon btn--xs"
+                title="Copy"
+                onClick={() => navigator.clipboard.writeText(uploadedEndpointUrl)}
+              >
+                <i className="bi bi-clipboard" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="notice__meta" style={{ marginTop: 4, opacity: 0.85 }}>
+              {t('sceEndpointUrlHint')}
+            </div>
+          </>
+        )}
       </div>
     )
   }
@@ -932,6 +963,7 @@ export function SkillCodeEditor({ language, theme, onReturnToSkillPipelineBuilde
     if (loadFromRuntimeError) {
       return (
         <div className="notice notice--error">
+          <button type="button" className="notice__close" onClick={() => setLoadFromRuntimeError(null)} aria-label="Close"><i className="bi bi-x-lg" /></button>
           <div className="notice__title">{t('sceLoadFromRuntime')}</div>
           <div className="notice__meta">{loadFromRuntimeError}</div>
         </div>
@@ -940,6 +972,7 @@ export function SkillCodeEditor({ language, theme, onReturnToSkillPipelineBuilde
 
     return (
       <div className="notice notice--success">
+        <button type="button" className="notice__close" onClick={() => setLoadFromRuntimeMessage('')} aria-label="Close"><i className="bi bi-x-lg" /></button>
         <div className="notice__meta">{loadFromRuntimeMessage}</div>
       </div>
     )
@@ -1512,7 +1545,7 @@ export function SkillCodeEditor({ language, theme, onReturnToSkillPipelineBuilde
               disabled={isLoadingFromRuntime || !runtimeUrl.trim() || diffMode}
               title={t('sceLoadFromBlob')}
             >
-              <i className="bi bi-arrow-repeat" aria-hidden="true" />{' '}
+              <i className="bi bi-cloud-arrow-down" aria-hidden="true" />{' '}
               {isLoadingFromRuntime ? t('sceLoadingFromBlob') : t('sceLoadFromBlob')}
             </button>
             <button

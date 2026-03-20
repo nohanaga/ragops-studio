@@ -51,7 +51,7 @@ import {
 
 type TranslationKey = keyof typeof translations.ja
 
-type UiMessage = { type: 'success' | 'error' | 'info'; text: string }
+type UiMessage = { type: 'success' | 'error' | 'warning' | 'info'; text: string }
 
 function loadPersistedString(key: string): string {
   try {
@@ -249,6 +249,15 @@ function getIndexerLastResultStatus(statusResponse: JsonValue): string | null {
   if (!isRecord(lastResult)) return null
   const status = lastResult.status
   return typeof status === 'string' ? status : null
+}
+
+function getIndexerLastResultErrorWarningCounts(statusResponse: JsonValue): { errors: number; warnings: number } {
+  if (!isRecord(statusResponse)) return { errors: 0, warnings: 0 }
+  const lastResult = statusResponse.lastResult
+  if (!isRecord(lastResult)) return { errors: 0, warnings: 0 }
+  const errors = Array.isArray(lastResult.errors) ? lastResult.errors.length : 0
+  const warnings = Array.isArray(lastResult.warnings) ? lastResult.warnings.length : 0
+  return { errors, warnings }
 }
 
 function makeDefaultIndexJson(indexName: string): string {
@@ -822,7 +831,7 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
           stopPolling()
           return
         }
-        setLastStatus(st.response)
+        setLastStatus(restResultToLogJson(st))
 
         const lastResultStatus = getIndexerLastResultStatus(st.response)
         if (isTerminalIndexerStatus(lastResultStatus)) {
@@ -877,21 +886,22 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
   // Reads the projected blob(s) from the Knowledge Store container, maps the
   // JSON back to enrichment-tree field names, and feeds the result into the
   // same `onFetchedDocs` callback so the Enrichment Tree can display values.
-  const fetchProjections = async () => {
+  const fetchProjections = async (): Promise<boolean> => {
     if (storageAuthMode === 'managedIdentity' && !storageBearerToken.trim()) {
       // Managed Identity mode — client-side blob access needs a Storage Bearer Token.
       // Fall back to fetchDocs (Search API) instead.
       setMessage({ type: 'info', text: t('spbDebugMsgProjectionSkippedNoToken') })
       await fetchDocs()
+      return true
       return
     }
     if (storageAuthMode === 'connectionString' && !storageConnectionString.trim()) {
       setMessage({ type: 'error', text: t('spbDebugErrStorageConnRequired') })
-      return
+      return false
     }
     if (!ksContainerName.trim()) {
       setMessage({ type: 'error', text: t('spbDebugErrProjectionContainerRequired') })
-      return
+      return false
     }
 
     setBusy(true)
@@ -911,7 +921,7 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
         const connInfo = parseStorageConnectionString(storageConnectionString)
         if (!connInfo) {
           setMessage({ type: 'error', text: t('spbDebugErrInvalidStorageConn') })
-          return
+          return false
         }
         blobEndpoint = getBlobEndpoint(connInfo.accountName, connInfo.endpointSuffix)
         sasToken = await generateAccountSas({
@@ -935,9 +945,9 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
       })
 
       if (!contentBlob) {
-        setLastProjection({ message: t('spbDebugMsgNoBlobsDirectory') } as unknown as JsonValue)
+        setLastProjection({ ok: false, status: null, error: { message: t('spbDebugMsgNoBlobsDirectory') } } as unknown as JsonValue)
         setMessage({ type: 'error', text: t('spbDebugMsgNoBlobsFound') })
-        return
+        return false
       }
 
       // Read the content blob.
@@ -949,7 +959,7 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
         bearerToken,
       })
 
-      setLastProjection(projectionJson as JsonValue)
+      setLastProjection({ ok: true, status: 200, response: projectionJson, url: `${ksContainerName.trim()}/${contentBlob.name}` } as unknown as JsonValue)
 
       // Map the projection data into a synthetic search-result document
       // keyed by the same field names as the outputFieldMappings, so the
@@ -968,10 +978,12 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
 
       onFetchedDocs?.(syntheticResult as unknown as JsonValue)
       setMessage({ type: 'success', text: format('spbDebugMsgFetchedProjection', { name: contentBlob.name, size: contentBlob.contentLength }) })
+      return true
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
-      setLastProjection({ error: detail } as unknown as JsonValue)
+      setLastProjection({ ok: false, status: null, error: { message: detail } } as unknown as JsonValue)
       setMessage({ type: 'error', text: format('spbDebugErrFetchProjectionFailed', { error: detail }) })
+      return false
     } finally {
       setBusy(false)
     }
@@ -1198,37 +1210,41 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
 
       // ── Step 3: Poll until indexer completes ──
       setDebugProgress(t('spbDebugProgressWaiting'))
-      const pollResult = await new Promise<string>((resolve) => {
+      const pollResult = await new Promise<{ status: string; response: JsonValue | null }>((resolve) => {
         const timer = window.setInterval(async () => {
           const st = await getIndexerStatus({ profile: p, indexerName: debugIndexerName.trim(), apiVersion, language })
           if (!st.ok) {
             window.clearInterval(timer)
             setLastStatus(restResultToLogJson(st))
-            resolve('error')
+            resolve({ status: 'error', response: null })
             return
           }
-          setLastStatus(st.response)
+          setLastStatus(restResultToLogJson(st))
           const lastResultStatus = getIndexerLastResultStatus(st.response)
           if (isTerminalIndexerStatus(lastResultStatus)) {
             window.clearInterval(timer)
-            resolve(String(lastResultStatus))
+            resolve({ status: String(lastResultStatus), response: st.response })
           }
         }, 2000)
       })
 
-      if (pollResult === 'error') {
+      if (pollResult.status === 'error') {
         setMessage({ type: 'error', text: t('spbDebugMsgPollingFailed') })
         return
       }
-      if (pollResult !== 'success') {
-        setMessage({ type: 'error', text: format('spbDebugMsgIndexerStatusFinished', { status: pollResult }) })
+      if (pollResult.status !== 'success') {
+        setMessage({ type: 'error', text: format('spbDebugMsgIndexerStatusFinished', { status: pollResult.status }) })
         return
       }
 
+      // Check indexer-level errors/warnings even on 'success' (maxFailedItems:-1 allows partial success)
+      const { errors: indexerErrors, warnings: indexerWarnings } = getIndexerLastResultErrorWarningCounts(pollResult.response)
+
       // ── Step 4: Fetch projections ──
+      let projectionOk = true
       if (ksProjectionEnabled) {
         setDebugProgress(t('spbDebugProgressFetchingProjections'))
-        await fetchProjections()
+        projectionOk = await fetchProjections()
       }
 
       // ── Step 5: Cleanup (conditional) ──
@@ -1239,7 +1255,17 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
 
       // ── Done ──
       setDebugProgress(null)
-      setMessage({ type: 'success', text: autoCleanup ? t('spbDebugMsgDebugComplete') : t('spbDebugMsgDebugCompleteNoCleanup') })
+      if (!projectionOk) {
+        // fetchProjections already set a detailed error message — don't overwrite it
+      } else if (indexerErrors > 0 || indexerWarnings > 0) {
+        const parts: string[] = []
+        if (indexerErrors > 0) parts.push(format('spbDebugMsgIndexerErrorCount', { count: indexerErrors }))
+        if (indexerWarnings > 0) parts.push(format('spbDebugMsgIndexerWarningCount', { count: indexerWarnings }))
+        const suffix = autoCleanup ? '' : ` ${t('spbDebugMsgDebugCompleteNoCleanupSuffix')}`
+        setMessage({ type: 'warning', text: `${t('spbDebugMsgDebugCompleteWithIssues')}: ${parts.join(', ')}${suffix}` })
+      } else {
+        setMessage({ type: 'success', text: autoCleanup ? t('spbDebugMsgDebugComplete') : t('spbDebugMsgDebugCompleteNoCleanup') })
+      }
 
 
     } catch (err) {
@@ -1261,7 +1287,7 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
       </div>
 
       {message && (
-        <div className={message.type === 'error' ? 'notice notice--error builder__notice' : 'notice notice--success builder__notice'}>
+        <div className={`notice builder__notice ${message.type === 'error' ? 'notice--error' : message.type === 'warning' ? 'notice--warning' : 'notice--success'}`}>
           {message.text}
         </div>
       )}
