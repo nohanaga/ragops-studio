@@ -440,6 +440,8 @@ A **browser-integrated Python development environment** for rapidly building, te
 - **I/O connection validation**: Color-coded indicators (green = connected, yellow = test data missing, red = not connected)
 - **Sync status tracking**: SHA-256 hash comparison between local editor and Blob Storage with visual badges (Synced / Dirty / Unknown)
 
+![image.png](./images/screenshot32_en.gif)
+
 # 🧑‍💻 Maximum Developer Experience (DX)
 
 ## 1. Experiment Management Workflow

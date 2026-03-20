@@ -207,6 +207,8 @@ RAGOps Studio を離れることなく、Azure AI Search の Custom Skill をブ
 - **Diff モード**: ローカルとリモートのコードが異なる場合のサイドバイサイド比較（ハンクナビゲーション付き）
 - **ダーク/ライトテーマ対応**、**多言語対応**（日本語/英語）
 
+![](./docs/images/screenshot32_jp.gif)
+
 ### 3. **開発者ツール**
 
 #### Search Pipeline Visualizer（検索パイプライン可視化）

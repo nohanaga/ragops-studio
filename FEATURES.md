@@ -201,6 +201,8 @@ A browser-integrated Python development environment for building, testing, and d
 - **Diff mode**: Side-by-side comparison with hunk navigation when local and remote code diverge
 - **Dark/light theme support** and **multi-language support** (EN/JP)
 
+![image.png](./docs/images/screenshot32_en.gif)
+
 ## 3. Developer Tools
 
 ### Search Pipeline Visualizer
