@@ -1,9 +1,14 @@
 /**
  * Vite configuration.
  *
- * Includes a development proxy to Azure AI Search endpoints to avoid CORS issues
- * and to support enterprise proxy environments.
+ * Includes a development proxy to Azure AI Search endpoints to avoid CORS issues,
+ * support enterprise proxy environments, and expose a local-only ACA deployment
+ * endpoint for the Custom Skill LiveEditor.
  */
+
+import { spawn } from 'node:child_process'
+import path from 'node:path'
+import process from 'node:process'
 
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -70,6 +75,384 @@ function isTimeoutLikeError(e: unknown): boolean {
   const name = String((e as { name?: unknown }).name ?? '')
   // undici/fetch can surface timeouts as AbortError/TimeoutError (or similar)
   return name === 'AbortError' || name === 'TimeoutError'
+}
+
+async function readRequestBody(req: AsyncIterable<Uint8Array | string>): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  for await (const c of req) {
+    chunks.push(typeof c === 'string' ? Buffer.from(c) : Buffer.from(c))
+  }
+  return chunks.length ? Buffer.concat(chunks) : Buffer.alloc(0)
+}
+
+function sendJson(res: { statusCode: number; setHeader: (name: string, value: string) => void; end: (chunk?: string | Buffer) => void }, statusCode: number, body: unknown): void {
+  res.statusCode = statusCode
+  res.setHeader('content-type', 'application/json')
+  res.end(JSON.stringify(body))
+}
+
+function normalizeAzureName(input: string, fallback: string, maxLength: number): string {
+  const normalized = input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, maxLength)
+    .replace(/^-+|-+$/g, '')
+  return normalized || fallback
+}
+
+async function runCommand(command: string, args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: process.env,
+      windowsHide: true,
+      shell: false,
+    })
+
+    let stdout = ''
+    let stderr = ''
+
+    child.stdout.on('data', (chunk) => {
+      stdout += String(chunk)
+    })
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk)
+    })
+    child.on('error', (err) => {
+      reject(err)
+    })
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr })
+        return
+      }
+      reject(
+        new Error(
+          [
+            `${command} ${args.join(' ')} failed with exit code ${String(code)}`,
+            stderr.trim(),
+            stdout.trim(),
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+        ),
+      )
+    })
+  })
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+function extractStorageAccountName(storageAccountUrl: string): string {
+  let parsed: URL
+  try {
+    parsed = new URL(storageAccountUrl)
+  } catch {
+    throw new Error('storageAccountUrl must be a valid Blob Storage account URL.')
+  }
+
+  const [accountName] = parsed.hostname.toLowerCase().split('.')
+  if (!accountName) {
+    throw new Error('Could not infer the storage account name from storageAccountUrl.')
+  }
+
+  return accountName
+}
+
+async function lookupStorageAccountResourceId(storageAccountName: string, cwd: string): Promise<string> {
+  const result = await runCommand(
+    'az',
+    [
+      'resource',
+      'list',
+      '--name',
+      storageAccountName,
+      '--resource-type',
+      'Microsoft.Storage/storageAccounts',
+      '--query',
+      '[0].id',
+      '--output',
+      'tsv',
+    ],
+    cwd,
+  )
+
+  const resourceId = result.stdout.trim()
+  if (!resourceId) {
+    throw new Error(`Could not find a storage account resource for ${storageAccountName}.`)
+  }
+
+  return resourceId
+}
+
+function isRoleAssignmentExistsError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  const normalized = message.toLowerCase()
+  return normalized.includes('roleassignmentexists') || normalized.includes('role assignment already exists')
+}
+
+async function ensureStorageBlobContributorRole(params: {
+  principalId: string
+  scope: string
+  cwd: string
+  logs: string[]
+}) {
+  const { principalId, scope, cwd, logs } = params
+
+  try {
+    await runCommand(
+      'az',
+      [
+        'role',
+        'assignment',
+        'create',
+        '--assignee-object-id',
+        principalId,
+        '--assignee-principal-type',
+        'ServicePrincipal',
+        '--role',
+        'Storage Blob Data Contributor',
+        '--scope',
+        scope,
+        '--output',
+        'none',
+      ],
+      cwd,
+    )
+    logs.push('Granted Storage Blob Data Contributor to the Container App managed identity.')
+  } catch (error) {
+    if (isRoleAssignmentExistsError(error)) {
+      logs.push('Storage Blob Data Contributor role assignment already exists.')
+      return
+    }
+    throw error
+  }
+}
+
+async function publishSkillToRuntime(params: {
+  baseUrl: string
+  skillName: string
+  skillCode: string
+  logs: string[]
+}) {
+  const { baseUrl, skillName, skillCode, logs } = params
+  const proxyUrl = getEnvProxyUrl()
+  const dispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : undefined
+  let lastError = ''
+
+  for (let attempt = 1; attempt <= 12; attempt += 1) {
+    logs.push(`Publishing current Skill Code to Blob via runtime (attempt ${attempt}/12)...`)
+
+    try {
+      const res = await undiciFetch(`${baseUrl}/upload`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          skill_name: skillName,
+          skill_code: skillCode,
+          metadata: {
+            provisionedVia: 'aca-local-deploy',
+          },
+        }),
+        dispatcher,
+      })
+
+      const text = await res.text()
+      if (res.ok) {
+        if (text.trim()) logs.push(text.trim())
+        return
+      }
+
+      lastError = `HTTP ${res.status}: ${text.slice(0, 500)}`
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+    }
+
+    if (attempt < 12) {
+      logs.push(`Runtime is not ready for publish yet: ${lastError}`)
+      await delay(10_000)
+    }
+  }
+
+  throw new Error(
+    `Skill publish failed after waiting for runtime readiness and RBAC propagation. ${lastError}`,
+  )
+}
+
+function acaLocalDeployPlugin(): Plugin {
+  return {
+    name: 'aca-local-deploy',
+    configureServer(server) {
+      server.middlewares.use('/local-api/aca/deploy', async (req, res) => {
+        if ((req.method ?? 'GET').toUpperCase() !== 'POST') {
+          sendJson(res, 405, { success: false, error: 'Method not allowed' })
+          return
+        }
+
+        try {
+          const rawBody = await readRequestBody(req as AsyncIterable<Uint8Array | string>)
+          const payload = JSON.parse(rawBody.toString('utf8') || '{}') as {
+            skillCode?: string
+            skillName?: string
+            appName?: string
+            resourceGroup?: string
+            location?: string
+            storageAccountUrl?: string
+            storageContainer?: string
+          }
+
+          if (!payload.skillCode?.trim()) {
+            sendJson(res, 400, { success: false, error: 'skillCode is required' })
+            return
+          }
+
+          if (!payload.storageAccountUrl?.trim() || !payload.storageContainer?.trim()) {
+            sendJson(res, 400, { success: false, error: 'storageAccountUrl and storageContainer are required' })
+            return
+          }
+
+          const repoRoot = process.cwd()
+          const skillRuntimeDir = path.resolve(repoRoot, 'skill-runtime')
+          const skillName = normalizeAzureName(payload.skillName ?? '', 'custom-skill', 40)
+          const appName = normalizeAzureName(payload.appName ?? '', 'skill-runtime', 32)
+          const resourceGroup = normalizeAzureName(payload.resourceGroup ?? '', `${appName}-rg`, 64)
+          const location = String(payload.location ?? 'eastus').trim().toLowerCase() || 'eastus'
+          const storageAccountUrl = payload.storageAccountUrl.trim()
+          const storageContainer = normalizeAzureName(payload.storageContainer ?? '', 'skill-runtime', 63)
+          const storageAccountName = extractStorageAccountName(storageAccountUrl)
+
+          const logs: string[] = []
+          logs.push('Checking Azure CLI login...')
+          await runCommand('az', ['account', 'show', '--output', 'none'], repoRoot)
+
+          try {
+            logs.push('Ensuring Azure Container Apps CLI support...')
+            const ext = await runCommand('az', ['extension', 'add', '--name', 'containerapp', '--upgrade', '--only-show-errors'], repoRoot)
+            if (ext.stdout.trim()) logs.push(ext.stdout.trim())
+            if (ext.stderr.trim()) logs.push(ext.stderr.trim())
+          } catch (err) {
+            logs.push(err instanceof Error ? err.message : String(err))
+          }
+
+          logs.push(`Creating resource group ${resourceGroup} in ${location}...`)
+          await runCommand('az', ['group', 'create', '--name', resourceGroup, '--location', location, '--output', 'none'], repoRoot)
+
+          logs.push(`Deploying ${appName} with az containerapp up --source skill-runtime ...`)
+          const deploy = await runCommand(
+            'az',
+            [
+              'containerapp',
+              'up',
+              '--name',
+              appName,
+              '--resource-group',
+              resourceGroup,
+              '--location',
+              location,
+              '--ingress',
+              'external',
+              '--target-port',
+              '8000',
+              '--system-assigned',
+              '--env-vars',
+              `SKILL_STORAGE_ACCOUNT_URL=${storageAccountUrl}`,
+              `SKILL_STORAGE_CONTAINER=${storageContainer}`,
+              'SKILL_STORAGE_PREFIX=skills',
+              '--source',
+              skillRuntimeDir,
+              '--output',
+              'json',
+            ],
+            repoRoot,
+          )
+          if (deploy.stdout.trim()) logs.push(deploy.stdout.trim())
+          if (deploy.stderr.trim()) logs.push(deploy.stderr.trim())
+
+          const show = await runCommand(
+            'az',
+            [
+              'containerapp',
+              'show',
+              '--name',
+              appName,
+              '--resource-group',
+              resourceGroup,
+              '--query',
+              'properties.configuration.ingress.fqdn',
+              '--output',
+              'tsv',
+            ],
+            repoRoot,
+          )
+
+          const fqdn = show.stdout.trim()
+          if (!fqdn) {
+            throw new Error('Container App FQDN was not returned by az containerapp show.')
+          }
+
+          const baseUrl = `https://${fqdn}`
+
+          logs.push('Resolving the Container App managed identity principal ID...')
+          const principal = await runCommand(
+            'az',
+            [
+              'containerapp',
+              'identity',
+              'show',
+              '--name',
+              appName,
+              '--resource-group',
+              resourceGroup,
+              '--query',
+              'principalId',
+              '--output',
+              'tsv',
+            ],
+            repoRoot,
+          )
+          const principalId = principal.stdout.trim()
+          if (!principalId) {
+            throw new Error('Container App managed identity principalId was not returned.')
+          }
+
+          logs.push(`Looking up the storage account resource ID for ${storageAccountName}...`)
+          const storageAccountId = await lookupStorageAccountResourceId(storageAccountName, repoRoot)
+
+          logs.push('Ensuring Storage Blob Data Contributor role assignment on the storage account...')
+          await ensureStorageBlobContributorRole({
+            principalId,
+            scope: storageAccountId,
+            cwd: repoRoot,
+            logs,
+          })
+
+          await publishSkillToRuntime({
+            baseUrl,
+            skillName,
+            skillCode: payload.skillCode,
+            logs,
+          })
+
+          sendJson(res, 200, {
+            success: true,
+            baseUrl,
+            executeUrl: `${baseUrl}/execute`,
+            logs: logs.join('\n\n'),
+          })
+        } catch (e) {
+          const detail = e instanceof Error ? e.message : String(e)
+          server.config.logger.error(`[aca-local-deploy] ${detail}`)
+          sendJson(res, 500, { success: false, error: detail })
+        }
+      })
+    },
+  }
 }
 
 /**
@@ -236,7 +619,7 @@ function aiSearchDynamicProxyPlugin(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   // React fast-refresh + JSX transform.
-  plugins: [react(), aiSearchDynamicProxyPlugin()],
+  plugins: [react(), aiSearchDynamicProxyPlugin(), acaLocalDeployPlugin()],
 
   // Build-time chunking.
   // NOTE: Be conservative with manual chunking to avoid circular chunk dependencies

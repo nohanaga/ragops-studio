@@ -399,6 +399,49 @@ A **visual DAG editor** for authoring Azure AI Search skillsets. Each skill is r
 - Visual editing of `outputFieldMappings`
 - Pipeline state save/restore via LocalStorage
 
+### Custom Skill LiveEditor
+
+![](./images/screenshot_skill_code_editor_en.png)
+
+A **browser-integrated Python development environment** for rapidly building, testing, and deploying Azure AI Search Custom Skills — without leaving RAGOps Studio.
+
+**Comparison with Traditional Approach**
+| Aspect | Traditional Workflow | Custom Skill LiveEditor |
+|------|--------|----------------------------|
+| Development environment | Set up local Python + IDE + Azure Functions/Container Apps | Write Python directly in the browser |
+| Testing | Deploy → Configure skillset → Run indexer → Check results | One-click local execution via Pyodide (WebAssembly) |
+| Deployment | Manual Docker build, ACR push, ACA revision | Upload to Blob → Runtime auto-loads, zero container rebuild |
+| Code sync | Manual file management, easy to lose track of versions | SHA-256 hash tracking with visual sync status badges |
+| Debugging | Scattered across multiple tools and logs | Integrated test panel with stdout/stderr capture and execution time |
+
+**Three-Tab Workspace**
+- **Code tab**: CodeMirror editor with Python syntax highlighting, I/O connection panel showing which skill inputs/outputs are referenced in code
+- **Test tab**: JSON test input/output editor, execution logs, validation notices, local and remote execution
+- **Settings tab**: Runtime URL configuration, health check, load/publish controls
+
+**Two Execution Modes**
+- **Local Run (Pyodide)**: Execute Python code directly in the browser using WebAssembly — no server required, instant feedback
+- **Remote Run**: Execute code on the cloud runtime (Azure Container Apps + FastAPI) for production-realistic testing
+
+**Cloud Runtime Architecture**
+- FastAPI-based Skill Host on Azure Container Apps
+- Dynamic Skill Loading: skill code stored in Azure Blob Storage, loaded at runtime without container redeployment
+- 6 HTTP endpoints: `/health`, `/simulate`, `/execute`, `/upload`, `/skills/{name}`, `/skills/{name}/code`
+- Deploy scripts for Azure Container Apps included (`deploy-aca.ps1`, `deploy-aca.sh`)
+
+**Skill Pipeline Integration**
+- Opens directly from skill nodes in the Skill Pipeline Builder
+- Auto-generates sample Python code based on skill input/output definitions
+- Updates Custom Web API skill URI after successful upload
+- Draft persistence: auto-saves editor state per linked skill node
+
+**Advanced Features**
+- **Diff mode**: Side-by-side comparison with hunk navigation when local and remote code diverge
+- **I/O connection validation**: Color-coded indicators (green = connected, yellow = test data missing, red = not connected)
+- **Sync status tracking**: SHA-256 hash comparison between local editor and Blob Storage with visual badges (Synced / Dirty / Unknown)
+
+![image.png](./images/screenshot32_en.gif)
+
 # 🧑‍💻 Maximum Developer Experience (DX)
 
 ## 1. Experiment Management Workflow

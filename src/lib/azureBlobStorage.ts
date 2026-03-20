@@ -20,6 +20,47 @@ export interface StorageConnectionInfo {
   endpointSuffix: string
 }
 
+/** Storage auth mode used by the Debug Runner. */
+export type StorageAuthMode = 'connectionString' | 'managedIdentity'
+
+// ---------------------------------------------------------------------------
+// ResourceId helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the storage account name from an Azure Resource ID string.
+ *
+ * Expected format:
+ *   ResourceId=/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{name};
+ */
+export function parseStorageAccountNameFromResourceId(resourceId: string): string | null {
+  const match = resourceId.match(/storageAccounts\/([^/;]+)/i)
+  return match ? match[1] : null
+}
+
+// ---------------------------------------------------------------------------
+// Auth helpers (SAS vs Bearer)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the URL query suffix and extra headers for a Blob REST request.
+ *
+ * - When `sasToken` is provided the SAS parameters are appended to the URL.
+ * - When `bearerToken` is provided an `Authorization: Bearer` header is used
+ *   instead (no SAS in the URL).  This works when the storage account has
+ *   *Allow shared key access* disabled.
+ */
+function resolveBlobAuth(sasToken?: string, bearerToken?: string): { urlSuffix: string; authHeaders: Record<string, string> } {
+  if (bearerToken) {
+    const token = bearerToken.trim()
+    return {
+      urlSuffix: '',
+      authHeaders: { Authorization: token.startsWith('Bearer ') ? token : `Bearer ${token}` },
+    }
+  }
+  return { urlSuffix: sasToken ?? '', authHeaders: {} }
+}
+
 // ---------------------------------------------------------------------------
 // Connection string parsing
 // ---------------------------------------------------------------------------
@@ -188,16 +229,18 @@ export interface BlobInfo {
 export async function listContainerBlobs(params: {
   blobEndpoint: string
   containerName: string
-  sasToken: string
+  sasToken?: string
+  bearerToken?: string
   prefix?: string
 }): Promise<BlobInfo[]> {
-  const { blobEndpoint, containerName, sasToken, prefix } = params
-  let url = `${blobEndpoint}/${encodeURIComponent(containerName)}?restype=container&comp=list&${sasToken}`
+  const { blobEndpoint, containerName, sasToken, bearerToken, prefix } = params
+  const { urlSuffix, authHeaders } = resolveBlobAuth(sasToken, bearerToken)
+  let url = `${blobEndpoint}/${encodeURIComponent(containerName)}?restype=container&comp=list${urlSuffix ? `&${urlSuffix}` : ''}`
   if (prefix) url += `&prefix=${encodeURIComponent(prefix)}`
 
   const res = await blobFetch(url, {
     method: 'GET',
-    headers: { 'x-ms-version': '2022-11-02' },
+    headers: { 'x-ms-version': '2022-11-02', ...authHeaders },
   })
 
   if (!res.ok) {
@@ -241,11 +284,12 @@ export async function listContainerBlobs(params: {
 export async function findFirstContentBlob(params: {
   blobEndpoint: string
   containerName: string
-  sasToken: string
+  sasToken?: string
+  bearerToken?: string
 }): Promise<{ name: string; contentLength: number } | null> {
-  const { blobEndpoint, containerName, sasToken } = params
+  const { blobEndpoint, containerName, sasToken, bearerToken } = params
 
-  const allBlobs = await listContainerBlobs({ blobEndpoint, containerName, sasToken })
+  const allBlobs = await listContainerBlobs({ blobEndpoint, containerName, sasToken, bearerToken })
 
   // Filter to real content blobs (not directory markers).
   const contentBlobs = allBlobs.filter(
@@ -260,7 +304,7 @@ export async function findFirstContentBlob(params: {
   const dirBlobs = allBlobs.filter((b) => b.resourceType === 'directory' || b.contentLength === 0)
   for (const dir of dirBlobs) {
     const prefix = dir.name.endsWith('/') ? dir.name : `${dir.name}/`
-    const children = await listContainerBlobs({ blobEndpoint, containerName, sasToken, prefix })
+    const children = await listContainerBlobs({ blobEndpoint, containerName, sasToken, bearerToken, prefix })
     const childContent = children.filter(
       (b) => b.resourceType !== 'directory' && b.contentLength > 0,
     )
@@ -286,20 +330,22 @@ export async function readBlobAsJson(params: {
   blobEndpoint: string
   containerName: string
   blobName: string
-  sasToken: string
+  sasToken?: string
+  bearerToken?: string
 }): Promise<unknown> {
-  const { blobEndpoint, containerName, blobName, sasToken } = params
+  const { blobEndpoint, containerName, blobName, sasToken, bearerToken } = params
+  const { urlSuffix, authHeaders } = resolveBlobAuth(sasToken, bearerToken)
   // Encode each path segment of the blob name individually so that '/' separators
   // are preserved while special characters (spaces, unicode, etc.) are escaped.
   const encodedBlobPath = blobName
     .split('/')
     .map((seg) => encodeURIComponent(seg))
     .join('/')
-  const url = `${blobEndpoint}/${encodeURIComponent(containerName)}/${encodedBlobPath}?${sasToken}`
+  const url = `${blobEndpoint}/${encodeURIComponent(containerName)}/${encodedBlobPath}${urlSuffix ? `?${urlSuffix}` : ''}`
 
   const res = await blobFetch(url, {
     method: 'GET',
-    headers: { 'x-ms-version': '2022-11-02' },
+    headers: { 'x-ms-version': '2022-11-02', ...authHeaders },
   })
 
   if (!res.ok) {
@@ -323,6 +369,126 @@ export async function readBlobAsJson(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Upload a blob (PUT Blob)
+// ---------------------------------------------------------------------------
+
+/**
+ * Upload content to a blob using the Azure Blob Storage REST API (Put Blob).
+ *
+ * Requires an Account SAS with write + create permissions (sp includes 'wc').
+ *
+ * @see https://learn.microsoft.com/rest/api/storageservices/put-blob
+ */
+export async function uploadBlob(params: {
+  blobEndpoint: string
+  containerName: string
+  blobName: string
+  sasToken?: string
+  bearerToken?: string
+  content: string | Uint8Array
+  contentType?: string
+}): Promise<void> {
+  const { blobEndpoint, containerName, blobName, sasToken, bearerToken, content, contentType } = params
+  const { urlSuffix, authHeaders } = resolveBlobAuth(sasToken, bearerToken)
+  const encodedBlobPath = blobName
+    .split('/')
+    .map((seg) => encodeURIComponent(seg))
+    .join('/')
+  const url = `${blobEndpoint}/${encodeURIComponent(containerName)}/${encodedBlobPath}${urlSuffix ? `?${urlSuffix}` : ''}`
+
+  const sourceBytes = typeof content === 'string' ? new TextEncoder().encode(content) : content
+  const bodyBytes = Uint8Array.from(sourceBytes)
+  const body = new Blob([bodyBytes], {
+    type: contentType ?? 'application/octet-stream',
+  })
+
+  const res = await blobFetch(url, {
+    method: 'PUT',
+    headers: {
+      'x-ms-version': '2022-11-02',
+      'x-ms-blob-type': 'BlockBlob',
+      'Content-Type': contentType ?? 'application/octet-stream',
+      'Content-Length': String(bodyBytes.byteLength),
+      ...authHeaders,
+    },
+    body,
+  })
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    throw new Error(`Upload blob failed (${res.status}): ${errText}`)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Delete a blob
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete a single blob.
+ *
+ * @see https://learn.microsoft.com/rest/api/storageservices/delete-blob
+ */
+export async function deleteBlob(params: {
+  blobEndpoint: string
+  containerName: string
+  blobName: string
+  sasToken?: string
+  bearerToken?: string
+}): Promise<void> {
+  const { blobEndpoint, containerName, blobName, sasToken, bearerToken } = params
+  const { urlSuffix, authHeaders } = resolveBlobAuth(sasToken, bearerToken)
+  const encodedBlobPath = blobName
+    .split('/')
+    .map((seg) => encodeURIComponent(seg))
+    .join('/')
+  const url = `${blobEndpoint}/${encodeURIComponent(containerName)}/${encodedBlobPath}${urlSuffix ? `?${urlSuffix}` : ''}`
+
+  const res = await blobFetch(url, {
+    method: 'DELETE',
+    headers: { 'x-ms-version': '2022-11-02', ...authHeaders },
+  })
+
+  if (!res.ok && res.status !== 404) {
+    const errText = await res.text().catch(() => '')
+    throw new Error(`Delete blob failed (${res.status}): ${errText}`)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Create a container
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a blob container.
+ *
+ * Returns silently if the container already exists (409 Conflict).
+ *
+ * @see https://learn.microsoft.com/rest/api/storageservices/create-container
+ */
+export async function createBlobContainer(params: {
+  blobEndpoint: string
+  containerName: string
+  sasToken?: string
+  bearerToken?: string
+}): Promise<void> {
+  const { blobEndpoint, containerName, sasToken, bearerToken } = params
+  const { urlSuffix, authHeaders } = resolveBlobAuth(sasToken, bearerToken)
+  const url = `${blobEndpoint}/${encodeURIComponent(containerName)}?restype=container${urlSuffix ? `&${urlSuffix}` : ''}`
+
+  const res = await blobFetch(url, {
+    method: 'PUT',
+    headers: { 'x-ms-version': '2022-11-02', ...authHeaders },
+  })
+
+  // 201 = created, 409 = already exists (both are OK)
+  if (!res.ok && res.status !== 409) {
+    const errText = await res.text().catch(() => '')
+    throw new Error(`Create container failed (${res.status}): ${errText}`)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Delete a container (best-effort cleanup)
 // ---------------------------------------------------------------------------
 
@@ -333,17 +499,19 @@ export async function readBlobAsJson(params: {
 export async function deleteContainer(params: {
   blobEndpoint: string
   containerName: string
-  sasToken: string
+  sasToken?: string
+  bearerToken?: string
 }): Promise<void> {
-  const { blobEndpoint, containerName, sasToken } = params
+  const { blobEndpoint, containerName, sasToken, bearerToken } = params
+  const { urlSuffix, authHeaders } = resolveBlobAuth(sasToken, bearerToken)
   // Account SAS with delete permission on containers needs srt=c and sp includes 'd'.
   // If the SAS lacks those permissions the delete is best-effort; we catch
   // errors silently so cleanup doesn't break.
-  const url = `${blobEndpoint}/${encodeURIComponent(containerName)}?restype=container&${sasToken}`
+  const url = `${blobEndpoint}/${encodeURIComponent(containerName)}?restype=container${urlSuffix ? `&${urlSuffix}` : ''}`
 
   const res = await blobFetch(url, {
     method: 'DELETE',
-    headers: { 'x-ms-version': '2022-11-02' },
+    headers: { 'x-ms-version': '2022-11-02', ...authHeaders },
   })
 
   if (!res.ok && res.status !== 404) {

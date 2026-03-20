@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { computeSkillsetDiff, diffEntriesToText } from './skillsetDiff'
+import { computeSkillsetDiff, computeResourceDiff, diffEntriesToText } from './skillsetDiff'
 
 describe('utils/skillsetDiff', () => {
   // ─── Identical after normalisation ─────────────────────────────────────
@@ -274,5 +274,54 @@ describe('utils/skillsetDiff', () => {
 
     // @odata.etag should NOT appear in changes
     expect(result.changes.every((c) => !c.path.includes('@odata.etag'))).toBe(true)
+  })
+})
+
+// ─── computeResourceDiff (generic) ──────────────────────────────────────
+
+describe('utils/skillsetDiff – computeResourceDiff (generic)', () => {
+  it('works with custom named arrays', () => {
+    const before = {
+      name: 'test',
+      items: [
+        { name: 'a', value: 1 },
+        { name: 'b', value: 2 },
+      ],
+    }
+    const after = {
+      name: 'test',
+      items: [
+        { name: 'b', value: 2 },
+        { name: 'a', value: 10 }, // a.value changed
+        { name: 'c', value: 3 },  // c added
+      ],
+    }
+    const result = computeResourceDiff(before, after, {
+      namedArrays: [{ field: 'items', label: 'item' }],
+    })
+    expect(result.identical).toBe(false)
+    expect(result.changes.some((c) => c.kind === 'item-changed' && c.skillName === 'a')).toBe(true)
+    expect(result.changes.some((c) => c.kind === 'item-added' && c.skillName === 'c')).toBe(true)
+    expect(result.changes.some((c) => c.kind === 'reordered')).toBe(true)
+  })
+
+  it('strips custom service meta keys', () => {
+    const before = { name: 'x', custom_meta: 'ignored', value: 1 }
+    const after = { name: 'x', value: 1 }
+    const result = computeResourceDiff(before, after, {
+      serviceMeta: new Set(['custom_meta']),
+    })
+    expect(result.identical).toBe(true)
+  })
+
+  it('diffEntriesToText handles item-* kinds', () => {
+    const result = computeResourceDiff(
+      { name: 'r', items: [{ name: 'old', v: 1 }] },
+      { name: 'r', items: [{ name: 'new', v: 2 }] },
+      { namedArrays: [{ field: 'items', label: 'item' }] },
+    )
+    const text = diffEntriesToText(result.changes)
+    expect(text).toContain('"old" removed')
+    expect(text).toContain('"new" added')
   })
 })

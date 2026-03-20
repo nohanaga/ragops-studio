@@ -20,6 +20,7 @@ import {
   RightJsonViewerPane,
   SkillPipelineBuilder,
   SkillPipelineRightPane,
+  SkillCodeEditor,
   SearchParameterAutoTuning,
   SearchPipelineVisualizer,
   SynonymMapBuilder,
@@ -215,6 +216,9 @@ export function AppLayout(props: {
     setIsSkillPipelineBuilderOpen,
     isVectorOptimizerOpen,
     setIsVectorOptimizerOpen,
+    isSkillEditorOpen,
+    setIsSkillEditorOpen,
+    setSkillEditorLinkedNodeId,
   } = useModalState()
   const {
     uiError,
@@ -418,6 +422,11 @@ export function AppLayout(props: {
         onOpenSkillPipelineBuilder={() => {
           setIsSkillPipelineBuilderOpen(true)
           setCenterTab('skill-pipeline-builder')
+        }}
+        onOpenSkillEditor={() => {
+          setSkillEditorLinkedNodeId(null)
+          setIsSkillEditorOpen(true)
+          setCenterTab('skill-editor')
         }}
         onOpenSearchPipelineVisualizer={() => {
           setIsSearchPipelineVisualizerOpen(true)
@@ -727,6 +736,34 @@ export function AppLayout(props: {
               </div>
             )}
 
+            {isSkillEditorOpen && (
+              <div className="tabWrapper">
+                <button
+                  type="button"
+                  className={'tab ' + (centerTab === 'skill-editor' ? 'tab--active' : '')}
+                  onClick={() => setCenterTab('skill-editor')}
+                >
+                  <span className="tab__label">🐍 {t('sceMenuLabel')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="tab__closeBtn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setSkillEditorLinkedNodeId(null)
+                    setIsSkillEditorOpen(false)
+                    if (centerTab === 'skill-editor') {
+                      setCenterTab('builder')
+                    }
+                  }}
+                  aria-label="Close tab"
+                  title="Close tab"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
             {resultViews.map((view) => {
               const isRunTab = typeof view.id === 'string' && view.id.startsWith('run:')
               const runTypeClass = view.runType ? `tab--${view.runType}` : ''
@@ -915,6 +952,7 @@ export function AppLayout(props: {
                 language={language}
                 theme={theme}
                 onClose={() => setCenterTab('builder')}
+                copyToClipboard={copyToClipboard}
               />
             </div>
           )}
@@ -928,6 +966,24 @@ export function AppLayout(props: {
                 copyToClipboard={copyToClipboard}
                 profile={activeProfile}
                 apiVersion={effectiveApiVersion}
+                onOpenSkillEditor={(nodeId) => {
+                  setSkillEditorLinkedNodeId(nodeId)
+                  setIsSkillEditorOpen(true)
+                  setCenterTab('skill-editor')
+                }}
+              />
+            </div>
+          )}
+
+          {isSkillEditorOpen && (
+            <div className="tabPane" hidden={centerTab !== 'skill-editor'}>
+              <SkillCodeEditor
+                language={language}
+                theme={theme}
+                onReturnToSkillPipelineBuilder={() => {
+                  setIsSkillPipelineBuilderOpen(true)
+                  setCenterTab('skill-pipeline-builder')
+                }}
               />
             </div>
           )}
@@ -971,6 +1027,7 @@ export function AppLayout(props: {
             centerTab !== 'synonym-map-builder' &&
             centerTab !== 'index-builder' &&
             centerTab !== 'skill-pipeline-builder' &&
+            centerTab !== 'skill-editor' &&
             centerTab !== 'search-pipeline-visualizer' && (
               <div className="pane__centerContent">
                 <div className="resultGrid" style={{ gridTemplateColumns: `repeat(${resultViews.length}, minmax(0, 1fr))` }}>

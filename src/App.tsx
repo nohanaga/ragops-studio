@@ -88,6 +88,8 @@ function App() {
     setIsVectorOptimizerOpen,
     isFilterBuilderOpen,
     setIsFilterBuilderOpen,
+    isSkillEditorOpen,
+    setIsSkillEditorOpen,
   } = useModalState()
   const {
     setUiError,
@@ -700,6 +702,7 @@ function App() {
     isIndexBuilderOpen,
     isSkillPipelineBuilderOpen,
     isVectorOptimizerOpen,
+    isSkillEditorOpen,
   })
 
   useLatestResponseRestore({
@@ -741,6 +744,7 @@ function App() {
     setIsIndexBuilderOpen,
     setIsSkillPipelineBuilderOpen,
     setIsVectorOptimizerOpen,
+    setIsSkillEditorOpen,
   })
 
   useSelectedRunsArtifacts({

@@ -73,6 +73,7 @@ type IndexerOutputMappingEdgeData = {
 
 const SKILL_PIPELINE_INDEXER_NODE_ID = 'indexer'
 const SKILL_PIPELINE_INDEX_NODE_ID = 'index'
+const CUSTOM_WEB_API_SKILL_ODATA_TYPE = '#Microsoft.Skills.Custom.WebApiSkill'
 
 const DAGRE_RANKSEP_PX = 140
 
@@ -419,7 +420,7 @@ const BUILT_IN_SKILL_TEMPLATES: BuiltInSkillTemplate[] = [
     id: 'customWebApi',
     label: 'spbSkillCustomWebApi',
     skill: {
-      '@odata.type': '#Microsoft.Skills.Custom.WebApiSkill',
+      '@odata.type': CUSTOM_WEB_API_SKILL_ODATA_TYPE,
       name: 'customWebApi',
       context: '/document',
       // Required per docs: uri (HTTPS endpoint of the custom Web API).
@@ -498,6 +499,7 @@ type SkillPipelineBuilderProps = {
   language: Language
   theme: ThemePreference
   copyToClipboard: (text: string) => Promise<void>
+  onOpenSkillEditor?: (nodeId: string) => void
 
   profile: ConnectionProfile | null
   apiVersion: SearchApiVersion
@@ -1475,7 +1477,7 @@ function inferIndexerEdges(params: {
 }
 
 export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
-  const { t, profile, apiVersion, language, theme, copyToClipboard } = props
+  const { t, profile, apiVersion, language, theme, copyToClipboard, onOpenSkillEditor } = props
   _spbLang = language
 
   const {
@@ -1521,6 +1523,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
   const [mainTab, setMainTab] = useState<'graph' | 'skillsetJson' | 'debugRunner' | 'enrichmentTree'>('graph')
   const [debugBusy, setDebugBusy] = useState(false)
   const [debugProgress, setDebugProgress] = useState<string | null>(null)
+  const [enrichmentTreeUpdated, setEnrichmentTreeUpdated] = useState(false)
   const debugRunnerRef = useRef<SkillPipelineDebugRunnerHandle | null>(null)
   const [_addSkillTemplateId, setAddSkillTemplateId] = useState<string>('')
   const [nodeContextMenu, setNodeContextMenu] = useState<
@@ -1540,6 +1543,17 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
     | null
   >(null)
   const [serviceResourceFilter, setServiceResourceFilter] = useState<string>('')
+
+  const contextMenuSkill = useMemo(() => {
+    if (!nodeContextMenu || nodeContextMenu.kind !== 'skill') return null
+    const node = nodes.find((n) => n.id === nodeContextMenu.nodeId) ?? null
+    if (!node || node.data.kind !== 'skill') return null
+    return node.data.skill
+  }, [nodeContextMenu, nodes])
+
+  const isContextMenuCustomWebApiSkill =
+    typeof contextMenuSkill?.['@odata.type'] === 'string' &&
+    String(contextMenuSkill['@odata.type']).trim() === CUSTOM_WEB_API_SKILL_ODATA_TYPE
 
   const flowRef = useRef<ReactFlowInstance<SkillPipelineNode, any> | null>(null)
   const canvasKeyRef = useRef<HTMLDivElement | null>(null)
@@ -2915,15 +2929,15 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
           </button>
           <button
             type="button"
-            className={'btn btn--tab ' + (mainTab === 'debugRunner' ? 'btn--active' : '')}
+            className={'btn btn--tab ' + (mainTab === 'debugRunner' ? 'btn--active' : '') + (debugBusy && mainTab !== 'debugRunner' ? ' btn--tab-debugging' : '')}
             onClick={() => setMainTab('debugRunner')}
           >
             {t('spbTabDebugRunner')}
           </button>
           <button
             type="button"
-            className={'btn btn--tab ' + (mainTab === 'enrichmentTree' ? 'btn--active' : '')}
-            onClick={() => setMainTab('enrichmentTree')}
+            className={'btn btn--tab ' + (mainTab === 'enrichmentTree' ? 'btn--active' : '') + (enrichmentTreeUpdated && mainTab !== 'enrichmentTree' ? ' btn--tab-updated' : '')}
+            onClick={() => { setMainTab('enrichmentTree'); setEnrichmentTreeUpdated(false) }}
           >
             {t('spbTabEnrichmentTree')}
           </button>
@@ -3006,12 +3020,29 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                 >
                   {nodeContextMenu.kind === 'skill' ? (
                     <>
+                      {isContextMenuCustomWebApiSkill && onOpenSkillEditor ? (
+                        <>
+                          <button
+                            type="button"
+                            className="dropdown-item"
+                            onClick={() => {
+                              const nodeId = nodeContextMenu.nodeId
+                              setNodeContextMenu(null)
+                              onOpenSkillEditor(nodeId)
+                            }}
+                          >
+                            {t('spbEditSkillCode')}
+                          </button>
+                          <hr className="dropdown-divider" />
+                        </>
+                      ) : null}
                       <button type="button" className="dropdown-item" onClick={() => deleteConnectionsByNodeId(nodeContextMenu.nodeId, 'incoming')}>
                         {t('spbDisconnectInputs')}
                       </button>
                       <button type="button" className="dropdown-item" onClick={() => deleteConnectionsByNodeId(nodeContextMenu.nodeId, 'outgoing')}>
                         {t('spbDisconnectOutputs')}
                       </button>
+                      <hr className="dropdown-divider" />
                       <button type="button" className="dropdown-item" onClick={() => deleteSkillNodeById(nodeContextMenu.nodeId)}>
                         {t('spbDeleteSkill')}
                       </button>
@@ -3535,7 +3566,10 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
                 theme={theme}
                 skillsetJson={skillsetJson}
                 defaultSkillsetName={skillsetName}
-                onFetchedDocs={setDebugFetchedDocs}
+                onFetchedDocs={(docs) => {
+                  setDebugFetchedDocs(docs)
+                  if (mainTab !== 'enrichmentTree') setEnrichmentTreeUpdated(true)
+                }}
                 onBusyChange={setDebugBusy}
                 onProgressChange={setDebugProgress}
               />

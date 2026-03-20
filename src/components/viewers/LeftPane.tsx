@@ -194,7 +194,7 @@ export function LeftPane(props: LeftPaneProps) {
         {filteredRuns.map((run) => {
           const checked = selectedRunIds.includes(run.runId)
           const isActive = !!activeRunId && activeRunId === run.runId
-          const runQuery = extractQueryString(run.params) || run.runId
+          const runQuery = extractQueryString(run.params) || (run.runType === 'query' ? '(empty)' : run.runId)
           const runNote = run.note?.trim()
           const runMeta = [
             run.metrics.latencyMs !== undefined ? `${run.metrics.latencyMs}ms` : null,

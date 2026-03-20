@@ -20,7 +20,7 @@ import { RangeSetBuilder } from '@codemirror/state'
 import type { ThemePreference } from '../../types/app'
 import type { Language } from '../../lib/translations'
 import { translations } from '../../lib/translations'
-import { diffEntriesToText, type DiffEntry, type SkillsetDiffResult } from '../../utils/skillsetDiff'
+import { diffEntriesToText, type DiffEntry, type SkillsetDiffResult, type ResourceDiffResult } from '../../utils/skillsetDiff'
 
 type TranslationKey = keyof typeof translations.ja
 
@@ -35,6 +35,9 @@ function diffKindBadge(kind: DiffEntry['kind'], t: (k: TranslationKey) => string
     'skill-added':    { label: t('spbDiffSkillAdded'),      color: '#22863a', bg: '#dcffe4' },
     'skill-removed':  { label: t('spbDiffSkillRemoved'),    color: '#cb2431', bg: '#ffeef0' },
     'skill-changed':  { label: t('spbDiffSkillChanged'),    color: '#e36209', bg: '#fff3cd' },
+    'item-added':     { label: t('spbDiffItemAdded'),       color: '#22863a', bg: '#dcffe4' },
+    'item-removed':   { label: t('spbDiffItemRemoved'),     color: '#cb2431', bg: '#ffeef0' },
+    'item-changed':   { label: t('spbDiffItemChanged'),     color: '#e36209', bg: '#fff3cd' },
     'unchanged':      { label: '—', color: '#586069', bg: 'transparent' },
   }
   const info = map[kind] ?? { label: kind, color: '#586069', bg: 'transparent' }
@@ -138,19 +141,40 @@ export interface PublishDiffModalProps {
 
   publishBaselineText: string
   publishCandidateJson: string
-  semanticDiff: SkillsetDiffResult | null
+  semanticDiff: SkillsetDiffResult | ResourceDiffResult | null
   normalizedDiffLineSets: { left: Set<number>; right: Set<number> }
 
-  /** The target skillset name on Azure. */
+  /** The target resource name on Azure. */
   publishTargetName: string
-  /** Whether the target is a new skillset (404). */
+  /** Whether the target is a new resource (404). */
   isNewSkillset: boolean
   /** Whether a baseline re-fetch is in progress. */
   refetchingBaseline: boolean
   /** Called when the user changes the target name. */
   onChangeTargetName: (name: string) => void
-  /** Names of existing skillsets on Azure (for the dropdown). */
+  /** Names of existing resources on Azure (for the dropdown). */
   existingSkillsetNames: string[]
+
+  /**
+   * Resource type label configuration (defaults to skillset labels).
+   * Allows reuse of this modal for indexes, indexers, etc.
+   */
+  resourceLabels?: {
+    /** Translation key for the target-name label, e.g. 'indexBuilderPublishTargetName'. */
+    targetNameLabel?: TranslationKey
+    /** Translation key for "Create new" badge. */
+    createNewLabel?: TranslationKey
+    /** Translation key for "Update existing" badge. */
+    updateExistingLabel?: TranslationKey
+    /** Translation key for the dropdown optgroup label. */
+    selectExistingLabel?: TranslationKey
+    /** Translation key for "+ Create new..." option. */
+    createNewOptionLabel?: TranslationKey
+    /** Translation key for the new-name placeholder. */
+    newNamePlaceholderLabel?: TranslationKey
+    /** Translation key for target name hint. */
+    targetNameHintLabel?: TranslationKey
+  }
 }
 
 // ── Component ───────────────────────────────────────────────────────────
@@ -176,7 +200,19 @@ export function PublishDiffModal(props: PublishDiffModalProps) {
     refetchingBaseline,
     onChangeTargetName,
     existingSkillsetNames,
+    resourceLabels,
   } = props
+
+  // Resolve resource-specific translation keys (fallback to skillset defaults)
+  const rl = {
+    targetNameLabel: resourceLabels?.targetNameLabel ?? 'spbPublishTargetName' as TranslationKey,
+    createNewLabel: resourceLabels?.createNewLabel ?? 'spbPublishCreateNew' as TranslationKey,
+    updateExistingLabel: resourceLabels?.updateExistingLabel ?? 'spbPublishUpdateExisting' as TranslationKey,
+    selectExistingLabel: resourceLabels?.selectExistingLabel ?? 'spbPublishSelectExisting' as TranslationKey,
+    createNewOptionLabel: resourceLabels?.createNewOptionLabel ?? 'spbPublishCreateNewOption' as TranslationKey,
+    newNamePlaceholderLabel: resourceLabels?.newNamePlaceholderLabel ?? 'spbPublishNewNamePlaceholder' as TranslationKey,
+    targetNameHintLabel: resourceLabels?.targetNameHintLabel ?? 'spbPublishTargetNameHint' as TranslationKey,
+  }
 
   // ── Dropdown "create new" mode ───────────────────────────────────────
   const CREATE_NEW_SENTINEL = '__create_new__'
@@ -276,7 +312,7 @@ export function PublishDiffModal(props: PublishDiffModalProps) {
           <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <label style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}>
               <i className="bi bi-cloud-upload" style={{ marginRight: 4 }}></i>
-              {t('spbPublishTargetName')}:
+              {t(rl.targetNameLabel)}:
             </label>
 
             {/* Dropdown: existing skillsets + "Create new" option */}
@@ -286,13 +322,13 @@ export function PublishDiffModal(props: PublishDiffModalProps) {
               style={{ flex: '0 1 280px', fontSize: 13 }}
             >
               {existingSkillsetNames.length > 0 && (
-                <optgroup label={t('spbPublishSelectExisting')}>
+                <optgroup label={t(rl.selectExistingLabel)}>
                   {existingSkillsetNames.map((name) => (
                     <option key={name} value={name}>{name}</option>
                   ))}
                 </optgroup>
               )}
-              <option value={CREATE_NEW_SENTINEL}>{t('spbPublishCreateNewOption')}</option>
+              <option value={CREATE_NEW_SENTINEL}>{t(rl.createNewOptionLabel)}</option>
             </select>
 
             {/* When "create new" is selected, show a text input for the name */}
@@ -301,7 +337,7 @@ export function PublishDiffModal(props: PublishDiffModalProps) {
                 type="text"
                 value={publishTargetName}
                 onChange={(e) => onChangeTargetName(e.target.value)}
-                placeholder={t('spbPublishNewNamePlaceholder')}
+                placeholder={t(rl.newNamePlaceholderLabel)}
                 style={{ flex: '1 1 200px', maxWidth: 300, fontSize: 13 }}
                 autoFocus
               />
@@ -325,14 +361,14 @@ export function PublishDiffModal(props: PublishDiffModalProps) {
                   whiteSpace: 'nowrap',
                 }}
               >
-                {isNewSkillset ? t('spbPublishCreateNew') : t('spbPublishUpdateExisting')}
+                {isNewSkillset ? t(rl.createNewLabel) : t(rl.updateExistingLabel)}
               </span>
             )}
           </div>
           {creatingNew && (
             <div className="section__hint" style={{ marginBottom: 8, fontSize: 12, color: 'var(--success, #22863a)' }}>
               <i className="bi bi-info-circle" style={{ marginRight: 4 }}></i>
-              {t('spbPublishTargetNameHint')}
+              {t(rl.targetNameHintLabel)}
             </div>
           )}
 

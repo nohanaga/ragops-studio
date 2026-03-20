@@ -178,6 +178,37 @@ Azure AI Search のスキルセットをビジュアルフローエディター�
 
 ![](./docs/images/screenshot27_jp.gif)
 
+#### Custom Skill LiveEditor（カスタムスキルライブエディター）
+
+RAGOps Studio を離れることなく、Azure AI Search の Custom Skill をブラウザ上で開発・テスト・デプロイできる Python 統合開発環境です。
+
+- **3つのタブで構成されたワークスペース**:
+  - **Code タブ**: CodeMirror による Python シンタックスハイライト付きエディター、スキルの入出力がコード内で参照されているかを示す I/O 接続パネル（🟢 接続済み / 🟡 テストデータ未設定 / 🔴 未接続）
+  - **Test タブ**: JSON テスト入出力エディター、stdout/stderr キャプチャ付き実行ログ、バリデーション通知、実行時間表示
+  - **Settings タブ**: ランタイム URL 設定、ヘルスチェック、スキルのロード/パブリッシュ操作
+- **2つの実行モード**:
+  - **Local Run（Pyodide）**: WebAssembly 経由でブラウザ内で Python コードを直接実行 — サーバー不要、即座にフィードバック
+  - **Remote Run**: クラウドランタイム（Azure Container Apps + FastAPI）上で実行し、本番環境に近いテストが可能
+- **クラウドランタイムアーキテクチャ**:
+  - Azure Container Apps 上の FastAPI ベースの Skill Host
+  - Dynamic Skill Loading: コードを Azure Blob Storage に保存し、コンテナの再デプロイなしでランタイム時にロード
+  - 6つの HTTP エンドポイント: `/health`, `/simulate`, `/execute`, `/upload`, `/skills/{name}`, `/skills/{name}/code`
+  - スキルモジュール規約: `def process(input: dict) -> dict`
+  - Azure Container Apps 用デプロイスクリプト同梱（`deploy-aca.ps1`, `deploy-aca.sh`）
+- **Blob Storage 連携**:
+  - アップロードフロー: ローカルコード → 差分プレビュー → 確認 → POST /upload → Blob Storage
+  - ダウンロードフロー: エディター起動時に自動ロード、手動ロードボタン、競合時の差分表示
+  - SHA-256 ハッシュによる同期状態追跡とビジュアルステータスバッジ（Synced / Dirty / Unknown）
+- **スキルパイプラインとの統合**:
+  - Skill Pipeline Builder のスキルノードから直接起動
+  - スキルの入出力定義に基づくサンプル Python コードの自動生成
+  - アップロード成功後に Custom Web API スキルの URI を自動更新
+  - ドラフト永続化: リンクされたスキルノードごとにエディター状態を自動保存
+- **Diff モード**: ローカルとリモートのコードが異なる場合のサイドバイサイド比較（ハンクナビゲーション付き）
+- **ダーク/ライトテーマ対応**、**多言語対応**（日本語/英語）
+
+![](./docs/images/screenshot32_jp.gif)
+
 ### 3. **開発者ツール**
 
 #### Search Pipeline Visualizer（検索パイプライン可視化）
@@ -349,6 +380,7 @@ Azure AI Search のスキルセットをビジュアルフローエディター�
 - **undici 7.16** - 高速 HTTP クライアント（fetch polyfill）
 - **@xyflow/react 12** - フローチャート可視化（Skill Pipeline Builder で使用）
 - **dagre 0.8** - 有向グラフの自動レイアウト
+- **Pyodide** - WebAssembly によるブラウザ内 Python 実行（Custom Skill LiveEditor で使用）
 
 ### 開発ツール
 - **ESLint 9.39** + **typescript-eslint 8.46** - コード品質チェック
@@ -426,6 +458,7 @@ ragops-studio/
 │   │   │   ├── SkillPipelineRightPane.tsx     # スキルパイプライン右ペイン
 │   │   │   ├── EnrichmentPathPicker.tsx       # エンリッチメントパスピッカー
 │   │   │   ├── PublishDiffModal.tsx           # スキルセット Publish 差分確認
+│   │   │   ├── SkillCodeEditor.tsx            # Custom Skill Python コードエディター
 │   │   │   ├── SynonymMapBuilder.tsx         # シノニムマップビルダー
 │   │   │   └── VectorOptimizerBuilder.tsx    # ベクトルオプティマイザー
 │   │   ├── modals/          # モーダルダイアログ
@@ -453,6 +486,8 @@ ragops-studio/
 │   │   ├── model.ts         # データモデル定義
 │   │   ├── odataFilter.ts   # OData フィルター解析
 │   │   ├── odataFilter.test.ts # OData フィルターテスト
+│   │   ├── pyodideRunner.ts # Pyodide WASM Python 実行
+│   │   ├── skillRuntime.ts  # Skill Runtime HTTP クライアント
 │   │   └── translations.ts  # 多言語対応（ja/en）
 │   ├── types/               # TypeScript 型定義
 │   │   ├── app.ts           # アプリケーション型
@@ -469,8 +504,14 @@ ragops-studio/
 │   │   ├── skillsetDiff.ts                 # スキルセットセマンティック差分計算
 │   │   └── index.ts                # エクスポート
 │   └── App.tsx              # メインアプリケーションコンポーネント
+├── skill-runtime/           # クラウド Skill Runtime（Python）
+│   ├── main.py              # FastAPI Skill Host サーバー
+│   ├── Dockerfile           # コンテナイメージ定義
+│   ├── requirements.txt     # Python 依存パッケージ
+│   └── skills/              # スキルモジュールディレクトリ
 ├── scripts/                 # ビルドスクリプト
-│   └── generateSynonymMap.mjs  # シノニムマップ生成スクリプト
+│   ├── generateSynonymMap.mjs  # シノニムマップ生成スクリプト
+│   └── skill-runtime/       # ACA デプロイスクリプト（deploy-aca.ps1/.sh）
 ├── public/                  # 静的ファイル
 ├── index.html               # HTML エントリーポイント
 ├── vite.config.ts           # Vite 設定

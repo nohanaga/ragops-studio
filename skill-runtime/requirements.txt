@@ -1,0 +1,29 @@
+fastapi>=0.115.0
+uvicorn>=0.30.0
+azure-identity>=1.17.0
+azure-storage-blob>=12.22.0
+
+# Data Science
+numpy
+pandas
+scipy
+scikit-learn
+matplotlib
+seaborn
+plotly
+statsmodels
+openpyxl
+xlsxwriter
+
+# Text Processing
+nltk
+spacy
+regex
+rapidfuzz
+chardet
+beautifulsoup4
+lxml
+Jinja2
+openai
+tiktoken
+gensim

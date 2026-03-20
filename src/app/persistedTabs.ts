@@ -17,6 +17,7 @@ export type PersistedTabs = {
   isIndexBuilderOpen?: boolean
   isSkillPipelineBuilderOpen?: boolean
   isVectorOptimizerOpen?: boolean
+  isSkillEditorOpen?: boolean
 }
 
 export function normalizeCenterTab(raw: unknown, ids: string[]): CenterTab {
@@ -38,7 +39,8 @@ export function normalizeCenterTab(raw: unknown, ids: string[]): CenterTab {
     value === 'knowledge-base-builder' ||
     value === 'synonym-map-builder' ||
     value === 'index-builder' ||
-    value === 'skill-pipeline-builder'
+    value === 'skill-pipeline-builder' ||
+    value === 'skill-editor'
   ) {
     return 'builder'
   }
@@ -85,6 +87,7 @@ export function loadPersistedTabs(experimentId: string): PersistedTabs | null {
       isIndexBuilderOpen: parsed.isIndexBuilderOpen ?? false,
       isSkillPipelineBuilderOpen: parsed.isSkillPipelineBuilderOpen ?? false,
       isVectorOptimizerOpen: parsed.isVectorOptimizerOpen ?? false,
+      isSkillEditorOpen: parsed.isSkillEditorOpen ?? false,
     }
   } catch {
     return null

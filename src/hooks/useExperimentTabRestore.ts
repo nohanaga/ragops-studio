@@ -14,7 +14,8 @@ function isToolTab(tab: CenterTab): boolean {
     tab === 'knowledge-base-builder' ||
     tab === 'synonym-map-builder' ||
     tab === 'index-builder' ||
-    tab === 'skill-pipeline-builder'
+    tab === 'skill-pipeline-builder' ||
+    tab === 'skill-editor'
   )
 }
 
@@ -36,6 +37,7 @@ export function useExperimentTabRestore(params: {
   setIsIndexBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsSkillPipelineBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsVectorOptimizerOpen: Dispatch<SetStateAction<boolean>>
+  setIsSkillEditorOpen: Dispatch<SetStateAction<boolean>>
 }) {
   const {
     selectedExperimentId,
@@ -53,6 +55,7 @@ export function useExperimentTabRestore(params: {
     setIsIndexBuilderOpen,
     setIsSkillPipelineBuilderOpen,
     setIsVectorOptimizerOpen,
+    setIsSkillEditorOpen,
   } = params
 
   // Restore tool open flags only once on initial mount/boot.
@@ -116,6 +119,7 @@ export function useExperimentTabRestore(params: {
         setIsIndexBuilderOpen(restored.isIndexBuilderOpen ?? false)
         setIsSkillPipelineBuilderOpen(restored.isSkillPipelineBuilderOpen ?? false)
         setIsVectorOptimizerOpen(restored.isVectorOptimizerOpen ?? false)
+        setIsSkillEditorOpen(restored.isSkillEditorOpen ?? false)
       }
     } else {
       setSelectedRunIds([])
@@ -136,6 +140,7 @@ export function useExperimentTabRestore(params: {
     setIsSearchPipelineVisualizerOpen,
     setIsSynonymMapBuilderOpen,
     setIsVectorOptimizerOpen,
+    setIsSkillEditorOpen,
     setSelectedRun,
     setSelectedRunIds,
   ])

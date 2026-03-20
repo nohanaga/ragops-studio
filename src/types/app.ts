@@ -23,6 +23,7 @@ export type CenterTab =
   | 'synonym-map-builder'
   | 'index-builder'
   | 'skill-pipeline-builder'
+  | 'skill-editor'
 
 export type ResultView = {
   id: 'latest' | `run:${string}`

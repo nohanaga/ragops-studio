@@ -6,7 +6,7 @@
 
 /* eslint-disable react-refresh/only-export-components */
 
-import { createContext, useContext, useState, useMemo, useCallback, type ReactNode, type Dispatch, type SetStateAction } from 'react'
+import { createContext, useContext, useState, useMemo, useCallback, useEffect, type ReactNode, type Dispatch, type SetStateAction } from 'react'
 import type { Node, Edge } from '@xyflow/react'
 import type { AppSettings, ConnectionProfile, Run } from '../lib/model'
 import type { JsonValue } from '../lib/aiSearchRest'
@@ -15,7 +15,7 @@ import type { Language } from '../lib/translations'
 import { getInitialThemePreference, getBrowserLanguage } from '../utils'
 import { DEFAULT_SEARCH_FORM } from '../app/defaults'
 import { translations } from '../lib/translations'
-import { deleteSkillPipeline, getSkillPipeline, listSkillPipelines, upsertSkillPipeline, type PersistedSkillPipelineItem } from '../app/persistedSkillPipeline'
+import { deleteSkillPipeline, getSkillPipeline, listSkillPipelines, updateSkillEditorDrafts as persistDraftsToSkillset, upsertSkillPipeline, type PersistedSkillPipelineItem } from '../app/persistedSkillPipeline'
 import { v4 as uuidv4 } from 'uuid'
 
 // ============================================================================
@@ -24,6 +24,19 @@ import { v4 as uuidv4 } from 'uuid'
 
 type SkillPipelineSkillInput = { name: string; source: string }
 type SkillPipelineSkillOutput = { name: string; targetName?: string }
+
+export type SkillEditorDraft = {
+  skillCode: string
+  testInput: string
+  runtimeUrl?: string
+  deploySkillName?: string
+  deployStorageAccountUrl?: string
+  deployStorageContainer?: string
+  /** SHA-256 hash of the local skill code (hex). */
+  codeHash?: string
+  /** SHA-256 hash of the code currently in Blob Storage (hex). */
+  remoteCodeHash?: string
+}
 
 export type SkillPipelineFieldMapping = {
   sourceFieldName: string
@@ -92,6 +105,42 @@ export type SkillPipelineNodeData =
 export type SkillPipelineNode = Node<SkillPipelineNodeData>
 export type SkillPipelineEdge = Edge
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v)
+}
+
+function normalizeSkillEditorDrafts(value: unknown): Record<string, SkillEditorDraft> {
+  if (!isRecord(value)) return {}
+
+  const normalized: Record<string, SkillEditorDraft> = {}
+  for (const [nodeId, rawDraft] of Object.entries(value)) {
+    const trimmedNodeId = String(nodeId || '').trim()
+    if (!trimmedNodeId || !isRecord(rawDraft)) continue
+
+    const skillCode = typeof rawDraft.skillCode === 'string' ? rawDraft.skillCode : ''
+    const testInput = typeof rawDraft.testInput === 'string' ? rawDraft.testInput : ''
+    const runtimeUrl = typeof rawDraft.runtimeUrl === 'string' ? rawDraft.runtimeUrl : undefined
+    const deploySkillName = typeof rawDraft.deploySkillName === 'string' ? rawDraft.deploySkillName : undefined
+    const deployStorageAccountUrl = typeof rawDraft.deployStorageAccountUrl === 'string'
+      ? rawDraft.deployStorageAccountUrl
+      : undefined
+    const deployStorageContainer = typeof rawDraft.deployStorageContainer === 'string'
+      ? rawDraft.deployStorageContainer
+      : undefined
+
+    normalized[trimmedNodeId] = {
+      skillCode,
+      testInput,
+      ...(runtimeUrl ? { runtimeUrl } : {}),
+      ...(deploySkillName ? { deploySkillName } : {}),
+      ...(deployStorageAccountUrl ? { deployStorageAccountUrl } : {}),
+      ...(deployStorageContainer ? { deployStorageContainer } : {}),
+    }
+  }
+
+  return normalized
+}
+
 function computeSkillsetJsonSnapshot(input: {
   skillsetName: string
   skillsetDescription: string
@@ -146,6 +195,10 @@ type SkillPipelineStateContextValue = {
 
   selectedNodeId: string
   setSelectedNodeId: Dispatch<SetStateAction<string>>
+  skillEditorDrafts: Record<string, SkillEditorDraft>
+  upsertSkillEditorDraft: (nodeId: string, draft: Partial<SkillEditorDraft>) => void
+  removeSkillEditorDraft: (nodeId: string) => void
+  updateSkillNode: (nodeId: string, updater: (skill: SkillPipelineSkillDefinition) => SkillPipelineSkillDefinition) => void
 
   draftSkillJson: string
   setDraftSkillJson: Dispatch<SetStateAction<string>>
@@ -299,6 +352,10 @@ type ModalStateContextValue = {
   setIsVectorOptimizerOpen: Dispatch<SetStateAction<boolean>>
   isFilterBuilderOpen: boolean
   setIsFilterBuilderOpen: Dispatch<SetStateAction<boolean>>
+  isSkillEditorOpen: boolean
+  setIsSkillEditorOpen: Dispatch<SetStateAction<boolean>>
+  skillEditorLinkedNodeId: string | null
+  setSkillEditorLinkedNodeId: Dispatch<SetStateAction<string | null>>
 }
 
 const ModalStateContext = createContext<ModalStateContextValue | null>(null)
@@ -314,6 +371,8 @@ export function ModalStateProvider(props: { children: ReactNode }) {
   const [isSkillPipelineBuilderOpen, setIsSkillPipelineBuilderOpen] = useState(false)
   const [isVectorOptimizerOpen, setIsVectorOptimizerOpen] = useState(false)
   const [isFilterBuilderOpen, setIsFilterBuilderOpen] = useState(false)
+  const [isSkillEditorOpen, setIsSkillEditorOpen] = useState(false)
+  const [skillEditorLinkedNodeId, setSkillEditorLinkedNodeId] = useState<string | null>(null)
 
   const value = useMemo<ModalStateContextValue>(
     () => ({
@@ -337,6 +396,10 @@ export function ModalStateProvider(props: { children: ReactNode }) {
       setIsVectorOptimizerOpen,
       isFilterBuilderOpen,
       setIsFilterBuilderOpen,
+      isSkillEditorOpen,
+      setIsSkillEditorOpen,
+      skillEditorLinkedNodeId,
+      setSkillEditorLinkedNodeId,
     }),
     [
       isQpsTesterOpen,
@@ -349,6 +412,8 @@ export function ModalStateProvider(props: { children: ReactNode }) {
       isSkillPipelineBuilderOpen,
       isVectorOptimizerOpen,
       isFilterBuilderOpen,
+      isSkillEditorOpen,
+      skillEditorLinkedNodeId,
     ]
   )
 
@@ -713,6 +778,7 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
   const [edges, setEdges] = useState<SkillPipelineEdge[]>([])
 
   const [selectedNodeId, setSelectedNodeId] = useState('n1')
+  const [skillEditorDrafts, setSkillEditorDrafts] = useState<Record<string, SkillEditorDraft>>({})
   const [draftSkillJson, setDraftSkillJson] = useState(() => JSON.stringify(defaultSkillPipelineSkill(1), null, 2))
   const [draftError, setDraftError] = useState<string | null>(null)
 
@@ -724,9 +790,121 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
 
   const [debugFetchedDocs, setDebugFetchedDocs] = useState<JsonValue | null>(null)
 
+  // Auto-persist skillEditorDrafts into the saved skillset (debounced)
+  useEffect(() => {
+    if (!currentSavedId) return
+    const id = currentSavedId
+    const timer = setTimeout(() => persistDraftsToSkillset(id, skillEditorDrafts), 500)
+    return () => clearTimeout(timer)
+  }, [currentSavedId, skillEditorDrafts])
+
   const refreshSavedSkillsets = useCallback(() => {
     setSavedSkillsets(listSkillPipelines())
   }, [])
+
+  const upsertSkillEditorDraft = useCallback((nodeId: string, draft: Partial<SkillEditorDraft>) => {
+    const trimmedNodeId = String(nodeId || '').trim()
+    if (!trimmedNodeId) return
+
+    setSkillEditorDrafts((prev) => {
+      const current = prev[trimmedNodeId]
+      const next: SkillEditorDraft = {
+        skillCode: draft.skillCode ?? current?.skillCode ?? '',
+        testInput: draft.testInput ?? current?.testInput ?? '',
+        ...(current?.runtimeUrl ? { runtimeUrl: current.runtimeUrl } : {}),
+        ...(current?.deploySkillName ? { deploySkillName: current.deploySkillName } : {}),
+        ...(current?.deployStorageAccountUrl ? { deployStorageAccountUrl: current.deployStorageAccountUrl } : {}),
+        ...(current?.deployStorageContainer ? { deployStorageContainer: current.deployStorageContainer } : {}),
+        ...(current?.codeHash ? { codeHash: current.codeHash } : {}),
+        ...(current?.remoteCodeHash ? { remoteCodeHash: current.remoteCodeHash } : {}),
+        ...(draft.runtimeUrl !== undefined ? { runtimeUrl: draft.runtimeUrl } : {}),
+        ...(draft.deploySkillName !== undefined ? { deploySkillName: draft.deploySkillName } : {}),
+        ...(draft.deployStorageAccountUrl !== undefined ? { deployStorageAccountUrl: draft.deployStorageAccountUrl } : {}),
+        ...(draft.deployStorageContainer !== undefined ? { deployStorageContainer: draft.deployStorageContainer } : {}),
+        ...(draft.codeHash !== undefined ? { codeHash: draft.codeHash } : {}),
+        ...(draft.remoteCodeHash !== undefined ? { remoteCodeHash: draft.remoteCodeHash } : {}),
+      }
+
+      if (
+        current &&
+        current.skillCode === next.skillCode &&
+        current.testInput === next.testInput &&
+        (current.runtimeUrl ?? '') === (next.runtimeUrl ?? '') &&
+        (current.deploySkillName ?? '') === (next.deploySkillName ?? '') &&
+        (current.deployStorageAccountUrl ?? '') === (next.deployStorageAccountUrl ?? '') &&
+        (current.deployStorageContainer ?? '') === (next.deployStorageContainer ?? '') &&
+        (current.codeHash ?? '') === (next.codeHash ?? '') &&
+        (current.remoteCodeHash ?? '') === (next.remoteCodeHash ?? '')
+      ) {
+        return prev
+      }
+
+      return {
+        ...prev,
+        [trimmedNodeId]: next,
+      }
+    })
+  }, [])
+
+  const removeSkillEditorDraft = useCallback((nodeId: string) => {
+    const trimmedNodeId = String(nodeId || '').trim()
+    if (!trimmedNodeId) return
+
+    setSkillEditorDrafts((prev) => {
+      if (!(trimmedNodeId in prev)) return prev
+      const next = { ...prev }
+      delete next[trimmedNodeId]
+      return next
+    })
+  }, [])
+
+  const updateSkillNode = useCallback(
+    (nodeId: string, updater: (skill: SkillPipelineSkillDefinition) => SkillPipelineSkillDefinition) => {
+      const trimmedNodeId = String(nodeId || '').trim()
+      if (!trimmedNodeId) return
+
+      setNodes((prev) => {
+        let updatedSkill: SkillPipelineSkillDefinition | null = null
+
+        const next = prev.map((node) => {
+          if (node.id !== trimmedNodeId || node.data.kind !== 'skill') return node
+
+          const nextSkill = updater(node.data.skill)
+          updatedSkill = nextSkill
+
+          if (nextSkill === node.data.skill) return node
+
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              skill: nextSkill,
+            },
+          }
+        })
+
+        if (updatedSkill && selectedNodeId === trimmedNodeId) {
+          setDraftSkillJson(JSON.stringify(updatedSkill, null, 2))
+          setDraftError(null)
+        }
+
+        return next
+      })
+    },
+    [selectedNodeId],
+  )
+
+  useEffect(() => {
+    const validSkillNodeIds = new Set(nodes.filter((node) => node.data.kind === 'skill').map((node) => node.id))
+
+    queueMicrotask(() => {
+      setSkillEditorDrafts((prev) => {
+        const nextEntries = Object.entries(prev).filter(([nodeId]) => validSkillNodeIds.has(nodeId))
+        if (nextEntries.length === Object.keys(prev).length) return prev
+        return Object.fromEntries(nextEntries)
+      })
+    })
+  }, [nodes])
 
   const newSkillset = useCallback(() => {
     const nextName = 'skillset1'
@@ -751,6 +929,7 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
 
     setNodes(nextNodes)
     setEdges([])
+  setSkillEditorDrafts({})
 
     setBaselineSkillsetJson(
       computeSkillsetJsonSnapshot({
@@ -799,6 +978,7 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
             indexer,
             nodes,
             edges,
+            skillEditorDrafts,
           },
         })
 
@@ -818,7 +998,7 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
         setSaveSkillsetError(e instanceof Error ? e.message : String(e))
       }
     },
-    [currentSavedId, edges, nodes, refreshSavedSkillsets, skillsetDescription, skillsetName, indexProjections, knowledgeStore, indexer, setSkillsetName],
+    [currentSavedId, edges, nodes, refreshSavedSkillsets, skillsetDescription, skillsetName, indexProjections, knowledgeStore, indexer, skillEditorDrafts, setSkillsetName],
   )
 
   const loadSkillset = useCallback(
@@ -838,6 +1018,7 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       setIndexer(((item.state as any).indexer as SkillPipelineIndexerDefinition | null) ?? null)
       setNodes(normalizedNodes)
       setEdges(normalizedEdges)
+      setSkillEditorDrafts(normalizeSkillEditorDrafts((item.state as any).skillEditorDrafts))
 
       setBaselineSkillsetJson(
         computeSkillsetJsonSnapshot({
@@ -908,6 +1089,10 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       setEdges,
       selectedNodeId,
       setSelectedNodeId,
+      skillEditorDrafts,
+      upsertSkillEditorDraft,
+      removeSkillEditorDraft,
+      updateSkillNode,
       draftSkillJson,
       setDraftSkillJson,
       draftError,
@@ -944,6 +1129,10 @@ export function SkillPipelineStateProvider(props: { children: ReactNode }) {
       nodes,
       edges,
       selectedNodeId,
+      skillEditorDrafts,
+      upsertSkillEditorDraft,
+      removeSkillEditorDraft,
+      updateSkillNode,
       draftSkillJson,
       draftError,
       draftIndexerJson,
