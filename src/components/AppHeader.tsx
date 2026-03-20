@@ -28,6 +28,7 @@ export type AppHeaderProps = {
   onOpenKnowledgeSourceBuilder: () => void
   onOpenSynonymMapBuilder: () => void
   onOpenSkillPipelineBuilder: () => void
+  onOpenSkillEditor: () => void
   onOpenSearchPipelineVisualizer: () => void
 }
 
@@ -47,6 +48,7 @@ export function AppHeader({
   onOpenKnowledgeSourceBuilder,
   onOpenSynonymMapBuilder,
   onOpenSkillPipelineBuilder,
+  onOpenSkillEditor,
   onOpenSearchPipelineVisualizer,
 }: AppHeaderProps) {
   return (
@@ -105,6 +107,9 @@ export function AppHeader({
             </button>
             <button type="button" className="dropdown-item" onClick={onOpenSkillPipelineBuilder}>
               🧩 {t('skillPipelineBuilder')}
+            </button>
+            <button type="button" className="dropdown-item" onClick={onOpenSkillEditor}>
+              🐍 {t('sceMenuLabel')}
             </button>
 
             <div className="dropdown__divider" role="separator" />

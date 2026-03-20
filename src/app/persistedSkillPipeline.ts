@@ -1,4 +1,4 @@
-import type { SkillPipelineEdge, SkillPipelineNode } from '../contexts'
+import type { SkillEditorDraft, SkillPipelineEdge, SkillPipelineNode } from '../contexts'
 
 export type PersistedSkillPipelineState = {
   skillsetName: string
@@ -8,6 +8,7 @@ export type PersistedSkillPipelineState = {
   indexer?: unknown | null
   nodes: SkillPipelineNode[]
   edges: SkillPipelineEdge[]
+  skillEditorDrafts?: Record<string, SkillEditorDraft>
 }
 
 export type PersistedSkillPipelineItem = {
@@ -93,4 +94,21 @@ export function deleteSkillPipeline(id: string) {
 export function getSkillPipeline(id: string): PersistedSkillPipelineItem | null {
   const root = readRoot()
   return root.items.find((x) => x.id === id) ?? null
+}
+
+/**
+ * Update only the skillEditorDrafts inside an existing saved skillset.
+ * No-op if the item does not exist.
+ */
+export function updateSkillEditorDrafts(
+  id: string,
+  drafts: Record<string, import('../contexts').SkillEditorDraft>,
+) {
+  const root = readRoot()
+  const item = root.items.find((x) => x.id === id)
+  if (!item) return
+
+  ;(item.state as any).skillEditorDrafts = drafts
+  item.updatedAt = Date.now()
+  writeRoot(root)
 }

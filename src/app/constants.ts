@@ -59,6 +59,18 @@ export const LAST_VIEWED_RUN_ID_KEY = 'ragops:lastViewedRunId'
 /** localStorage key for Debug Runner storage connection string */
 export const DEBUG_RUNNER_STORAGE_CONNECTION_STRING_KEY = 'ragops:debugRunner:storageConnectionString'
 
+/** localStorage key for Debug Runner storage auth mode ('connectionString' | 'bearer') */
+export const DEBUG_RUNNER_STORAGE_AUTH_MODE_KEY = 'ragops:debugRunner:storageAuthMode'
+
+/** localStorage key for Debug Runner storage account name (bearer mode) */
+export const DEBUG_RUNNER_STORAGE_ACCOUNT_NAME_KEY = 'ragops:debugRunner:storageAccountName'
+
+/** localStorage key for Debug Runner storage bearer token (bearer mode) */
+export const DEBUG_RUNNER_STORAGE_BEARER_TOKEN_KEY = 'ragops:debugRunner:storageBearerToken'
+
+/** localStorage key for Debug Runner storage Resource ID (bearer mode, for data source / KS) */
+export const DEBUG_RUNNER_STORAGE_RESOURCE_ID_KEY = 'ragops:debugRunner:storageResourceId'
+
 /** localStorage key for Debug Runner blob container name */
 export const DEBUG_RUNNER_BLOB_CONTAINER_KEY = 'ragops:debugRunner:blobContainer'
 

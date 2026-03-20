@@ -648,8 +648,8 @@
   --bs-dropdown-border-radius: var(--bs-border-radius);
   --bs-dropdown-border-width: var(--bs-border-width);
   --bs-dropdown-inner-border-radius: calc(var(--bs-dropdown-border-radius) - var(--bs-dropdown-border-width));
-  --bs-dropdown-divider-bg: var(--bs-border-color-translucent);
-  --bs-dropdown-divider-margin-y: 0.5rem;
+  --bs-dropdown-divider-bg: color-mix(in srgb, var(--border) 40%, transparent);
+  --bs-dropdown-divider-margin-y: 0.15rem;
   --bs-dropdown-box-shadow: var(--bs-box-shadow);
   --bs-dropdown-link-color: var(--bs-body-color);
   --bs-dropdown-link-hover-color: var(--accent);
@@ -4395,6 +4395,11 @@ html[data-theme='light'] .rawJsonViewer {
   }
 }
 
+.spin {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
 /* ── AgenticActivityTimeline ──────────────────────────────────── */
 
 .actTimeline {
@@ -4552,4 +4557,181 @@ html[data-theme='light'] .rawJsonViewer {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* ─── Debug Runner Log Panel ─────────────────────────────────────────── */
+.dbgLog {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dbgLog__entry {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2, var(--panel));
+  overflow: hidden;
+}
+
+.dbgLog__entry.muted {
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ── Debug Runner fields grid ── */
+.dbgRunnerFields {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 10px;
+  align-items: start;
+}
+
+.dbgRunner .field__input,
+.dbgRunner .field__textarea,
+.dbgRunner select.field__input {
+  background: var(--surface, #fff);
+}
+
+@media (max-width: 900px) {
+  .dbgRunnerFields {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .dbgRunnerFields > .field[style*="span 2"] {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 600px) {
+  .dbgRunnerFields {
+    grid-template-columns: 1fr;
+  }
+  .dbgRunnerFields > .field[style*="span 2"] {
+    grid-column: span 1;
+  }
+}
+
+.dbgLog__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+}
+
+.dbgLog__header:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.dbgLog__chevron {
+  font-size: 10px;
+  color: var(--muted);
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.dbgLog__entry[open] .dbgLog__chevron {
+  transform: rotate(90deg);
+}
+
+.dbgLog__label {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dbgLog__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dbgLog__badge--ok {
+  background: color-mix(in srgb, #10b981 18%, var(--panel-2, var(--panel)));
+  color: #10b981;
+}
+
+.dbgLog__badge--err {
+  background: color-mix(in srgb, #ef4444 18%, var(--panel-2, var(--panel)));
+  color: #ef4444;
+}
+
+.dbgLog__httpStatus {
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.dbgLog__elapsed {
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.dbgLog__body {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.dbgLog__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 6px;
+}
+
+.dbgLog__metaItem {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.dbgLog__metaLabel {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.dbgLog__metaValue {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.dbgLog__url {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
+  margin-bottom: 6px;
+}
+
+.dbgLog__responseWrap {
+  max-height: 300px;
+  overflow: auto;
+  background: var(--panel-3, var(--panel-2));
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+.dbgLog__responseWrap pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
 }

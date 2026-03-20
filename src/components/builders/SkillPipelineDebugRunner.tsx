@@ -27,6 +27,7 @@ import {
   readBlobAsJson,
   deleteContainer,
   mapProjectionToSearchResult,
+  type StorageAuthMode,
 } from '../../lib/azureBlobStorage'
 import { translations, type Language } from '../../lib/translations'
 import { ExpandableCodeMirror } from '../viewers/ExpandableCodeMirror'
@@ -35,6 +36,10 @@ import {
   DEBUG_RUNNER_BLOB_CONTAINER_KEY,
   DEBUG_RUNNER_BLOB_PATH_KEY,
   DEBUG_RUNNER_STORAGE_CONNECTION_STRING_KEY,
+  DEBUG_RUNNER_STORAGE_AUTH_MODE_KEY,
+  DEBUG_RUNNER_STORAGE_ACCOUNT_NAME_KEY,
+  DEBUG_RUNNER_STORAGE_BEARER_TOKEN_KEY,
+  DEBUG_RUNNER_STORAGE_RESOURCE_ID_KEY,
 } from '../../app/constants'
 import {
   extractSkillOutputs,
@@ -114,6 +119,128 @@ function restResultToLogJson(res: RestResult): JsonValue {
     error: res.error,
     elapsedTimeMs: res.elapsedTimeMs ?? null,
   } as unknown as JsonValue
+}
+
+/** Human-readable labels for each action key emitted by provision / cleanup */
+const ACTION_LABELS: Record<string, string> = {
+  skillset: 'Skillset',
+  index: 'Index',
+  dataSource: 'Data Source',
+  indexer: 'Indexer',
+  deleteSkillset: 'Delete Skillset',
+  deleteIndex: 'Delete Index',
+  deleteDataSource: 'Delete Data Source',
+  deleteIndexer: 'Delete Indexer',
+  deleteKsContainer: 'Delete KS Container',
+}
+
+/** Returns true when the record looks like a single restResultToLogJson() output */
+function isRestLogEntry(rec: Record<string, unknown>): boolean {
+  return 'ok' in rec && 'status' in rec
+}
+
+/** Single REST-call result card */
+function DebugLogEntry({ label, data }: { label: string; data: Record<string, unknown> }) {
+  const ok = data.ok === true
+  const status = typeof data.status === 'number' ? data.status : null
+  const url = typeof data.url === 'string' ? data.url : null
+  const elapsed = typeof data.elapsedTimeMs === 'number' ? data.elapsedTimeMs : null
+  const requestId = typeof data.requestId === 'string' ? data.requestId : null
+  const payload = ok ? data.response : data.error
+
+  return (
+    <details className="dbgLog__entry">
+      <summary className="dbgLog__header">
+        <span className="dbgLog__chevron"><i className="bi bi-chevron-right" /></span>
+        <span className="dbgLog__label">{label}</span>
+        <span className={ok ? 'dbgLog__badge dbgLog__badge--ok' : 'dbgLog__badge dbgLog__badge--err'}>
+          {ok ? 'OK' : 'ERROR'}
+        </span>
+        {status != null && <span className="dbgLog__httpStatus">{status}</span>}
+        {elapsed != null && <span className="dbgLog__elapsed">{elapsed} ms</span>}
+      </summary>
+      <div className="dbgLog__body">
+        {url && <div className="dbgLog__url">{url}</div>}
+        {requestId && (
+          <div className="dbgLog__meta">
+            <span className="dbgLog__metaItem">
+              <span className="dbgLog__metaLabel">Request ID:</span>
+              <span className="dbgLog__metaValue">{requestId}</span>
+            </span>
+          </div>
+        )}
+        {payload != null && (
+          <div className="dbgLog__responseWrap">
+            <pre>{typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2)}</pre>
+          </div>
+        )}
+      </div>
+    </details>
+  )
+}
+
+/** Rich log panel – handles a single REST result, a dict of multiple results, or a raw response */
+function DebugLogPanel({ data, label, t }: { data: JsonValue; label?: string; t: (k: TranslationKey) => string }) {
+  if (!isRecord(data)) return <JsonViewer data={data} t={t} initialOpenDepth={2} />
+
+  // Single REST call result (e.g. lastRun, lastStatus on error)
+  if (isRestLogEntry(data)) {
+    return (
+      <div className="dbgLog">
+        <DebugLogEntry label={label ?? 'Result'} data={data} />
+      </div>
+    )
+  }
+
+  // Dict of multiple REST results (e.g. provision / cleanup actions)
+  const entries = Object.entries(data)
+  if (entries.length === 0) return <div className="dbgLog"><div className="dbgLog__entry muted">{t('spbNone')}</div></div>
+
+  const hasRestEntries = entries.some(([, val]) => isRecord(val) && isRestLogEntry(val))
+
+  // If none of the values are REST log entries, treat the whole object as a single response blob
+  if (!hasRestEntries) {
+    return (
+      <div className="dbgLog">
+        <details className="dbgLog__entry" open>
+          <summary className="dbgLog__header">
+            <span className="dbgLog__chevron"><i className="bi bi-chevron-right" /></span>
+            <span className="dbgLog__label">{label ?? 'Response'}</span>
+          </summary>
+          <div className="dbgLog__body">
+            <div className="dbgLog__responseWrap">
+              <pre>{JSON.stringify(data, null, 2)}</pre>
+            </div>
+          </div>
+        </details>
+      </div>
+    )
+  }
+
+  return (
+    <div className="dbgLog">
+      {entries.map(([key, val]) => {
+        const rec = isRecord(val) ? val : null
+        if (rec && isRestLogEntry(rec)) {
+          return <DebugLogEntry key={key} label={ACTION_LABELS[key] ?? key} data={rec} />
+        }
+        // Fallback for non-REST entries (e.g. plain objects)
+        return (
+          <details key={key} className="dbgLog__entry">
+            <summary className="dbgLog__header">
+              <span className="dbgLog__chevron"><i className="bi bi-chevron-right" /></span>
+              <span className="dbgLog__label">{ACTION_LABELS[key] ?? key}</span>
+            </summary>
+            <div className="dbgLog__body">
+              <div className="dbgLog__responseWrap">
+                <pre>{typeof val === 'string' ? val : JSON.stringify(val, null, 2)}</pre>
+              </div>
+            </div>
+          </details>
+        )
+      })}
+    </div>
+  )
 }
 
 function getIndexerLastResultStatus(statusResponse: JsonValue): string | null {
@@ -209,12 +336,41 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
   }, [])
 
   const [storageConnectionString, setStorageConnectionString] = useState(() => loadPersistedString(DEBUG_RUNNER_STORAGE_CONNECTION_STRING_KEY))
+  const [storageAuthMode, setStorageAuthMode] = useState<StorageAuthMode>(() => (loadPersistedString(DEBUG_RUNNER_STORAGE_AUTH_MODE_KEY) as StorageAuthMode) || 'connectionString')
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [storageAccountName, _setStorageAccountName] = useState(() => loadPersistedString(DEBUG_RUNNER_STORAGE_ACCOUNT_NAME_KEY))
+  const [storageBearerToken, setStorageBearerToken] = useState(() => loadPersistedString(DEBUG_RUNNER_STORAGE_BEARER_TOKEN_KEY))
+  const [storageResourceId, setStorageResourceId] = useState(() => loadPersistedString(DEBUG_RUNNER_STORAGE_RESOURCE_ID_KEY))
   const [containerName, setContainerName] = useState(() => loadPersistedString(DEBUG_RUNNER_BLOB_CONTAINER_KEY))
   const [virtualFolder, setVirtualFolder] = useState(() => loadPersistedString(DEBUG_RUNNER_BLOB_PATH_KEY))
 
   useEffect(() => {
     persistString(DEBUG_RUNNER_STORAGE_CONNECTION_STRING_KEY, storageConnectionString)
   }, [storageConnectionString])
+
+  useEffect(() => {
+    persistString(DEBUG_RUNNER_STORAGE_AUTH_MODE_KEY, storageAuthMode)
+  }, [storageAuthMode])
+
+  useEffect(() => {
+    persistString(DEBUG_RUNNER_STORAGE_ACCOUNT_NAME_KEY, storageAccountName)
+  }, [storageAccountName])
+
+  useEffect(() => {
+    persistString(DEBUG_RUNNER_STORAGE_BEARER_TOKEN_KEY, storageBearerToken)
+  }, [storageBearerToken])
+
+  useEffect(() => {
+    persistString(DEBUG_RUNNER_STORAGE_RESOURCE_ID_KEY, storageResourceId)
+  }, [storageResourceId])
+
+  // Auto-fill Resource ID when storage account name changes in bearer mode
+  useEffect(() => {
+    if (storageAuthMode === 'managedIdentity' && storageAccountName.trim() && !storageResourceId.trim()) {
+      // Pre-fill the template — the user must fill in subscription and resource group
+      setStorageResourceId(`ResourceId=/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.Storage/storageAccounts/${storageAccountName.trim()};`)
+    }
+  }, [storageAccountName, storageAuthMode])
 
   useEffect(() => {
     persistString(DEBUG_RUNNER_BLOB_CONTAINER_KEY, containerName)
@@ -281,7 +437,20 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
     if (!debugIndexName.trim()) return t('spbDebugErrIndexNameRequired')
     if (!debugDataSourceName.trim()) return t('spbDebugErrDataSourceNameRequired')
     if (!debugIndexerName.trim()) return t('spbDebugErrIndexerNameRequired')
-    if (!storageConnectionString.trim()) return t('spbDebugErrStorageConnRequired')
+    if (storageAuthMode === 'connectionString') {
+      if (!storageConnectionString.trim()) return t('spbDebugErrStorageConnRequired')
+    } else {
+      if (!storageResourceId.trim()) return t('spbDebugErrStorageResourceIdRequired')
+      // Check for unresolved placeholders in Resource ID
+      if (storageResourceId.includes('<subscription-id>') || storageResourceId.includes('<resource-group>') ||
+          storageResourceId.includes('{sub}') || storageResourceId.includes('{rg}')) {
+        return t('spbDebugErrStorageResourceIdPlaceholder')
+      }
+      // Must start with 'ResourceId='
+      if (!storageResourceId.trim().startsWith('ResourceId=')) {
+        return t('spbDebugErrStorageResourceIdFormat')
+      }
+    }
     if (!containerName.trim()) return t('spbDebugErrContainerNameRequired')
     if (!virtualFolder.trim()) return t('spbDebugErrBlobPathRequired')
     if (virtualFolder.trim().endsWith('/')) return t('spbDebugErrBlobPathTrailingSlash')
@@ -395,7 +564,6 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
         return {
           sourceFieldName: shape.sourcePath,
           targetFieldName: x.fieldName,
-          mappingFunction: null,
         }
       })
 
@@ -425,11 +593,13 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
       // original document fields — enrichment nodes produced by skills are NOT
       // included unless explicitly collected by a Shaper.
       if (ksProjectionEnabled) {
-        const connInfo = parseStorageConnectionString(storageConnectionString)
-        if (!connInfo) {
-          setMessage({ type: 'error', text: t('spbDebugErrInvalidStorageConnKs') })
-          setBusy(false)
-          return
+        if (storageAuthMode === 'connectionString') {
+          const connInfo = parseStorageConnectionString(storageConnectionString)
+          if (!connInfo) {
+            setMessage({ type: 'error', text: t('spbDebugErrInvalidStorageConnKs') })
+            setBusy(false)
+            return
+          }
         }
 
         // ── Build Shaper skill inputs ──
@@ -454,8 +624,11 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
         skills.push(shaperSkill)
         skillsetBody.skills = skills
 
+        // Use ResourceId when in bearer mode; otherwise use the raw connection string.
+        const ksStorageConn = storageAuthMode === 'managedIdentity' ? storageResourceId.trim() : storageConnectionString.trim()
+
         skillsetBody.knowledgeStore = {
-          storageConnectionString: storageConnectionString.trim(),
+          storageConnectionString: ksStorageConn,
           projections: [
             {
               tables: [],
@@ -536,11 +709,14 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
         }
       }
 
+      // Use ResourceId when in bearer mode; otherwise use the raw connection string.
+      const dsConnString = storageAuthMode === 'managedIdentity' ? storageResourceId.trim() : storageConnectionString.trim()
+
       const dsBody: Record<string, unknown> = {
         name: debugDataSourceName.trim(),
         type: 'azureblob',
         credentials: {
-          connectionString: storageConnectionString.trim(),
+          connectionString: dsConnString,
         },
         container: {
           name: containerName.trim(),
@@ -702,7 +878,14 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
   // JSON back to enrichment-tree field names, and feeds the result into the
   // same `onFetchedDocs` callback so the Enrichment Tree can display values.
   const fetchProjections = async () => {
-    if (!storageConnectionString.trim()) {
+    if (storageAuthMode === 'managedIdentity' && !storageBearerToken.trim()) {
+      // Managed Identity mode — client-side blob access needs a Storage Bearer Token.
+      // Fall back to fetchDocs (Search API) instead.
+      setMessage({ type: 'info', text: t('spbDebugMsgProjectionSkippedNoToken') })
+      await fetchDocs()
+      return
+    }
+    if (storageAuthMode === 'connectionString' && !storageConnectionString.trim()) {
       setMessage({ type: 'error', text: t('spbDebugErrStorageConnRequired') })
       return
     }
@@ -711,26 +894,35 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
       return
     }
 
-    const connInfo = parseStorageConnectionString(storageConnectionString)
-    if (!connInfo) {
-      setMessage({ type: 'error', text: t('spbDebugErrInvalidStorageConn') })
-      return
-    }
-
     setBusy(true)
     setMessage(null)
     try {
-      // Generate a short-lived Account SAS (read + list on blob service).
-      const sasToken = await generateAccountSas({
-        accountName: connInfo.accountName,
-        accountKey: connInfo.accountKey,
-        permissions: 'rl',
-        services: 'b',
-        resourceTypes: 'sco',
-        expiryMinutes: 30,
-      })
+      let blobEndpoint: string
+      let sasToken: string | undefined
+      let bearerToken: string | undefined
 
-      const blobEndpoint = getBlobEndpoint(connInfo.accountName, connInfo.endpointSuffix)
+      if (storageAuthMode === 'managedIdentity') {
+        // Extract account name from ResourceId for the blob endpoint
+        const match = storageResourceId.match(/storageAccounts\/([^/;]+)/i)
+        const accountName = match ? match[1] : storageAccountName.trim()
+        blobEndpoint = `https://${accountName}.blob.core.windows.net`
+        bearerToken = storageBearerToken.trim()
+      } else {
+        const connInfo = parseStorageConnectionString(storageConnectionString)
+        if (!connInfo) {
+          setMessage({ type: 'error', text: t('spbDebugErrInvalidStorageConn') })
+          return
+        }
+        blobEndpoint = getBlobEndpoint(connInfo.accountName, connInfo.endpointSuffix)
+        sasToken = await generateAccountSas({
+          accountName: connInfo.accountName,
+          accountKey: connInfo.accountKey,
+          permissions: 'rl',
+          services: 'b',
+          resourceTypes: 'sco',
+          expiryMinutes: 30,
+        })
+      }
 
       // Find the first real content blob in the projection container.
       // Knowledge Store creates directory markers (ResourceType=directory,
@@ -739,6 +931,7 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
         blobEndpoint,
         containerName: ksContainerName.trim(),
         sasToken,
+        bearerToken,
       })
 
       if (!contentBlob) {
@@ -753,6 +946,7 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
         containerName: ksContainerName.trim(),
         blobName: contentBlob.name,
         sasToken,
+        bearerToken,
       })
 
       setLastProjection(projectionJson as JsonValue)
@@ -814,19 +1008,31 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
       // Best-effort cleanup of the Knowledge Store projection container.
       if (ksProjectionEnabled && ksContainerName.trim()) {
         try {
-          const connInfo = parseStorageConnectionString(storageConnectionString)
-          if (connInfo) {
-            const sasToken = await generateAccountSas({
-              accountName: connInfo.accountName,
-              accountKey: connInfo.accountKey,
-              permissions: 'rld',  // read + list + delete
-              services: 'b',
-              resourceTypes: 'sco',
-              expiryMinutes: 10,
-            })
-            const blobEndpoint = getBlobEndpoint(connInfo.accountName, connInfo.endpointSuffix)
-            await deleteContainer({ blobEndpoint, containerName: ksContainerName.trim(), sasToken })
-            actions.deleteKsContainer = { ok: true, container: ksContainerName.trim() } as unknown as JsonValue
+          if (storageAuthMode === 'managedIdentity') {
+            if (storageBearerToken.trim()) {
+              const match = storageResourceId.match(/storageAccounts\/([^/;]+)/i)
+              const accountName = match ? match[1] : storageAccountName.trim()
+              const blobEndpoint = `https://${accountName}.blob.core.windows.net`
+              await deleteContainer({ blobEndpoint, containerName: ksContainerName.trim(), bearerToken: storageBearerToken.trim() })
+              actions.deleteKsContainer = { ok: true, container: ksContainerName.trim() } as unknown as JsonValue
+            } else {
+              actions.deleteKsContainer = { ok: false, skipped: true, reason: 'No Storage Bearer Token — KS container not deleted' } as unknown as JsonValue
+            }
+          } else {
+            const connInfo = parseStorageConnectionString(storageConnectionString)
+            if (connInfo) {
+              const sasToken = await generateAccountSas({
+                accountName: connInfo.accountName,
+                accountKey: connInfo.accountKey,
+                permissions: 'rld',  // read + list + delete
+                services: 'b',
+                resourceTypes: 'sco',
+                expiryMinutes: 10,
+              })
+              const blobEndpoint = getBlobEndpoint(connInfo.accountName, connInfo.endpointSuffix)
+              await deleteContainer({ blobEndpoint, containerName: ksContainerName.trim(), sasToken })
+              actions.deleteKsContainer = { ok: true, container: ksContainerName.trim() } as unknown as JsonValue
+            }
           }
         } catch (e) {
           actions.deleteKsContainer = { ok: false, error: e instanceof Error ? e.message : String(e) } as unknown as JsonValue
@@ -881,7 +1087,7 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
 
       const generatedOutputFieldMappings = resolvedOutputs.map((x) => {
         const shape = guessOutputMappingShape(x)
-        return { sourceFieldName: shape.sourcePath, targetFieldName: x.fieldName, mappingFunction: null }
+        return { sourceFieldName: shape.sourcePath, targetFieldName: x.fieldName }
       })
 
       const generatedIndexFields = resolvedOutputs.map((x) => {
@@ -891,10 +1097,12 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
 
       // KS Projection
       if (ksProjectionEnabled) {
-        const connInfo = parseStorageConnectionString(storageConnectionString)
-        if (!connInfo) {
-          setMessage({ type: 'error', text: t('spbDebugErrInvalidStorageConnKs') })
-          return
+        if (storageAuthMode === 'connectionString') {
+          const connInfo = parseStorageConnectionString(storageConnectionString)
+          if (!connInfo) {
+            setMessage({ type: 'error', text: t('spbDebugErrInvalidStorageConnKs') })
+            return
+          }
         }
 
         const { shaperInputs, blobPathMap } = buildShaperInputs(extractedOutputs)
@@ -912,8 +1120,10 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
         skills.push(shaperSkill)
         skillsetBody.skills = skills
 
+        const ksStorageConn = storageAuthMode === 'managedIdentity' ? storageResourceId.trim() : storageConnectionString.trim()
+
         skillsetBody.knowledgeStore = {
-          storageConnectionString: storageConnectionString.trim(),
+          storageConnectionString: ksStorageConn,
           projections: [{ tables: [], objects: [{ storageContainer: ksContainerName.trim(), source: '/document/ragops_debug_capture', generatedKeyName: 'ragops_debug_id' }], files: [] }],
         }
       }
@@ -950,9 +1160,11 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
         if (!putIndex.ok) { setMessage({ type: 'error', text: putIndex.error.message }); return }
       }
 
+      const dsConnString2 = storageAuthMode === 'managedIdentity' ? storageResourceId.trim() : storageConnectionString.trim()
+
       const dsBody: Record<string, unknown> = {
         name: debugDataSourceName.trim(), type: 'azureblob',
-        credentials: { connectionString: storageConnectionString.trim() },
+        credentials: { connectionString: dsConnString2 },
         container: { name: containerName.trim(), query: virtualFolder.trim() },
       }
       const putDs = await createOrUpdateDataSource({ profile: p, dataSourceName: debugDataSourceName.trim(), apiVersion, body: dsBody as unknown as JsonValue, language })
@@ -1043,7 +1255,7 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
   useImperativeHandle(ref, () => ({ startDebug }))
 
   return (
-    <div style={{ height: '100%', overflow: 'auto' }}>
+    <div className="dbgRunner" style={{ height: '100%', overflow: 'auto' }}>
       <div className="section__hint" style={{ marginBottom: 10 }}>
         {t('spbDebugRunnerIntro')}
       </div>
@@ -1062,21 +1274,52 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
       )}
 
       {/* ── Essential settings (always visible) ── */}
-      <div className="actions actions--mb10" style={{ flexWrap: 'wrap', gap: 10 }}>
-        <div className="field" style={{ minWidth: 320 }}>
-          <span className="field__label">{t('spbDebugStorageConnectionString')}</span>
-          <input
+      <div className="dbgRunnerFields">
+        {/* Storage auth mode selector */}
+        <div className="field">
+          <span className="field__label">{t('spbDebugStorageAuthMode')}</span>
+          <select
             className="field__input"
-            value={storageConnectionString}
-            onChange={(e) => setStorageConnectionString(e.target.value)}
-            placeholder="DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
-          />
+            value={storageAuthMode}
+            onChange={(e) => setStorageAuthMode(e.target.value as StorageAuthMode)}
+          >
+            <option value="connectionString">{t('spbDebugStorageAuthConnectionString')}</option>
+            <option value="managedIdentity">{t('spbDebugStorageAuthManagedIdentity')}</option>
+          </select>
         </div>
-        <div className="field" style={{ minWidth: 220 }}>
+
+        {storageAuthMode === 'connectionString' ? (
+          /* Connection String mode */
+          <div className="field" style={{ gridColumn: 'span 2' }}>
+            <span className="field__label">{t('spbDebugStorageConnectionString')}</span>
+            <input
+              className="field__input"
+              value={storageConnectionString}
+              onChange={(e) => setStorageConnectionString(e.target.value)}
+              placeholder="DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
+            />
+          </div>
+        ) : (
+          /* Managed Identity (ResourceId) mode */
+          <div className="field" style={{ gridColumn: 'span 2' }}>
+            <span className="field__label">{t('spbDebugStorageResourceId')}</span>
+            <input
+              className="field__input"
+              value={storageResourceId}
+              onChange={(e) => setStorageResourceId(e.target.value)}
+              placeholder={t('spbDebugStorageResourceIdPlaceholder')}
+            />
+            <span className="section__hint" style={{ fontSize: 11, marginTop: 2, display: 'block' }}>
+              {t('spbDebugStorageResourceIdHint')}
+            </span>
+          </div>
+        )}
+
+        <div className="field">
           <span className="field__label">{t('spbDebugBlobContainer')}</span>
           <input className="field__input" value={containerName} onChange={(e) => setContainerName(e.target.value)} placeholder="my-container" />
         </div>
-        <div className="field" style={{ minWidth: 220 }}>
+        <div className="field">
           <span className="field__label">{t('spbDebugBlobVirtualFolder')}</span>
           <input
             className="field__input"
@@ -1086,6 +1329,36 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
           />
         </div>
       </div>
+
+      {storageAuthMode === 'managedIdentity' && (
+        <div style={{ marginBottom: 10 }}>
+          <div className="section__hint" style={{ fontSize: 12, lineHeight: '1.5', marginBottom: 6 }}>
+            <i className="bi bi-info-circle" style={{ marginRight: 4 }}></i>
+            {t('spbDebugStorageManagedIdentityHint')}
+          </div>
+          <details style={{ fontSize: 12 }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 500, color: 'var(--text-muted)' }}>
+              {t('spbDebugStorageBearerTokenOptional')}
+            </summary>
+            <div className="actions actions--mb10" style={{ flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
+              <div className="field" style={{ minWidth: 320 }}>
+                <span className="field__label">{t('spbDebugStorageBearerToken')}</span>
+                <textarea
+                  className="field__input"
+                  value={storageBearerToken}
+                  onChange={(e) => setStorageBearerToken(e.target.value)}
+                  placeholder={t('spbDebugStorageBearerTokenPlaceholder')}
+                  rows={2}
+                  style={{ fontFamily: 'monospace', fontSize: 12, resize: 'vertical' }}
+                />
+                <span className="section__hint" style={{ fontSize: 11, marginTop: 2, display: 'block' }}>
+                  {t('spbDebugStorageBearerHint')}
+                </span>
+              </div>
+            </div>
+          </details>
+        </div>
+      )}
 
       {/* ── Start Debug button (primary action) ── */}
       <div className="actions actions--mb10" style={{ alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -1241,28 +1514,28 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
           <div className="section__title" style={{ fontSize: 14, marginBottom: 6 }}>
             {t('spbDebugSectionProvisionCleanup')}
           </div>
-          {lastProvision ? <JsonViewer data={lastProvision} t={t} initialOpenDepth={2} /> : <div className="muted">{t('spbNone')}</div>}
+          {lastProvision ? <DebugLogPanel data={lastProvision} t={t} /> : <div className="dbgLog"><div className="dbgLog__entry muted">{t('spbNone')}</div></div>}
         </div>
 
         <div>
           <div className="section__title" style={{ fontSize: 14, marginBottom: 6 }}>
             {t('spbDebugSectionRun')}
           </div>
-          {lastRun ? <JsonViewer data={lastRun} t={t} initialOpenDepth={2} /> : <div className="muted">{t('spbNone')}</div>}
+          {lastRun ? <DebugLogPanel data={lastRun} label="Run Indexer" t={t} /> : <div className="dbgLog"><div className="dbgLog__entry muted">{t('spbNone')}</div></div>}
         </div>
 
         <div>
           <div className="section__title" style={{ fontSize: 14, marginBottom: 6 }}>
             {t('spbDebugLastStatus')}
           </div>
-          {lastStatus ? <JsonViewer data={lastStatus} t={t} initialOpenDepth={3} collapseArraysByDefault /> : <div className="muted">{t('spbNone')}</div>}
+          {lastStatus ? <DebugLogPanel data={lastStatus} label="Indexer Status" t={t} /> : <div className="dbgLog"><div className="dbgLog__entry muted">{t('spbNone')}</div></div>}
         </div>
 
         <div>
           <div className="section__title" style={{ fontSize: 14, marginBottom: 6 }}>
             {t('spbDebugLastDocs')}
           </div>
-          {lastDocs ? <JsonViewer data={lastDocs} t={t} initialOpenDepth={2} collapseArraysByDefault /> : <div className="muted">{t('spbNone')}</div>}
+          {lastDocs ? <DebugLogPanel data={lastDocs} label="Search Documents" t={t} /> : <div className="dbgLog"><div className="dbgLog__entry muted">{t('spbNone')}</div></div>}
         </div>
 
         {ksProjectionEnabled ? (
@@ -1272,9 +1545,9 @@ export const SkillPipelineDebugRunner = forwardRef<SkillPipelineDebugRunnerHandl
                 {t('spbDebugProjectionStatus')}
               </div>
               {lastProjection ? (
-                <JsonViewer data={lastProjection} t={t} initialOpenDepth={3} collapseArraysByDefault />
+                <DebugLogPanel data={lastProjection} label="Projection" t={t} />
               ) : (
-                <div className="muted">{t('spbNone')}</div>
+                <div className="dbgLog"><div className="dbgLog__entry muted">{t('spbNone')}</div></div>
               )}
             </div>
           </>

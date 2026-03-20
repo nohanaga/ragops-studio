@@ -1,8 +1,8 @@
 /**
- * Semantic Skillset Diff Engine.
+ * Semantic Resource Diff Engine.
  *
- * Compares two Azure AI Search skillset definitions at the structural level
- * rather than doing a naïve text diff.  This means:
+ * Compares two Azure AI Search resource definitions (skillsets, indexes, etc.)
+ * at the structural level rather than doing a naïve text diff.  This means:
  *
  *  - Key ordering differences are ignored (JSON objects are unordered by spec).
  *  - `null` vs missing key is treated as equivalent (Azure often strips nulls).
@@ -21,10 +21,13 @@ export type DiffChangeKind =
   | 'added'
   | 'removed'
   | 'changed'
-  | 'reordered'    // skills[] were reordered but identical in content
+  | 'reordered'    // named items were reordered but identical in content
   | 'skill-added'
   | 'skill-removed'
   | 'skill-changed'
+  | 'item-added'   // generic named-array item added (e.g. index field)
+  | 'item-removed' // generic named-array item removed
+  | 'item-changed' // generic named-array item changed
   | 'unchanged'
 
 export type DiffEntry = {
@@ -52,21 +55,49 @@ export type SkillsetDiffResult = {
   normalizedAfterJson: string
 }
 
-// ─── Service metadata keys to strip before comparison ───────────────────
+// ─── Default service metadata keys to strip before comparison ───────────
 
-const SERVICE_META_KEYS = new Set([
+const DEFAULT_SERVICE_META_KEYS = new Set([
   '@odata.etag',
   '@odata.context',
   // Azure may inject these on GET but they should not block publish.
   'encryptionKey',   // only compare if explicitly present in both
 ])
 
+// ─── Configuration for generic resource diff ────────────────────────────
+
+/**
+ * Configuration for `computeResourceDiff`.  Describes which array fields
+ * should be matched by name (like skills[] or fields[]) rather than by
+ * position, and which metadata keys to strip.
+ */
+export interface ResourceDiffConfig {
+  /** Top-level metadata keys to ignore (default: @odata.etag, @odata.context, encryptionKey). */
+  serviceMeta?: Set<string>
+  /**
+   * Named arrays: top-level array fields whose elements are objects with a
+   * `name` property.  These are matched by name (+ optional `typeKey`) rather
+   * than by index position.
+   *
+   * Example for skillset: `[{ field: 'skills', typeKey: '@odata.type', label: 'skill' }]`
+   * Example for index:    `[{ field: 'fields', label: 'field' }]`
+   */
+  namedArrays?: Array<{
+    /** The top-level key, e.g. `'skills'` or `'fields'`. */
+    field: string
+    /** Optional secondary matching key (e.g. `'@odata.type'`). */
+    typeKey?: string
+    /** Human-readable label for diff display (e.g. `'skill'`, `'field'`). */
+    label: string
+  }>
+}
+
 // ─── Normalisation helpers ──────────────────────────────────────────────
 
-type JsonPrimitive = string | number | boolean | null
-type JsonArray = JsonVal[]
-type JsonObject = { [key: string]: JsonVal }
-type JsonVal = JsonPrimitive | JsonArray | JsonObject
+export type JsonPrimitive = string | number | boolean | null
+export type JsonArray = JsonVal[]
+export type JsonObject = { [key: string]: JsonVal }
+export type JsonVal = JsonPrimitive | JsonArray | JsonObject
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v)
@@ -78,7 +109,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
  * - Treat `null`, `undefined`, and empty-string the same for optional fields.
  * - Strip service metadata.
  */
-function normalise(val: unknown, stripMeta = true): JsonVal {
+function normalise(val: unknown, stripMeta = true, metaKeys: Set<string> = DEFAULT_SERVICE_META_KEYS): JsonVal {
   if (val === undefined || val === null) return null
 
   if (typeof val === 'number') {
@@ -98,8 +129,8 @@ function normalise(val: unknown, stripMeta = true): JsonVal {
     const keys = Object.keys(val).sort()
     const out: JsonObject = {}
     for (const k of keys) {
-      if (stripMeta && SERVICE_META_KEYS.has(k)) continue
-      const v = normalise(val[k], stripMeta)
+      if (stripMeta && metaKeys.has(k)) continue
+      const v = normalise(val[k], stripMeta, metaKeys)
       // Drop keys whose normalised value is null (treat as "absent").
       // But keep explicit `false`, `0`, `""` (falsy but meaningful).
       if (v === null) continue
@@ -243,6 +274,94 @@ function matchSkills(
     if (!usedBefore.has(bi)) {
       result.push({ beforeIdx: bi, afterIdx: null })
     }
+  }
+
+  return result
+}
+
+// ─── Generic named-item matching ────────────────────────────────────────
+
+/**
+ * Match named items across before/after by identity key.
+ * Priority: 1) typeKey+name, 2) name alone, 3) positional (unnamed only).
+ *
+ * This is a generalised version of `matchSkills` that works for any array
+ * of objects with a `name` property (e.g. fields[], scoringProfiles[]).
+ */
+function matchNamedItems(
+  before: JsonVal[],
+  after: JsonVal[],
+  typeKey?: string,
+): Array<{ beforeIdx: number | null; afterIdx: number | null }> {
+  const result: Array<{ beforeIdx: number | null; afterIdx: number | null }> = []
+  const usedBefore = new Set<number>()
+  const usedAfter = new Set<number>()
+
+  const key = (item: JsonVal): string => {
+    if (!isObject(item)) return ''
+    const s = item as JsonObject
+    const name = typeof s.name === 'string' ? s.name : ''
+    const type = typeKey && typeof s[typeKey] === 'string' ? (s[typeKey] as string) : ''
+    return type ? `${type}::${name}` : name
+  }
+
+  const nameOf = (item: JsonVal): string => {
+    if (!isObject(item)) return ''
+    const s = item as JsonObject
+    return typeof s.name === 'string' ? s.name : ''
+  }
+
+  // Pass 1: exact key match (typeKey + name, or name only when no typeKey)
+  for (let ai = 0; ai < after.length; ai++) {
+    const ak = key(after[ai])
+    if (!ak) continue
+    for (let bi = 0; bi < before.length; bi++) {
+      if (usedBefore.has(bi)) continue
+      if (key(before[bi]) === ak) {
+        result.push({ beforeIdx: bi, afterIdx: ai })
+        usedBefore.add(bi)
+        usedAfter.add(ai)
+        break
+      }
+    }
+  }
+
+  // Pass 2: name-only match for unmatched (when typeKey is set)
+  if (typeKey) {
+    for (let ai = 0; ai < after.length; ai++) {
+      if (usedAfter.has(ai)) continue
+      const an = nameOf(after[ai])
+      if (!an) continue
+      for (let bi = 0; bi < before.length; bi++) {
+        if (usedBefore.has(bi)) continue
+        if (nameOf(before[bi]) === an) {
+          result.push({ beforeIdx: bi, afterIdx: ai })
+          usedBefore.add(bi)
+          usedAfter.add(ai)
+          break
+        }
+      }
+    }
+  }
+
+  // Pass 3: positional match for unnamed items only
+  for (let ai = 0; ai < after.length; ai++) {
+    if (usedAfter.has(ai)) continue
+    const an = nameOf(after[ai])
+    if (an) continue
+    if (!usedBefore.has(ai) && ai < before.length && !nameOf(before[ai])) {
+      result.push({ beforeIdx: ai, afterIdx: ai })
+      usedBefore.add(ai)
+      usedAfter.add(ai)
+    }
+  }
+
+  // Remaining unmatched
+  for (let ai = 0; ai < after.length; ai++) {
+    if (!usedAfter.has(ai)) result.push({ beforeIdx: null, afterIdx: ai })
+  }
+  for (let bi = 0; bi < before.length; bi++) {
+    if (!usedBefore.has(bi)) result.push({ beforeIdx: bi, afterIdx: null })
   }
 
   return result
@@ -471,6 +590,135 @@ export function computeSkillsetDiff(
   }
 }
 
+// ─── Generic named-array diff ───────────────────────────────────────────
+
+/**
+ * Diff a named array field (e.g. `fields[]`, `scoringProfiles[]`) using
+ * name-based matching.  Produces `item-added` / `item-removed` / `item-changed`
+ * and `reordered` entries.
+ */
+function diffNamedArray(
+  beforeItems: JsonVal[],
+  afterItems: JsonVal[],
+  fieldName: string,
+  typeKey: string | undefined,
+  metaKeys: Set<string>,
+): DiffEntry[] {
+  const matches = matchNamedItems(beforeItems, afterItems, typeKey)
+  const entries: DiffEntry[] = []
+
+  for (const m of matches) {
+    if (m.beforeIdx !== null && m.afterIdx !== null) {
+      const bItem = normalise(beforeItems[m.beforeIdx], true, metaKeys) as JsonObject
+      const aItem = normalise(afterItems[m.afterIdx], true, metaKeys) as JsonObject
+      const itemName = (typeof aItem.name === 'string' ? aItem.name : '') ||
+                       (typeof bItem.name === 'string' ? bItem.name : '') ||
+                       `[${m.afterIdx}]`
+
+      if (deepEqual(bItem, aItem)) {
+        if (m.beforeIdx !== m.afterIdx) {
+          entries.push({
+            path: `${fieldName}[${m.afterIdx}]`,
+            kind: 'reordered',
+            skillName: itemName,
+            oldValue: `index ${m.beforeIdx}`,
+            newValue: `index ${m.afterIdx}`,
+          })
+        }
+        continue
+      }
+
+      const children = diffObjects(bItem, aItem, `${fieldName}[${m.afterIdx}]`)
+      entries.push({
+        path: `${fieldName}[${m.afterIdx}]`,
+        kind: 'item-changed',
+        skillName: itemName,
+        children,
+      })
+    } else if (m.beforeIdx !== null) {
+      const bItem = beforeItems[m.beforeIdx]
+      const itemName = isObject(bItem) && typeof (bItem as JsonObject).name === 'string'
+        ? (bItem as JsonObject).name as string : `[${m.beforeIdx}]`
+      entries.push({
+        path: `${fieldName}[${m.beforeIdx}]`,
+        kind: 'item-removed',
+        skillName: itemName,
+        oldValue: compactStringify(bItem),
+      })
+    } else if (m.afterIdx !== null) {
+      const aItem = afterItems[m.afterIdx]
+      const itemName = isObject(aItem) && typeof (aItem as JsonObject).name === 'string'
+        ? (aItem as JsonObject).name as string : `[${m.afterIdx}]`
+      entries.push({
+        path: `${fieldName}[${m.afterIdx}]`,
+        kind: 'item-added',
+        skillName: itemName,
+        newValue: compactStringify(aItem),
+      })
+    }
+  }
+
+  return entries
+}
+
+// ─── Generic resource diff ──────────────────────────────────────────────
+
+/** Result type alias — identical structure, usable for any resource type. */
+export type ResourceDiffResult = SkillsetDiffResult
+
+/**
+ * Compute a semantic diff between two Azure resource definitions.
+ *
+ * Works for skillsets, indexes, indexers, or any JSON object that follows
+ * Azure AI Search conventions.  Named arrays (like `skills[]` or `fields[]`)
+ * are matched by name rather than by position.
+ *
+ * @param before - The resource definition currently on the service (or `{}` for new).
+ * @param after  - The candidate resource definition from the editor.
+ * @param config - Optional configuration for metadata stripping and named arrays.
+ */
+export function computeResourceDiff(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  config?: ResourceDiffConfig,
+): ResourceDiffResult {
+  const metaKeys = config?.serviceMeta ?? DEFAULT_SERVICE_META_KEYS
+  const namedArrays = config?.namedArrays ?? []
+
+  const normBefore = normalise(before, true, metaKeys) as JsonObject
+  const normAfter = normalise(after, true, metaKeys) as JsonObject
+
+  const normalizedBeforeJson = stableStringify(normBefore)
+  const normalizedAfterJson = stableStringify(normAfter)
+
+  if (deepEqual(normBefore, normAfter)) {
+    return { identical: true, changes: [], normalizedBeforeJson, normalizedAfterJson }
+  }
+
+  const changes: DiffEntry[] = []
+
+  // Collect named-array field names to exclude from top-level diff
+  const namedFieldNames = new Set(namedArrays.map((na) => na.field))
+
+  // Top-level properties (excluding named arrays)
+  const topBefore = { ...normBefore }
+  const topAfter = { ...normAfter }
+  for (const f of namedFieldNames) {
+    delete topBefore[f]
+    delete topAfter[f]
+  }
+  changes.push(...diffObjects(topBefore, topAfter, ''))
+
+  // Each named array
+  for (const na of namedArrays) {
+    const bArr = Array.isArray(normBefore[na.field]) ? normBefore[na.field] as JsonVal[] : []
+    const aArr = Array.isArray(normAfter[na.field]) ? normAfter[na.field] as JsonVal[] : []
+    changes.push(...diffNamedArray(bArr, aArr, na.field, na.typeKey, metaKeys))
+  }
+
+  return { identical: changes.length === 0, changes, normalizedBeforeJson, normalizedAfterJson }
+}
+
 /**
  * Render a DiffEntry tree as a concise text summary (for clipboard / logs).
  */
@@ -500,6 +748,16 @@ export function diffEntriesToText(entries: DiffEntry[], indent = 0): string {
         break
       case 'skill-changed':
         lines.push(`${pad}~ skill "${e.skillName}":`)
+        if (e.children) lines.push(diffEntriesToText(e.children, indent + 1))
+        break
+      case 'item-added':
+        lines.push(`${pad}+ "${e.skillName}" added`)
+        break
+      case 'item-removed':
+        lines.push(`${pad}- "${e.skillName}" removed`)
+        break
+      case 'item-changed':
+        lines.push(`${pad}~ "${e.skillName}":`)
         if (e.children) lines.push(diffEntriesToText(e.children, indent + 1))
         break
       case 'unchanged':

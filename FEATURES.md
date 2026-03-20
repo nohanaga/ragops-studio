@@ -172,6 +172,35 @@ A visual flow editor for authoring Azure AI Search skillsets. Each skill is repr
 
 ![](./docs/images/screenshot27_jp.gif)
 
+### Custom Skill LiveEditor
+
+A browser-integrated Python development environment for building, testing, and deploying Azure AI Search Custom Skills without leaving RAGOps Studio.
+
+- **Three-tab workspace**:
+  - **Code tab**: CodeMirror editor with Python syntax highlighting, I/O connection panel showing which skill inputs/outputs are referenced in code (color-coded: green = connected, yellow = test data missing, red = not connected)
+  - **Test tab**: JSON test input/output editor, execution logs with stdout/stderr capture, validation notices, execution time display
+  - **Settings tab**: Runtime URL configuration, health check, skill load/publish controls
+- **Two execution modes**:
+  - **Local Run (Pyodide)**: Execute Python code in-browser via WebAssembly — no server required, instant feedback
+  - **Remote Run**: Execute on cloud runtime (Azure Container Apps + FastAPI) for production-realistic testing
+- **Cloud runtime architecture**:
+  - FastAPI-based Skill Host on Azure Container Apps
+  - Dynamic Skill Loading: code stored in Azure Blob Storage, loaded at runtime without container redeployment
+  - 6 HTTP endpoints: `/health`, `/simulate`, `/execute`, `/upload`, `/skills/{name}`, `/skills/{name}/code`
+  - Skill module contract: `def process(input: dict) -> dict`
+  - Deploy scripts included (`deploy-aca.ps1`, `deploy-aca.sh`)
+- **Blob Storage integration**:
+  - Upload workflow: local code → diff preview → confirm → POST /upload → Blob Storage
+  - Download workflow: auto-load on editor open, manual load button, diff on conflict
+  - SHA-256 hash sync tracking with visual status badges (Synced / Dirty / Unknown)
+- **Skill Pipeline integration**:
+  - Opens directly from skill nodes in the Skill Pipeline Builder
+  - Auto-generates sample Python code based on skill input/output definitions
+  - Updates Custom Web API skill URI after successful upload
+  - Draft persistence: auto-saves editor state per linked skill node
+- **Diff mode**: Side-by-side comparison with hunk navigation when local and remote code diverge
+- **Dark/light theme support** and **multi-language support** (EN/JP)
+
 ## 3. Developer Tools
 
 ### Search Pipeline Visualizer
@@ -341,6 +370,7 @@ A visual flow editor for authoring Azure AI Search skillsets. Each skill is repr
 - **undici 7.16** - Fast HTTP client (fetch polyfill)
 - **@xyflow/react 12** - Flow chart visualization (used by Skill Pipeline Builder)
 - **dagre 0.8** - Automatic directed graph layout
+- **Pyodide** - In-browser Python execution via WebAssembly (used by Custom Skill LiveEditor)
 
 ### Development Tools
 - **ESLint 9.39** + **typescript-eslint 8.46** - Code quality checking
@@ -373,6 +403,7 @@ ragops-studio/
 │   │   │   ├── SkillPipelineRightPane.tsx     # Skill pipeline right pane
 │   │   │   ├── EnrichmentPathPicker.tsx       # Enrichment path picker
 │   │   │   ├── PublishDiffModal.tsx           # Skillset publish diff confirmation
+│   │   │   ├── SkillCodeEditor.tsx            # Custom Skill Python code editor
 │   │   │   ├── SynonymMapBuilder.tsx         # Synonym map builder
 │   │   │   └── VectorOptimizerBuilder.tsx    # Vector optimizer
 │   │   ├── modals/          # Modal dialogs
@@ -400,6 +431,8 @@ ragops-studio/
 │   │   ├── model.ts         # Data model definitions
 │   │   ├── odataFilter.ts   # OData filter parsing
 │   │   ├── odataFilter.test.ts # OData filter tests
+│   │   ├── pyodideRunner.ts # Pyodide WASM Python execution
+│   │   ├── skillRuntime.ts  # Skill Runtime HTTP client
 │   │   └── translations.ts  # Multi-language support (ja/en)
 │   ├── types/               # TypeScript type definitions
 │   │   ├── app.ts           # Application types
@@ -416,8 +449,14 @@ ragops-studio/
 │   │   ├── skillsetDiff.ts                 # Skillset semantic diff calculation
 │   │   └── index.ts                # Exports
 │   └── App.tsx              # Main application component
+├── skill-runtime/           # Cloud Skill Runtime (Python)
+│   ├── main.py              # FastAPI skill host server
+│   ├── Dockerfile           # Container image definition
+│   ├── requirements.txt     # Python dependencies
+│   └── skills/              # Skill module directory
 ├── scripts/                 # Build scripts
-│   └── generateSynonymMap.mjs  # Synonym map generation script
+│   ├── generateSynonymMap.mjs  # Synonym map generation script
+│   └── skill-runtime/       # ACA deploy scripts (deploy-aca.ps1/.sh)
 ├── public/                  # Static files
 ├── index.html               # HTML entry point
 ├── vite.config.ts           # Vite configuration

@@ -12,8 +12,10 @@ import { json } from '@codemirror/lang-json'
 import { EditorView } from '@codemirror/view'
 import type { ConnectionProfile, SearchApiVersion } from '../../lib/model'
 import type { ThemePreference } from '../../types/app'
-import { createOrUpdateIndex, deleteIndex, getIndexDefinition, getIndexStatistics, listIndexes, type JsonValue } from '../../lib/aiSearchRest'
+import { deleteIndex, getIndexDefinition, getIndexStatistics, listIndexes, type JsonValue } from '../../lib/aiSearchRest'
 import { translations, type Language } from '../../lib/translations'
+import { useIndexPublishFlow } from '../../hooks/useIndexPublishFlow'
+import { PublishDiffModal } from './PublishDiffModal'
 
 type IndexBuilderProps = {
   profile: ConnectionProfile | null
@@ -22,6 +24,7 @@ type IndexBuilderProps = {
   language: Language
   theme: ThemePreference
   onClose: () => void
+  copyToClipboard: (text: string) => Promise<void>
 }
 
 type UiMessage = { type: 'success' | 'error'; text: string }
@@ -50,7 +53,7 @@ function formatCount(n: number | null | undefined, locale: string): string {
   }
 }
 
-export function IndexBuilder({ profile, apiVersion, activeIndexName, language, theme }: IndexBuilderProps) {
+export function IndexBuilder({ profile, apiVersion, activeIndexName, language, theme, copyToClipboard }: IndexBuilderProps) {
   const t = (key: keyof typeof translations.ja): string => String(translations[language][key] ?? '')
   const format = (key: keyof typeof translations.ja, params: Record<string, string | number>): string => {
     let text: string = t(key)
@@ -70,7 +73,7 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
   const [editedJson, setEditedJson] = useState('')
   const [baselineJson, setBaselineJson] = useState('')
 
-  const [saving, setSaving] = useState(false)
+  const [saving] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   const [loadingStats, setLoadingStats] = useState(false)
@@ -81,6 +84,9 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
   const [filterText, setFilterText] = useState('')
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  // ── Index Publish Flow (diff before save) ────────────────────────────
+  const indexPublish = useIndexPublishFlow({ profile, apiVersion, language, t })
 
   const canQuery = !!profile && !!apiVersion && apiVersion.trim().length > 0
 
@@ -258,30 +264,19 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
       if (!ok) return
     }
 
-    setSaving(true)
-    setMessage(null)
-    try {
-      const res = await createOrUpdateIndex({
-        profile,
-        apiVersion,
-        indexName: targetName,
-        body: parsed.body,
-        language,
-      })
+    // Open the diff confirmation modal instead of saving directly
+    await indexPublish.onPublishClick(editedJson)
+  }
 
-      if (!res.ok) {
-        setMessage({ type: 'error', text: res.error.message })
-        return
-      }
-
-      setMessage({ type: 'success', text: format('indexBuilderSaved', { name: targetName, status: res.status }) })
+  /** Called when the user confirms publish inside the diff modal. */
+  const onConfirmIndexPublish = async () => {
+    const updatedText = await indexPublish.publishToAzure()
+    if (updatedText) {
+      const targetName = indexPublish.publishTargetName
+      setMessage({ type: 'success', text: format('indexBuilderSaved', { name: targetName, status: 200 }) })
       await loadIndexes()
       setSelectedName(targetName)
       await loadDefinition(targetName)
-    } catch (e) {
-      setMessage({ type: 'error', text: e instanceof Error ? e.message : String(e) })
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -553,11 +548,11 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
                 type="button"
                 className="btn"
                 onClick={onSaveIndex}
-                disabled={!canQuery || loadingDef || !editedJson.trim() || saving || deleting}
+                disabled={!canQuery || loadingDef || !editedJson.trim() || saving || deleting || indexPublish.publishLoading}
                 title={t('indexBuilderSaveTitle')}
               >
                 <i className="bi bi-save icon--mr6"></i>
-                {saving ? t('indexBuilderSaving') : t('indexBuilderSave')}
+                {saving || indexPublish.publishLoading ? t('indexBuilderSaving') : t('indexBuilderSave')}
               </button>
 
               <button
@@ -624,7 +619,53 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
             </div>
           </div>
         </div>
+
+        {/* ── Publish error from the diff flow ──────────────────── */}
+        {indexPublish.publishError && (
+          <div className="notice notice--error builder__notice" style={{ marginTop: 8 }}>
+            {indexPublish.publishError}
+            <button type="button" className="btn btn--sm" style={{ marginLeft: 8 }} onClick={indexPublish.clearMessages}>✕</button>
+          </div>
+        )}
+        {indexPublish.publishOkMessage && (
+          <div className="notice notice--success builder__notice" style={{ marginTop: 8 }}>
+            {indexPublish.publishOkMessage}
+            <button type="button" className="btn btn--sm" style={{ marginLeft: 8 }} onClick={indexPublish.clearMessages}>✕</button>
+          </div>
+        )}
       </div>
+
+      {/* ── Index Diff Modal ───────────────────────────────────── */}
+      <PublishDiffModal
+        t={t}
+        language={language}
+        theme={theme}
+        copyToClipboard={copyToClipboard}
+        open={indexPublish.saveDiffOpen}
+        onClose={indexPublish.closeDiffDialog}
+        onConfirmPublish={onConfirmIndexPublish}
+        publishLoading={indexPublish.publishLoading}
+        diffViewMode={indexPublish.diffViewMode}
+        setDiffViewMode={indexPublish.setDiffViewMode}
+        publishBaselineText={indexPublish.publishBaselineText}
+        publishCandidateJson={indexPublish.publishCandidateJson}
+        semanticDiff={indexPublish.semanticDiff}
+        normalizedDiffLineSets={indexPublish.normalizedDiffLineSets}
+        publishTargetName={indexPublish.publishTargetName}
+        isNewSkillset={indexPublish.isNewIndex}
+        refetchingBaseline={indexPublish.refetchingBaseline}
+        onChangeTargetName={indexPublish.changeTargetName}
+        existingSkillsetNames={indexPublish.existingIndexNames}
+        resourceLabels={{
+          targetNameLabel: 'indexBuilderPublishTargetName',
+          createNewLabel: 'indexBuilderPublishCreateNew',
+          updateExistingLabel: 'indexBuilderPublishUpdateExisting',
+          selectExistingLabel: 'indexBuilderPublishSelectExisting',
+          createNewOptionLabel: 'indexBuilderPublishCreateNewOption',
+          newNamePlaceholderLabel: 'indexBuilderPublishNewNamePlaceholder',
+          targetNameHintLabel: 'indexBuilderPublishTargetNameHint',
+        }}
+      />
     </div>
   )
 }

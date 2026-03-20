@@ -24,6 +24,7 @@ A web-based development tool for learning and experimenting with advanced featur
 - 🔍 **4 Search Modes**: Classic search, Semantic & Vector search, Agentic search (Knowledge Retrieval API), Text analysis
 - 🛠️ **Builder Tools**: Create and manage indexes, knowledge sources, knowledge bases, synonym maps, and skillsets (visual pipeline builder)
 - 🧩 **Skill Pipeline Builder**: Visual DAG editor for skillset authoring with built-in skill templates, enrichment tree preview, and debug runner
+- 📝 **Custom Skill LiveEditor**: Browser-integrated Python IDE for Custom Skills with local execution (Pyodide/WASM), cloud deployment (Azure Container Apps), and Blob Storage sync
 - 📊 **Performance Testing**: QPS tester, search pipeline visualizer
 - 🎯 **Search Parameter AutoTuning**: Automatically optimize search parameters using evaluation datasets
 - 🧪 **Experiment Management**: Save query history, compare results, export/import
@@ -62,6 +63,12 @@ npm run build
 ```
 
 Build artifacts will be output to the `dist/` directory.
+
+### Skill Runtime (Optional)
+
+To use the **Custom Skill LiveEditor**'s remote execution and cloud deployment features, you need to set up the Skill Runtime — a FastAPI-based Python backend deployed on Azure Container Apps.
+
+See [skill-runtime/README.md](skill-runtime/README.md) for setup and deployment instructions.
 
 ## Usage
 
@@ -104,6 +111,7 @@ npm run gen:synonymmap
 - **CodeMirror 6** - Code editor
 - **ReactFlow (@xyflow/react)** - Flow chart visualization
 - **dagre** - Automatic graph layout
+- **Pyodide** - In-browser Python execution via WebAssembly
 - **IndexedDB (idb)** - Client-side database
 
 ## Project Structure
@@ -118,6 +126,7 @@ ragops-studio/
 │   ├── utils/          # Utility functions
 │   └── App.tsx         # Main component
 ├── public/             # Static files
+├── skill-runtime/     # Cloud Skill Runtime (FastAPI + Python)
 ├── scripts/            # Build scripts
 └── package.json        # npm configuration
 ```
@@ -143,6 +152,7 @@ This is a personal project and is not an official Microsoft product. This projec
 - [Azure AI Search REST API Reference](https://learn.microsoft.com/rest/api/searchservice/)
 - [Introduction](docs/INTRODUCTION.md)
 - [Detailed Feature Guide](FEATURES.md)
+- [Skill Runtime (Custom Skill Backend)](skill-runtime/README.md)
 
 ---
 

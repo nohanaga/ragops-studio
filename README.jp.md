@@ -22,7 +22,7 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 - 🔍 **4つの検索モード**: クラシック検索、セマンティック&ベクトル検索、エージェント検索（Knowledge Retrieval API）、テキスト分析
 - 🛠️ **ビルダーツール**: インデックス、ナレッジソース、ナレッジベース、シノニムマップ、スキルセット（ビジュアルパイプラインビルダー）の作成・管理
 - 🧩 **スキルパイプラインビルダー**: ビルトインスキルテンプレート、エンリッチメントツリープレビュー、デバッグランナー付きのビジュアル DAG エディター
-- 📊 **パフォーマンス測定**: QPS テスター、検索パイプライン可視化
+- 📝 **Custom Skill LiveEditor**: Custom Skill のブラウザ統合 Python IDE—ローカル実行（Pyodide/WASM）、クラウドデプロイ（Azure Container Apps）、Blob Storage 同期対応
 - 🎯 **検索パラメータ自動チューニング**: 評価データセットを使用して検索パラメータを自動最適化
 - 🧪 **実験管理**: クエリ履歴の保存、結果の比較、エクスポート/インポート
 - 🎨 **多機能UI**: 6つのテーマ、日英対応、3ペインレイアウト、リサイズ可能なパネル
@@ -60,6 +60,12 @@ npm run build
 ```
 
 ビルド成果物は `dist/` ディレクトリに出力されます。
+
+### Skill Runtime（オプション）
+
+**Custom Skill LiveEditor** のリモート実行およびクラウドデプロイ機能を使用するには、Skill Runtime（Azure Container Apps 上にデプロイする FastAPI ベースの Python バックエンド）のセットアップが必要です。
+
+セットアップとデプロイ手順は [skill-runtime/README.jp.md](skill-runtime/README.jp.md) を参照してください。
 
 ## 使い方
 
@@ -102,6 +108,7 @@ npm run gen:synonymmap
 - **CodeMirror 6** - コードエディター
 - **ReactFlow (@xyflow/react)** - フローチャート可視化
 - **dagre** - グラフ自動レイアウト
+- **Pyodide** - WebAssembly によるブラウザ内 Python 実行
 - **IndexedDB (idb)** - クライアントサイドデータベース
 
 ## プロジェクト構造
@@ -116,6 +123,7 @@ ragops-studio/
 │   ├── utils/          # ユーティリティ関数
 │   └── App.tsx         # メインコンポーネント
 ├── public/             # 静的ファイル
+├── skill-runtime/     # クラウド Skill Runtime（FastAPI + Python）
 ├── scripts/            # ビルドスクリプト
 └── package.json        # npm 設定
 ```
@@ -141,6 +149,7 @@ ragops-studio/
 - [Azure AI Search ドキュメント](https://learn.microsoft.com/azure/search/)
 - [Azure AI Search REST API リファレンス](https://learn.microsoft.com/rest/api/searchservice/)
 - [詳細な機能ガイド](FEATURES.jp.md)
+- [Skill Runtime（Custom Skill バックエンド）](skill-runtime/README.jp.md)
 
 ---
 

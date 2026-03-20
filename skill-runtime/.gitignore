@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+skill-config.json
+skills/*.py
+!skills/.gitkeep
