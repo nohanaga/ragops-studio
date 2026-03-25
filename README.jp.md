@@ -13,6 +13,13 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square&logo=typescript)
 ![Vite](https://img.shields.io/badge/Vite-7.2-646CFF?style=flat-square&logo=vite)
 
+> 📦 RAGOps Studio Series
+>
+> - RAGOps Studio — for Azure AI Search（this repo）: React/TypeScript ベースで検索インデックスの観測・比較・改善を行うワークベンチ（Series #1）
+> - [RAGOps Studio — for Document Intelligence / Content Understanding](https://github.com/nohanaga/ragops-studio-for-di-cu): Azure AI Document Intelligence / Content Understanding を用いて文書解析レイヤーを改善するワークベンチ（Series #2）
+>
+> - English: [README.md](README.md) | [FEATURES.md](FEATURES.md)
+
 ![](./docs/images/screenshot1_jp.jpg)
 
 > **📖 RAGOps Studio の詳しい紹介は [Qiita](https://qiita.com/nohanaga/items/f5d6ec340f238c8220be) をご覧ください**

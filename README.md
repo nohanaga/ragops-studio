@@ -13,7 +13,12 @@ A web-based development tool for learning and experimenting with advanced featur
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square&logo=typescript)
 ![Vite](https://img.shields.io/badge/Vite-7.2-646CFF?style=flat-square&logo=vite)
 
-[日本語版 README](README.jp.md) | [日本語版機能ガイド](FEATURES.jp.md)
+> 📦 RAGOps Studio Series
+>
+> - RAGOps Studio — for Azure AI Search (this repo): A React/TypeScript workbench for observing, comparing, and improving search index quality (Series #1)
+> - [RAGOps Studio — for Document Intelligence / Content Understanding](https://github.com/nohanaga/ragops-studio-for-di-cu): A workbench for refining the document parsing layer with Azure AI Document Intelligence and Content Understanding (Series #2)
+>
+> - 日本語版: [README.jp.md](README.jp.md) | [FEATURES.jp.md](FEATURES.jp.md)
 
 ![](./docs/images/screenshot1_en.jpg)
 
