@@ -5077,12 +5077,14 @@ html[data-theme='light'] .rawJsonViewer {
   transform: scale(0.85);
 }
 
-.portal__cardWrap:hover .portal__guideBtn {
+.portal__cardWrap:hover .portal__guideBtn,
+.portal__cardWrap:focus-within .portal__guideBtn {
   opacity: 1;
   transform: scale(1);
 }
 
-.portal__guideBtn:hover {
+.portal__guideBtn:hover,
+.portal__guideBtn:focus-visible {
   color: var(--accent);
   border-color: var(--accent);
   background: var(--surface);
