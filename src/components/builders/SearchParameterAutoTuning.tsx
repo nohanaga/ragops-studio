@@ -1226,7 +1226,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
         <div className="form form--compact">
           <label className="field" style={{ gridColumn: '1 / -1' }}>
             <span className="field__label">{t('atDatasetLabel')}</span>
-            <div className="atDatasetUploadBox">
+            <div className="atDatasetUploadBox" data-guide-target="autotuning-upload">
               <div className="actions">
                 <button
                   type="button"
@@ -1298,11 +1298,11 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
         </div>
       </div>
 
-      <div className="section">
+      <div className="section" data-guide-target="autotuning-params">
         <div className="section__title">{t('atOptimizationTitle')}</div>
         <div className="app__hint">{t('atOptimizationHint')}</div>
         <div className="form form--compact">
-          <label className="field">
+          <label className="field" data-guide-target="autotuning-metric">
             <span className="field__label">{t('atObjectiveLabel')}</span>
             <select className="field__input" value={objective} onChange={(e) => setObjective(e.target.value as Objective)}>
               <option value="precision@k">Precision@k</option>
@@ -1557,7 +1557,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
           </div>
 
           <div className="actions" style={{ gridColumn: '1 / -1', flexWrap: 'wrap' }}>
-            <button type="button" className="btn btn--search" onClick={() => void runOptimization()} disabled={!canRun || isRunning}>
+            <button type="button" className="btn btn--search" onClick={() => void runOptimization()} disabled={!canRun || isRunning} data-guide-target="autotuning-run">
               {isRunning ? t('atRunning') : t('atStartOptimization')}
             </button>
             <button

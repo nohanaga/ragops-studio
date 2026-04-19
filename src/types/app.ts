@@ -11,6 +11,7 @@ import type { JsonValue } from '../lib/aiSearchRest'
 export type LabMode = 'query' | 'semantic-vector' | 'agentic' | 'analyze'
 export type ThemePreference = 'system' | 'dark' | 'light' | 'midnight' | 'forest' | 'solarized'
 export type CenterTab =
+  | 'portal'
   | 'builder'
   | 'latest'
   | `run:${string}`

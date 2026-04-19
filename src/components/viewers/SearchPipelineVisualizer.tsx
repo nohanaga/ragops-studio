@@ -577,7 +577,7 @@ export function SearchPipelineVisualizer({ profile, apiVersion, indexName, langu
         </div>
 
         <div className="form">
-          <label className="field">
+          <label className="field" data-guide-target="spv-query">
             <span className="field__label">
               query (search)
               <InfoTooltip tooltipKey="spvQuery" language={language} />
@@ -737,7 +737,7 @@ export function SearchPipelineVisualizer({ profile, apiVersion, indexName, langu
         )}
 
         <div className="actions">
-          <button type="button" className="btn btn--search" onClick={run} disabled={isRunning}>
+          <button type="button" className="btn btn--search" onClick={run} disabled={isRunning} data-guide-target="spv-run">
             <i className="bi bi-bar-chart-steps icon--mr6"></i>
             {isRunning ? t('spvButtonRunning') : t('spvButtonRunPipeline')}
           </button>

@@ -354,7 +354,7 @@ export function QueryPerformanceTester(props: QueryPerformanceTesterProps) {
       <div className="section__title">{t('qpsTestTitle')}</div>
       <div className="app__hint">{t('qpsTestHint')}</div>
 
-      <div className="form qpsTester__controls">
+      <div className="form qpsTester__controls" data-guide-target="qps-controls">
         <label className="field">
           <span className="field__label">
             {t('qpsTestRequestsPerMode')}
@@ -395,6 +395,7 @@ export function QueryPerformanceTester(props: QueryPerformanceTesterProps) {
           className="btn btn--multi-mode"
           onClick={() => void onRun()}
           disabled={Boolean(disabled) || isRunning}
+          data-guide-target="qps-run"
         >
           <i className="bi bi-speedometer2 icon--mr6"></i>
           {isRunning ? t('qpsTestRunning') : t('qpsTestRun')}

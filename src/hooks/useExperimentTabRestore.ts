@@ -89,8 +89,8 @@ export function useExperimentTabRestore(params: {
 
     if (!selectedExperimentId) {
       setSelectedRunIds([])
-      // Don't force-close tool tabs here; preserve global UI state.
-      if (!isToolTab(centerTabRef.current)) {
+      // Don't force-close tool tabs or portal here; preserve global UI state.
+      if (!isToolTab(centerTabRef.current) && centerTabRef.current !== 'portal') {
         setCenterTab('builder')
       }
       return
@@ -102,8 +102,9 @@ export function useExperimentTabRestore(params: {
         setSelectedRunIds(restored.selectedRunIds)
       }
 
-      // Restore per-experiment center tab unless the user is currently on a tool tab.
-      if (shouldApplyPersistedRunTabs && !isToolTab(centerTabRef.current)) {
+      // Restore per-experiment center tab unless the user is currently on a tool tab
+      // or on the portal tab (which takes priority on initial boot).
+      if (shouldApplyPersistedRunTabs && !isToolTab(centerTabRef.current) && centerTabRef.current !== 'portal') {
         setCenterTab(restored.centerTab)
       }
 
@@ -123,7 +124,7 @@ export function useExperimentTabRestore(params: {
       }
     } else {
       setSelectedRunIds([])
-      if (!isToolTab(centerTabRef.current)) {
+      if (!isToolTab(centerTabRef.current) && centerTabRef.current !== 'portal') {
         setCenterTab('builder')
       }
     }

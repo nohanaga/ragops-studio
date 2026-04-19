@@ -101,7 +101,7 @@ export function AnalyzeBuilderForm(props: AnalyzeBuilderFormProps) {
 
   return (
     <div className="form">
-      <label className="field field--full">
+      <label className="field field--full" data-guide-target="analyze-text">
         <span className="field__label">
           {t('textToAnalyze')}
           <InfoTooltip tooltipKey="textToAnalyzeTooltip" language={language} />
@@ -115,7 +115,7 @@ export function AnalyzeBuilderForm(props: AnalyzeBuilderFormProps) {
         />
       </label>
 
-      <label className="field field--full">
+      <label className="field field--full" data-guide-target="analyze-analyzer">
         <span className="field__label">
           {t('analyzerName')}
           <InfoTooltip tooltipKey="analyzerNameTooltip" language={language} />

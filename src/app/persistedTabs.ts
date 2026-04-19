@@ -25,7 +25,7 @@ export function normalizeCenterTab(raw: unknown, ids: string[]): CenterTab {
   const value = typeof raw === 'string' ? raw : ''
   
   // Direct valid tabs
-  if (value === 'builder' || value === 'latest') return value
+  if (value === 'builder' || value === 'latest' || value === 'portal') return value
   
   // Tool tabs are treated as global UI state (open/close) rather than
   // per-experiment navigation. Normalizing to 'builder' prevents switching

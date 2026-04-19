@@ -27,7 +27,7 @@ export function BuilderActions(props: BuilderActionsProps) {
 
   return (
     <div className="actions">
-      <button type="button" className="btn btn--search" onClick={onExecute} disabled={isExecuting}>
+      <button type="button" className="btn btn--search" onClick={onExecute} disabled={isExecuting} data-guide-target="execute-button">
         <i className="bi bi-search icon--mr6"></i>
         {isExecuting ? (labMode === 'analyze' ? t('analyzing') : t('searching')) : labMode === 'analyze' ? t('analyze') : t('execute')}
       </button>

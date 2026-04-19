@@ -280,7 +280,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
             <div className="builder__editorTitle">
               {selectedBase ? `${t('edit')}: ${selectedBase.name}` : t('createNew')}
             </div>
-            <div className="form">
+            <div className="form" data-guide-target="knowledge-base-form">
               <label className="field">
                 <span className="field__label">
                   {t('name')} *
@@ -345,7 +345,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                   <option value="extractiveData">Extractive Data</option>
                 </select>
               </label>
-              <label className="field">
+              <label className="field" data-guide-target="knowledge-base-sources">
                 <span className="field__label">
                   {t('knowledgeSourcesComma')}
                   <InfoTooltip tooltipKey="knowledgeBaseKnowledgeSources" language={language} />
@@ -378,7 +378,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                 </select>
               </label>
             </div>
-            <div className="actions builder__actions">
+            <div className="actions builder__actions" data-guide-target="knowledge-base-actions">
               {selectedBase ? (
                 <button type="button" className="btn" onClick={handleUpdate} disabled={loading}>
                   <i className="bi bi-pencil icon--mr6"></i> {t('update')}

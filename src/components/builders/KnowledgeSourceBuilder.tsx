@@ -270,7 +270,7 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
             <div className="builder__editorTitle">
               {selectedSource ? `${t('edit')}: ${selectedSource.name}` : t('createNew')}
             </div>
-            <div className="form">
+            <div className="form" data-guide-target="knowledge-source-form">
               <label className="field">
                 <span className="field__label">
                   {t('name')} *
@@ -332,7 +332,7 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
                   }
                 />
               </label>
-              <label className="field">
+              <label className="field" data-guide-target="knowledge-source-fields">
                 <span className="field__label">
                   {t('sourceDataFields')}
                   <InfoTooltip tooltipKey="knowledgeSourceSourceDataFields" language={language} />
@@ -373,7 +373,7 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
                 />
               </label>
             </div>
-            <div className="actions builder__actions">
+            <div className="actions builder__actions" data-guide-target="knowledge-source-actions">
               {selectedSource ? (
                 <button type="button" className="btn" onClick={handleUpdate} disabled={loading}>
                   <i className="bi bi-pencil icon--mr6"></i> {t('update')}

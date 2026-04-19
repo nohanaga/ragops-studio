@@ -29,7 +29,7 @@ export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
 
   return (
     <div className="form">
-      <label className="field field--full">
+      <label className="field field--full" data-guide-target="agentic-messages">
         <span className="field__label">
           user message
           <InfoTooltip tooltipKey="userMessage" language={language} />

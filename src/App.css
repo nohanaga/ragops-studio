@@ -4799,3 +4799,780 @@ html[data-theme='light'] .rawJsonViewer {
   font-size: 11px;
   font-family: var(--font-mono, monospace);
 }
+
+/* ============================================================================
+   Feature Portal
+   ============================================================================ */
+
+.portal {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.portal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 24px 28px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.portal__headerLeft {
+  flex: 1;
+  min-width: 0;
+}
+
+.portal__title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.portal__titleIcon {
+  font-size: 22px;
+  color: var(--accent);
+}
+
+.portal__subtitle {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.portal__headerRight {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.portal__dismissLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.portal__dismissLabel input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.portal__closeBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.portal__closeBtn:hover {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+
+.portal__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 28px 28px;
+}
+
+.portal__section {
+  margin-bottom: 28px;
+}
+
+.portal__section:last-child {
+  margin-bottom: 0;
+}
+
+.portal__sectionTitle {
+  font-size: 14px;
+  font-weight: 650;
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+}
+
+.portal__sectionIcon {
+  font-size: 15px;
+  color: var(--accent);
+}
+
+.portal__comingSoonBadge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--surface2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  letter-spacing: 0.02em;
+}
+
+.portal__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.portal__card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+  position: relative;
+  min-height: 80px;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.portal__card:hover:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--ring), var(--shadow-soft);
+  background: var(--surface2);
+}
+
+.portal__card:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.portal__card--disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  pointer-events: auto;
+}
+
+.portal__card--disabled:hover {
+  border-color: var(--border);
+  box-shadow: none;
+  background: var(--surface);
+}
+
+.portal__cardIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.portal__card--disabled .portal__cardIcon {
+  color: var(--muted);
+}
+
+.portal__cardBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.portal__cardTitle {
+  font-size: 13px;
+  font-weight: 650;
+  margin-bottom: 4px;
+  line-height: 1.3;
+}
+
+.portal__cardDesc {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.portal__cardBadge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.portal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 28px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--panel-2);
+}
+
+.portal__footerText {
+  font-size: 11px;
+  color: var(--subtle);
+}
+
+.portal__docsLink {
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: opacity 0.15s;
+}
+
+.portal__docsLink:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+/* Card wrapper for guide button positioning */
+.portal__cardWrap {
+  position: relative;
+}
+
+.portal__cardWrap .portal__card {
+  width: 100%;
+}
+
+.portal__guideBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s, transform 0.12s;
+  z-index: 2;
+  opacity: 0;
+  transform: scale(0.85);
+}
+
+.portal__cardWrap:hover .portal__guideBtn {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.portal__guideBtn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+/* ============================================================================
+   Guide Drawer (overlay + slide-in panel)
+   ============================================================================ */
+
+.guideOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: flex-end;
+  animation: guideOverlayFadeIn 0.2s ease;
+}
+
+@keyframes guideOverlayFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.guideDrawer {
+  width: min(480px, 90vw);
+  height: 100%;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.28);
+  animation: guideDrawerSlideIn 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes guideDrawerSlideIn {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+/* Drawer Header */
+.guideDrawer__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.guideDrawer__headerIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  font-size: 20px;
+  color: var(--accent);
+}
+
+.guideDrawer__headerText {
+  flex: 1;
+  min-width: 0;
+}
+
+.guideDrawer__title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  line-height: 1.3;
+}
+
+.guideDrawer__subtitle {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.guideDrawer__closeBtn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+  font-size: 14px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.guideDrawer__closeBtn:hover {
+  color: var(--fg);
+}
+
+/* Drawer Body */
+.guideDrawer__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 22px;
+}
+
+/* Steps */
+.guideDrawer__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 20px;
+}
+
+.guideStep {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  font-size: inherit;
+  position: relative;
+  transition: opacity 0.15s;
+}
+
+.guideStep__number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+  color: var(--muted);
+  background: var(--panel);
+  position: relative;
+  z-index: 1;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.guideStep--active .guideStep__number {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--panel);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+.guideStep--done .guideStep__number {
+  border-color: var(--accent);
+  color: #fff;
+  background: var(--accent);
+}
+
+.guideStep__connector {
+  position: absolute;
+  left: 13px;
+  top: 28px;
+  width: 2px;
+  bottom: 0;
+  background: var(--border);
+}
+
+.guideStep:last-child .guideStep__connector {
+  display: none;
+}
+
+.guideStep--done .guideStep__connector {
+  background: var(--accent);
+}
+
+.guideStep__content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-left: 14px;
+  padding: 4px 14px 20px;
+  border-radius: var(--radius-sm);
+  flex: 1;
+  transition: background 0.15s;
+}
+
+.guideStep--active .guideStep__content {
+  background: var(--surface2);
+}
+
+.guideStep__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  font-size: 14px;
+  color: var(--accent);
+  transition: background 0.15s;
+}
+
+.guideStep--active .guideStep__icon {
+  background: var(--panel);
+  border-color: var(--accent);
+}
+
+.guideStep__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.guideStep__title {
+  font-size: 13px;
+  font-weight: 650;
+  margin-bottom: 3px;
+  line-height: 1.4;
+}
+
+.guideStep__desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.25s ease, opacity 0.2s ease;
+}
+
+.guideStep--active .guideStep__desc {
+  max-height: 200px;
+  opacity: 1;
+}
+
+/* Step Navigation */
+.guideDrawer__nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  margin-bottom: 16px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.guideDrawer__navBtn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  cursor: pointer;
+  padding: 6px 14px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.guideDrawer__navBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.guideDrawer__navBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.guideDrawer__navProgress {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tips */
+.guideDrawer__tips {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+}
+
+.guideDrawer__tipsHeader {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.guideDrawer__tipsList {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.guideDrawer__tipsList li {
+  margin-bottom: 2px;
+}
+
+/* Drawer Footer */
+.guideDrawer__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--panel-2);
+  gap: 12px;
+}
+
+.guideDrawer__docsLink {
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+
+.guideDrawer__docsLink:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+.guideDrawer__launchBtn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: opacity 0.15s, transform 0.1s;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.guideDrawer__launchBtn:hover {
+  opacity: 0.9;
+}
+
+.guideDrawer__launchBtn:active {
+  transform: scale(0.97);
+}
+
+.guideDrawer__launchBtn--ghost {
+  background: var(--surface2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+
+.guideDrawer__launchBtn--ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  opacity: 1;
+}
+
+/* ============================================================================
+   Guide Drawer — Companion mode (persists after launch, no backdrop)
+   ============================================================================ */
+
+.guideDrawer--companion {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: min(400px, 92vw);
+  z-index: 1800;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.22);
+  animation: guideDrawerSlideIn 0.26s cubic-bezier(0.32, 0.72, 0, 1);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Shrink the drawer a touch in companion mode for a lighter footprint */
+.guideDrawer--companion .guideDrawer__header {
+  padding: 14px 16px 12px;
+}
+
+.guideDrawer--companion .guideDrawer__headerIcon {
+  width: 36px;
+  height: 36px;
+  font-size: 17px;
+}
+
+.guideDrawer--companion .guideDrawer__title {
+  font-size: 14px;
+}
+
+.guideDrawer--companion .guideDrawer__subtitle {
+  font-size: 11px;
+}
+
+.guideDrawer--companion .guideDrawer__body {
+  padding: 14px 16px;
+}
+
+.guideDrawer--companion .guideDrawer__footer {
+  padding: 10px 16px;
+}
+
+/* Badge: "Live" / 追従中 */
+.guideDrawer__modeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+.guideDrawer__modeBadge i {
+  font-size: 10px;
+  animation: guidePulseDot 1.6s ease-in-out infinite;
+}
+
+@keyframes guidePulseDot {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
+
+/* Target pointer icon on steps that highlight a UI element */
+.guideStep__targetIcon {
+  font-size: 10px;
+  color: var(--accent);
+  margin-left: 6px;
+  opacity: 0.75;
+  transform: translateY(-1px);
+}
+
+/* ============================================================================
+   Highlight target — applied to the DOM element focused by the active step
+   ============================================================================ */
+
+.guide-highlight-target {
+  position: relative;
+  border-radius: 6px;
+  animation: guideHighlightPulse 1.8s ease-in-out infinite;
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  transition: outline-color 0.2s;
+  z-index: 1;
+}
+
+@keyframes guideHighlightPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.55), 0 0 0 0 rgba(56, 189, 248, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(56, 189, 248, 0.12), 0 0 18px 4px rgba(56, 189, 248, 0.35);
+  }
+}
+
+/* Theme override: use the theme accent for the pulse color. Falls back to the
+   default blue above when var(--accent-rgb) isn't defined. */
+html[data-theme='dark'] .guide-highlight-target,
+html[data-theme='light'] .guide-highlight-target,
+html[data-theme='midnight'] .guide-highlight-target,
+html[data-theme='forest'] .guide-highlight-target,
+html[data-theme='solarized'] .guide-highlight-target {
+  outline-color: var(--accent);
+}

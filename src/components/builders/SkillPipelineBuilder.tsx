@@ -55,6 +55,7 @@ import {
 } from '../../utils/skillPipelineOutputFieldMappings'
 import { usePublishFlow } from '../../hooks/usePublishFlow'
 import { PublishDiffModal } from './PublishDiffModal'
+import { SKILL_PIPELINE_TEMPLATES, TEMPLATE_CATEGORIES, type SkillPipelineTemplateCategory } from '../../lib/skillPipelineTemplates'
 
 type SkillPipelineEdgeLinkData = {
   sourcePath?: string
@@ -2672,6 +2673,131 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
 
   const [localSavedOpen, setLocalSavedOpen] = useState(false)
 
+  // ─── Template gallery state ────────────────────────────────────────
+
+  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false)
+  const [templateCategoryFilter, setTemplateCategoryFilter] = useState<SkillPipelineTemplateCategory | 'all'>('all')
+  const [templateSearchText, setTemplateSearchText] = useState('')
+
+  const filteredTemplates = useMemo(() => {
+    return SKILL_PIPELINE_TEMPLATES.filter((tpl) => {
+      if (templateCategoryFilter !== 'all' && tpl.category !== templateCategoryFilter) return false
+      if (templateSearchText.trim()) {
+        const q = templateSearchText.trim().toLowerCase()
+        const name = t(tpl.nameKey as TranslationKey).toLowerCase()
+        const desc = t(tpl.descriptionKey as TranslationKey).toLowerCase()
+        return name.includes(q) || desc.includes(q)
+      }
+      return true
+    })
+  }, [templateCategoryFilter, templateSearchText, language])
+
+  const applyTemplate = (templateId: string) => {
+    const tpl = SKILL_PIPELINE_TEMPLATES.find((t) => t.id === templateId)
+    if (!tpl) return
+    const ok = window.confirm(t('spbTemplatesApplyConfirm'))
+    if (!ok) return
+
+    setTemplateGalleryOpen(false)
+    setSelectedEdgeId(null)
+    setMainTab('graph')
+    setAddSkillTemplateId('')
+    setRemoteError(null)
+
+    // Use newSkillset to reset everything cleanly, then overlay the template
+    newSkillset()
+
+    setSkillsetName(tpl.id)
+    setSkillsetDescription('')
+    setIndexProjections(null)
+    setKnowledgeStore(null)
+
+    const docNode: SkillPipelineNode = {
+      id: SKILL_PIPELINE_DOC_NODE_ID,
+      type: 'doc',
+      position: { x: 80, y: 80 },
+      data: { kind: 'doc', path: '/document' } as any,
+    }
+
+    const skillNodes: SkillPipelineNode[] = tpl.skills.map((skill, idx) => ({
+      id: uuidv4(),
+      type: 'skill',
+      position: { x: 420 + idx * 320, y: 80 + idx * 10 },
+      data: { kind: 'skill', skill: JSON.parse(JSON.stringify(skill)) } as any,
+    }))
+
+    const nextNodes = [docNode, ...skillNodes]
+
+    // Auto-infer edges from input sources
+    const nextEdges: SkillPipelineEdge[] = []
+    const edgeSeen = new Set<string>()
+    for (const skillNode of skillNodes) {
+      const skill = (skillNode.data as any).skill as SkillPipelineSkillDefinition
+      const inputs = Array.isArray(skill.inputs) ? skill.inputs : []
+      for (const input of inputs) {
+        const source = typeof input.source === 'string' ? input.source.trim() : ''
+        const inputName = typeof input.name === 'string' ? input.name : ''
+        if (!source || !inputName) continue
+        if (source.startsWith("='")) continue
+        if (source.startsWith('=') && source.includes('$(')) continue
+
+        let sourceId: string | null = null
+        let sourceHandle: string | undefined
+
+        // Check if any other skill produces this path
+        for (const otherNode of skillNodes) {
+          if (otherNode.id === skillNode.id) continue
+          const otherSkill = (otherNode.data as any).skill as SkillPipelineSkillDefinition
+          const ctx = otherSkill.context || '/document'
+          const outputs = Array.isArray(otherSkill.outputs) ? otherSkill.outputs : []
+          for (const output of outputs) {
+            const tn = output.targetName || output.name
+            const producedPath = `${ctx}/${tn}`
+            // Match direct path or wildcard array path
+            if (source === producedPath || source === `${producedPath}/*` || source.startsWith(`${producedPath}/`)) {
+              sourceId = otherNode.id
+              break
+            }
+          }
+          if (sourceId) break
+        }
+
+        // Fallback to document node
+        if (!sourceId && (source === '/document' || source.startsWith('/document/'))) {
+          sourceId = SKILL_PIPELINE_DOC_NODE_ID
+          sourceHandle = inferDocSourceHandleForPath(source, DOC_ROOT_DEFAULT) ?? 'root'
+        }
+
+        if (!sourceId) continue
+        const k = `${sourceId}->${skillNode.id}|${inputName}`
+        if (edgeSeen.has(k)) continue
+        edgeSeen.add(k)
+        nextEdges.push({
+          id: uuidv4(),
+          source: sourceId,
+          sourceHandle,
+          target: skillNode.id,
+          data: { sourcePath: source, targetInputName: inputName, created: false, prevSource: '' },
+        } as any)
+      }
+    }
+
+    // Apply Dagre auto-layout so nodes are arranged left-to-right
+    const laidOutNodes = applyDagreLayout(nextNodes, nextEdges)
+
+    setNodes(laidOutNodes)
+    setEdges(nextEdges)
+
+    setBaselineSkillsetJson('')
+
+    const firstSkillNode = skillNodes[0]
+    const firstSkill = firstSkillNode ? (firstSkillNode.data as any).skill : null
+    setSelectedNodeId(firstSkillNode?.id ?? '')
+    setDraftSkillJson(firstSkill ? JSON.stringify(firstSkill, null, 2) : '{}')
+    setDraftError(null)
+    pendingFitViewRef.current = true
+  }
+
   /** Overwrite-save to the current slot (or auto-SaveAs if no slot yet). */
   const onSave = () => {
     if (currentSavedId) {
@@ -2774,6 +2900,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
 
         <div
           className="spb-toolbar"
+          data-guide-target="spb-toolbar"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -2824,6 +2951,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
             onClick={publishFlow.onPublishClick}
             disabled={publishFlow.publishLoading}
             title={t('spbPublish')}
+            data-guide-target="spb-publish"
             style={publishFlow.publishLoading ? undefined : { background: 'var(--accent)', color: 'var(--accent-fg, #fff)', border: 'none' }}
           >
             <i className="bi bi-cloud-upload" style={{ marginRight: 4 }}></i>
@@ -2850,6 +2978,13 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
             onClick={() => setLocalSavedOpen((v) => !v)}
           >
             <i className="bi bi-folder2-open"></i> {t('spbSavedSkillsets')} ({savedSkillsets.length})
+          </button>
+          <button
+            type="button"
+            className={'btn ' + (templateGalleryOpen ? 'btn--active' : '')}
+            onClick={() => setTemplateGalleryOpen((v) => !v)}
+          >
+            <i className="bi bi-grid-3x3-gap"></i> {t('spbTemplatesBtn')}
           </button>
           {saveSkillsetError && <div className="notice notice--error builder__notice">{saveSkillsetError}</div>}
         </div>
@@ -2912,6 +3047,126 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
           </div>
         )}
 
+        {/* ─── Skill Templates Gallery ─────────────────────── */}
+        {templateGalleryOpen && (
+          <div
+            style={{
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--panel-2)',
+              padding: '10px 12px',
+              marginBottom: 10,
+              fontSize: 13,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>{t('spbTemplatesTitle')}</span>
+              <span style={{ flex: 1 }} />
+              <button type="button" className="btn btn--sm" onClick={() => setTemplateGalleryOpen(false)} title="Close">
+                <i className="bi bi-x-lg"></i>
+              </button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+              <select
+                value={templateCategoryFilter}
+                onChange={(e) => setTemplateCategoryFilter(e.target.value as any)}
+                style={{
+                  fontSize: 12,
+                  padding: '3px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border)',
+                  background: 'var(--panel)',
+                  color: 'var(--text)',
+                }}
+              >
+                <option value="all">{t('spbTemplatesFilterAll')}</option>
+                {TEMPLATE_CATEGORIES.map((cat) => (
+                  <option key={cat.key} value={cat.key}>{t(cat.labelKey as TranslationKey)}</option>
+                ))}
+              </select>
+              <input
+                type="text"
+                placeholder={t('spbTemplatesFilter')}
+                value={templateSearchText}
+                onChange={(e) => setTemplateSearchText(e.target.value)}
+                style={{
+                  fontSize: 12,
+                  padding: '3px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border)',
+                  background: 'var(--panel)',
+                  color: 'var(--text)',
+                  flex: 1,
+                  minWidth: 120,
+                }}
+              />
+            </div>
+            <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+              {(() => {
+                const categories = templateCategoryFilter === 'all'
+                  ? TEMPLATE_CATEGORIES.filter((cat) => filteredTemplates.some((tpl) => tpl.category === cat.key))
+                  : TEMPLATE_CATEGORIES.filter((cat) => cat.key === templateCategoryFilter)
+
+                if (filteredTemplates.length === 0) {
+                  return <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', padding: '8px 0' }}>No matching templates</div>
+                }
+
+                return categories.map((cat) => {
+                  const catTemplates = filteredTemplates.filter((tpl) => tpl.category === cat.key)
+                  if (catTemplates.length === 0) return null
+                  return (
+                    <div key={cat.key} style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <i className={`bi ${cat.icon}`} style={{ fontSize: 12 }}></i>
+                        {t(cat.labelKey as TranslationKey)}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+                        {catTemplates.map((tpl) => (
+                          <div
+                            key={tpl.id}
+                            style={{
+                              border: '1px solid var(--border)',
+                              borderRadius: 'var(--radius-sm)',
+                              background: 'var(--panel)',
+                              padding: '10px 12px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 6,
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <i className={`bi ${tpl.icon}`} style={{ fontSize: 14, color: 'var(--accent)' }}></i>
+                              <span style={{ fontWeight: 600, fontSize: 13, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {t(tpl.nameKey as TranslationKey)}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: '1.4', minHeight: 28 }}>
+                              {t(tpl.descriptionKey as TranslationKey)}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' }}>
+                              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                {t('spbTemplatesSkillCount').replace('{n}', String(tpl.skills.length))}
+                              </span>
+                              <button
+                                type="button"
+                                className="btn btn--sm"
+                                style={{ background: 'var(--accent)', color: 'var(--accent-fg, #fff)', border: 'none', fontSize: 11, padding: '2px 10px' }}
+                                onClick={() => applyTemplate(tpl.id)}
+                              >
+                                {t('spbTemplatesApply')}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })
+              })()}
+            </div>
+          </div>
+        )}
+
         <div className="actions actions--mb10" style={{ flexWrap: 'wrap' }}>
           <button
             type="button"
@@ -2924,6 +3179,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
             type="button"
             className={'btn btn--tab ' + (mainTab === 'skillsetJson' ? 'btn--active' : '')}
             onClick={() => setMainTab('skillsetJson')}
+            data-guide-target="spb-tab-skillsetJson"
           >
             {t('spbTabSkillsetJson')}
           </button>
@@ -2931,6 +3187,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
             type="button"
             className={'btn btn--tab ' + (mainTab === 'debugRunner' ? 'btn--active' : '') + (debugBusy && mainTab !== 'debugRunner' ? ' btn--tab-debugging' : '')}
             onClick={() => setMainTab('debugRunner')}
+            data-guide-target="spb-tab-debugRunner"
           >
             {t('spbTabDebugRunner')}
           </button>
@@ -2966,7 +3223,7 @@ export function SkillPipelineBuilder(props: SkillPipelineBuilderProps) {
         </div>
 
         <div style={{ position: 'relative', flex: 1, minHeight: 360 }}>
-          <div style={{ position: 'absolute', inset: 0, display: mainTab === 'graph' ? 'block' : 'none' }}>
+          <div style={{ position: 'absolute', inset: 0, display: mainTab === 'graph' ? 'block' : 'none' }} data-guide-target="spb-canvas">
             <div
               className={'spvPipeline' + (debugBusy ? ' spvPipeline--debugging' : '')}
               style={{
