@@ -26,10 +26,15 @@ export function FeaturePortal({ language, onAction, onClose }: FeaturePortalProp
 
   const handleDontShowChange = (checked: boolean) => {
     setDontShowAgain(checked)
-    if (checked) {
-      localStorage.setItem(PORTAL_DISMISSED_KEY, '1')
-    } else {
-      localStorage.removeItem(PORTAL_DISMISSED_KEY)
+
+    try {
+      if (checked) {
+        localStorage.setItem(PORTAL_DISMISSED_KEY, '1')
+      } else {
+        localStorage.removeItem(PORTAL_DISMISSED_KEY)
+      }
+    } catch (error) {
+      console.warn('Failed to persist portal dismissed preference', error)
     }
   }
 
