@@ -28,5 +28,4 @@ export { JwtDecoderModal, type JwtDecoderResult } from './modals/JwtDecoderModal
 export { IndexInspectorModal } from './modals/IndexInspectorModal'
 export { FilterBuilderModal } from './modals/FilterBuilderModal'
 export { FeaturePortal } from './viewers/FeaturePortal'
-export { isPortalDismissed } from '../app/portalDismissed'
 export { FeatureGuideDrawer } from './viewers/FeatureGuideDrawer'
