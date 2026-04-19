@@ -87,7 +87,7 @@ export function ClassicSearchBuilderForm(props: ClassicSearchBuilderFormProps) {
 
   return (
     <div className="form">
-      <label className="field field--full">
+      <label className="field field--full" data-guide-target="search-query">
         <span className="field__label">
           query
           <InfoTooltip tooltipKey="query" language={language} />
@@ -113,7 +113,7 @@ export function ClassicSearchBuilderForm(props: ClassicSearchBuilderFormProps) {
         />
       </label>
 
-      <label className="field query-type-field">
+      <label className="field query-type-field" data-guide-target="query-type">
         <span className="field__label">
           queryType
           <InfoTooltip tooltipKey="queryType" language={language} />

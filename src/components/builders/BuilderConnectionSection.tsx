@@ -29,7 +29,7 @@ export function BuilderConnectionSection(props: BuilderConnectionSectionProps) {
   const { t, language, activeProfile, patchActiveProfile, openJwtDecoder, settings, patchSettings } = props
 
   return (
-    <div className="section section--connection">
+    <div className="section section--connection" data-guide-target="connection-section">
       <details>
         <summary className="section__title">
           <i className="bi bi-plug icon--mr6"></i>

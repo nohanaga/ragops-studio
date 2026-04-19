@@ -1224,6 +1224,7 @@ export function SkillCodeEditor({ language, theme, onReturnToSkillPipelineBuilde
           type="button"
           className={'btn btn--tab ' + (activeTab === 'code' ? 'btn--active' : '')}
           onClick={() => setActiveTab('code')}
+          data-guide-target="sce-tab-code"
         >
           {t('sceTabCode')}
         </button>
@@ -1231,6 +1232,7 @@ export function SkillCodeEditor({ language, theme, onReturnToSkillPipelineBuilde
           type="button"
           className={'btn btn--tab ' + (activeTab === 'test' ? 'btn--active' : '')}
           onClick={() => setActiveTab('test')}
+          data-guide-target="sce-tab-test"
         >
           {t('sceTabTest')}
         </button>
@@ -1238,6 +1240,7 @@ export function SkillCodeEditor({ language, theme, onReturnToSkillPipelineBuilde
           type="button"
           className={'btn btn--tab ' + (activeTab === 'settings' ? 'btn--active' : '')}
           onClick={() => setActiveTab('settings')}
+          data-guide-target="sce-tab-settings"
         >
           {t('sceTabSettings')}
         </button>

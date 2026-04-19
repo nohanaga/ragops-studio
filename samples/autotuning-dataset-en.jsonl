@@ -1,0 +1,20 @@
+{"query": "What is Azure AI Search?", "expected_ids": ["doc-001", "doc-002", "doc-015"], "category": "overview"}
+{"query": "How to create a search index", "expected_ids": ["doc-010", "doc-011", "doc-012"], "category": "indexing"}
+{"query": "vector search configuration", "expected_ids": ["doc-020", "doc-021", "doc-022", "doc-023"], "category": "vector"}
+{"query": "semantic ranker setup and usage", "expected_ids": ["doc-030", "doc-031"], "category": "semantic"}
+{"query": "hybrid search best practices", "expected_ids": ["doc-040", "doc-041", "doc-042"], "category": "hybrid"}
+{"query": "how to use scoring profiles", "expected_ids": ["doc-050", "doc-051", "doc-052"], "category": "relevance"}
+{"query": "indexer data source connection", "expected_ids": ["doc-060", "doc-061"], "category": "indexing"}
+{"query": "skillset and AI enrichment pipeline", "expected_ids": ["doc-070", "doc-071", "doc-072", "doc-073"], "category": "enrichment"}
+{"query": "search API query syntax examples", "expected_ids": ["doc-080", "doc-081", "doc-082"], "category": "query"}
+{"query": "filter expressions with OData", "expected_ids": ["doc-090", "doc-091"], "category": "query"}
+{"query": "autocomplete and suggestions", "expected_ids": ["doc-100", "doc-101"], "category": "query"}
+{"query": "manage search service security and RBAC", "expected_ids": ["doc-110", "doc-111", "doc-112"], "category": "security"}
+{"query": "monitor search performance and metrics", "expected_ids": ["doc-120", "doc-121"], "category": "operations"}
+{"query": "knowledge store and projections", "expected_ids": ["doc-130", "doc-131", "doc-132"], "category": "enrichment"}
+{"query": "integrated vectorization with embedding models", "expected_ids": ["doc-140", "doc-141", "doc-142"], "category": "vector"}
+{"query": "import and export index data", "expected_ids": ["doc-150", "doc-151"], "category": "indexing"}
+{"query": "geographic search and geo-spatial filters", "expected_ids": ["doc-160", "doc-161"], "category": "query"}
+{"query": "synonym maps for search relevance", "expected_ids": ["doc-170", "doc-171"], "category": "relevance"}
+{"query": "troubleshoot indexer errors", "expected_ids": ["doc-180", "doc-181", "doc-182"], "category": "operations"}
+{"query": "RAG pattern with Azure OpenAI and AI Search", "expected_ids": ["doc-190", "doc-191", "doc-192", "doc-193"], "category": "rag"}

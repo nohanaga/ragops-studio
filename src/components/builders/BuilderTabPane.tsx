@@ -234,7 +234,7 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
       <div className="section">
         <div className="section__title">{t('requestBuilder')}</div>
 
-        <div className="actions actions--mb10">
+        <div className="actions actions--mb10" data-guide-target="lab-mode-switcher">
           <button
             type="button"
             className={'btn btn--tab ' + (labMode === 'query' ? 'btn--active' : '')}
@@ -267,7 +267,7 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
 
         <div className="form form--compact">
           {labMode !== 'agentic' && labMode !== 'analyze' ? (
-            <label className="field">
+            <label className="field" data-guide-target="index-dropdown">
               <span className="field__label">{t('indexName')}</span>
               <div className="list-editor__inputRow">
                 <div className="dropdown analyzer-bs">
@@ -341,7 +341,7 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
               </div>
             </label>
           ) : labMode === 'agentic' ? (
-            <label className="field">
+            <label className="field" data-guide-target="knowledge-base-dropdown">
               <span className="field__label">{t('knowledgeBaseName')}</span>
               <select
                 className="field__input"

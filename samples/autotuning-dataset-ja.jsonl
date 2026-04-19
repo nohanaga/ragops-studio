@@ -1,0 +1,20 @@
+{"query": "Azure AI Search とは何ですか？", "expected_ids": ["doc-001", "doc-002", "doc-015"], "category": "概要"}
+{"query": "検索インデックスの作成方法", "expected_ids": ["doc-010", "doc-011", "doc-012"], "category": "インデックス"}
+{"query": "ベクトル検索の設定方法", "expected_ids": ["doc-020", "doc-021", "doc-022", "doc-023"], "category": "ベクトル"}
+{"query": "セマンティックランカーの設定と使い方", "expected_ids": ["doc-030", "doc-031"], "category": "セマンティック"}
+{"query": "ハイブリッド検索のベストプラクティス", "expected_ids": ["doc-040", "doc-041", "doc-042"], "category": "ハイブリッド"}
+{"query": "スコアリングプロファイルの使い方", "expected_ids": ["doc-050", "doc-051", "doc-052"], "category": "関連性"}
+{"query": "インデクサーのデータソース接続設定", "expected_ids": ["doc-060", "doc-061"], "category": "インデックス"}
+{"query": "スキルセットとAIエンリッチメントパイプライン", "expected_ids": ["doc-070", "doc-071", "doc-072", "doc-073"], "category": "エンリッチメント"}
+{"query": "検索APIのクエリ構文の例", "expected_ids": ["doc-080", "doc-081", "doc-082"], "category": "クエリ"}
+{"query": "ODataフィルター式の書き方", "expected_ids": ["doc-090", "doc-091"], "category": "クエリ"}
+{"query": "オートコンプリートとサジェスト機能", "expected_ids": ["doc-100", "doc-101"], "category": "クエリ"}
+{"query": "検索サービスのセキュリティとRBAC管理", "expected_ids": ["doc-110", "doc-111", "doc-112"], "category": "セキュリティ"}
+{"query": "検索パフォーマンスの監視とメトリクス", "expected_ids": ["doc-120", "doc-121"], "category": "運用"}
+{"query": "ナレッジストアとプロジェクション", "expected_ids": ["doc-130", "doc-131", "doc-132"], "category": "エンリッチメント"}
+{"query": "埋め込みモデルを使った統合ベクトル化", "expected_ids": ["doc-140", "doc-141", "doc-142"], "category": "ベクトル"}
+{"query": "インデックスデータのインポートとエクスポート", "expected_ids": ["doc-150", "doc-151"], "category": "インデックス"}
+{"query": "地理空間検索とgeoフィルター", "expected_ids": ["doc-160", "doc-161"], "category": "クエリ"}
+{"query": "シノニムマップによる検索関連性の向上", "expected_ids": ["doc-170", "doc-171"], "category": "関連性"}
+{"query": "インデクサーエラーのトラブルシューティング", "expected_ids": ["doc-180", "doc-181", "doc-182"], "category": "運用"}
+{"query": "Azure OpenAIとAI SearchによるRAGパターン", "expected_ids": ["doc-190", "doc-191", "doc-192", "doc-193"], "category": "RAG"}

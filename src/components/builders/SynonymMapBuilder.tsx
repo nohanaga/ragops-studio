@@ -805,7 +805,7 @@ export function SynonymMapBuilder({ profile, language, theme }: SynonymMapBuilde
           </div>
         )}
         {!loading && synonymMaps.length > 0 && (
-          <div className="synonymMapBuilder__listFrame">
+          <div className="synonymMapBuilder__listFrame" data-guide-target="synonym-map-list">
             <div className={`list synonymMapBuilder__list ${synonymMaps.length > 5 ? 'synonymMapBuilder__list--scroll' : ''}`}>
               {synonymMaps.map((map) => {
                 const ruleCount = map.synonyms
@@ -871,7 +871,7 @@ export function SynonymMapBuilder({ profile, language, theme }: SynonymMapBuilde
           </span>
         </label>
 
-        <div className="synonymMapBuilder__modeBlock">
+        <div className="synonymMapBuilder__modeBlock" data-guide-target="synonym-map-editor">
           <div className="synonymMapBuilder__modeButtons">
             <button
               type="button"
@@ -922,7 +922,7 @@ export function SynonymMapBuilder({ profile, language, theme }: SynonymMapBuilde
           )}
         </div>
 
-        <div className="synonymMapBuilder__actions">
+        <div className="synonymMapBuilder__actions" data-guide-target="synonym-map-actions">
           <button
             type="button"
             className="btn btn--primary"

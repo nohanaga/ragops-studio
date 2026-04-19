@@ -77,6 +77,9 @@ export const DEBUG_RUNNER_BLOB_CONTAINER_KEY = 'ragops:debugRunner:blobContainer
 /** localStorage key for Debug Runner blob path (container.query; single file) */
 export const DEBUG_RUNNER_BLOB_PATH_KEY = 'ragops:debugRunner:blobPath'
 
+/** localStorage key for portal auto-show dismissal */
+export const PORTAL_DISMISSED_KEY = 'ragops:portalDismissed'
+
 // ============================================================================
 // Index Inspector
 // ============================================================================

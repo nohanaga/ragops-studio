@@ -64,7 +64,7 @@ export function TextToVectorModal(props: {
           </button>
         </div>
         <div className="modal-body">
-          <label className="field field--mb16">
+          <label className="field field--mb16" data-guide-target="t2v-endpoint">
             <span className="field__label">{t('textToVectorEndpointLabel')}</span>
             <input
               className="field__input"
@@ -124,7 +124,7 @@ export function TextToVectorModal(props: {
             />
           </label>
 
-          <label className="field field--mb16">
+          <label className="field field--mb16" data-guide-target="t2v-input">
             <span className="field__label">{t('textToVectorInputLabel')}</span>
             <textarea
               className="field__textarea"
@@ -142,6 +142,7 @@ export function TextToVectorModal(props: {
               className="btn"
               onClick={onGenerateVector}
               disabled={textToVectorLoading || !textToVectorInput.trim()}
+              data-guide-target="t2v-generate"
             >
               {textToVectorLoading ? t('textToVectorGenerating') : t('textToVectorGenerate')}
             </button>

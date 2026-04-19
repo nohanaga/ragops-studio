@@ -26,10 +26,13 @@ import {
   SynonymMapBuilder,
   TextToVectorModal,
   VectorOptimizerBuilder,
+  FeaturePortal,
+  FeatureGuideDrawer,
 } from './index'
 import { extractQueryString } from '../utils'
 import { QueryPerformanceTester } from './viewers/QueryPerformanceTester'
 import { useTheme, useSettings, useModalState, useUiState, useBuilderState, useExperiment } from '../contexts'
+import { useGuide } from '../contexts/GuideContext'
 
 import type { JwtDecoderResult } from './modals/JwtDecoderModal'
 
@@ -378,6 +381,85 @@ export function AppLayout(props: {
     reloadIndexInspector,
   } = indexInspector
 
+  const { launchCompanion } = useGuide()
+
+  const handlePortalAction = (action: string) => {
+    switch (action) {
+      case 'openQueryMode':
+        setLabMode('query')
+        setCenterTab('builder')
+        break
+      case 'openSemanticVectorMode':
+        setLabMode('semantic-vector')
+        setCenterTab('builder')
+        break
+      case 'openAgenticMode':
+        setLabMode('agentic')
+        setCenterTab('builder')
+        break
+      case 'openAnalyzeMode':
+        setLabMode('analyze')
+        setCenterTab('builder')
+        break
+      case 'openIndexBuilder':
+        setIsIndexBuilderOpen(true)
+        setCenterTab('index-builder')
+        break
+      case 'openSynonymMapBuilder':
+        setIsSynonymMapBuilderOpen(true)
+        setCenterTab('synonym-map-builder')
+        break
+      case 'openKnowledgeSourceBuilder':
+        setIsKnowledgeSourceBuilderOpen(true)
+        setCenterTab('knowledge-source-builder')
+        break
+      case 'openKnowledgeBaseBuilder':
+        setIsKnowledgeBaseBuilderOpen(true)
+        setCenterTab('knowledge-base-builder')
+        break
+      case 'openSkillPipelineBuilder':
+        setIsSkillPipelineBuilderOpen(true)
+        setCenterTab('skill-pipeline-builder')
+        break
+      case 'openSkillEditor':
+        setSkillEditorLinkedNodeId(null)
+        setIsSkillEditorOpen(true)
+        setCenterTab('skill-editor')
+        break
+      case 'openFilterBuilder':
+        setIsFilterBuilderOpen(true)
+        break
+      case 'openAutoTuning':
+        setIsAutoTuningOpen(true)
+        setCenterTab('auto-tuning')
+        break
+      case 'openVectorOptimizer':
+        setIsVectorOptimizerOpen(true)
+        setCenterTab('vector-optimizer')
+        break
+      case 'openQpsTester':
+        setIsQpsTesterOpen(true)
+        setCenterTab('qps-tester')
+        break
+      case 'openSearchPipelineVisualizer':
+        setIsSearchPipelineVisualizerOpen(true)
+        setCenterTab('search-pipeline-visualizer')
+        break
+      case 'openTextToVector':
+        textToVector.setShowTextToVectorTool(true)
+        break
+      case 'openIndexInspector':
+        openIndexInspector()
+        break
+      case 'openJwtDecoder':
+        jwtDecoder.setIsJwtDecoderOpen(true)
+        break
+      case 'openExperimentManagement':
+        setCenterTab('builder')
+        break
+    }
+  }
+
   return (
     <div className="app">
       <AppHeader
@@ -475,6 +557,18 @@ export function AppLayout(props: {
 
         <main className="pane pane--center">
           <div className="tabs tabs--center">
+            <button
+              type="button"
+              className={'tab ' + (centerTab === 'portal' ? 'tab--active' : '')}
+              onClick={() => setCenterTab('portal')}
+              title="Feature Portal"
+            >
+              <span className="tab__label">
+                <i className="bi bi-compass icon--mr6"></i>
+                {t('portalTab')}
+              </span>
+            </button>
+
             <button
               type="button"
               className={'tab ' + (centerTab === 'builder' ? 'tab--active' : '')}
@@ -796,6 +890,16 @@ export function AppLayout(props: {
             })}
           </div>
 
+          {centerTab === 'portal' && (
+            <div className="pane__centerContent">
+              <FeaturePortal
+                language={language}
+                onAction={handlePortalAction}
+                onClose={() => setCenterTab('builder')}
+              />
+            </div>
+          )}
+
           {centerTab === 'builder' && (
             <div className="pane__centerContent">
               <BuilderTabPane
@@ -1018,7 +1122,8 @@ export function AppLayout(props: {
             </div>
           )}
 
-          {centerTab !== 'builder' &&
+          {centerTab !== 'portal' &&
+            centerTab !== 'builder' &&
             centerTab !== 'qps-tester' &&
             centerTab !== 'auto-tuning' &&
             centerTab !== 'vector-optimizer' &&
@@ -1153,6 +1258,14 @@ export function AppLayout(props: {
         value={searchForm.filter}
         onChange={(next) => setSearchForm((p) => ({ ...p, filter: next }))}
         language={language}
+      />
+
+      <FeatureGuideDrawer
+        language={language}
+        onLaunch={(card) => {
+          if (card.action) handlePortalAction(card.action)
+          launchCompanion()
+        }}
       />
     </div>
   )

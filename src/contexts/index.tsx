@@ -16,6 +16,7 @@ import { getInitialThemePreference, getBrowserLanguage } from '../utils'
 import { DEFAULT_SEARCH_FORM } from '../app/defaults'
 import { translations } from '../lib/translations'
 import { deleteSkillPipeline, getSkillPipeline, listSkillPipelines, updateSkillEditorDrafts as persistDraftsToSkillset, upsertSkillPipeline, type PersistedSkillPipelineItem } from '../app/persistedSkillPipeline'
+import { GuideProvider } from './GuideContext'
 import { v4 as uuidv4 } from 'uuid'
 
 // ============================================================================
@@ -1167,7 +1168,9 @@ export function AppProvider(props: { children: ReactNode }) {
             <ExperimentProvider>
               <BuilderStateProviderWrapper>
                 <SkillPipelineStateProvider>
-                  {props.children}
+                  <GuideProvider>
+                    {props.children}
+                  </GuideProvider>
                 </SkillPipelineStateProvider>
               </BuilderStateProviderWrapper>
             </ExperimentProvider>

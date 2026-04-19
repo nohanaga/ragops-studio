@@ -474,7 +474,7 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
             >
               <i className="bi bi-plus-lg"></i> {t('indexBuilderNew')}
             </button>
-            <div className="builder__listBox">
+            <div className="builder__listBox" data-guide-target="index-builder-list">
               {filteredIndexNames.map((name) => (
                 <div key={name} className="builder-list-item">
                   <button
@@ -520,7 +520,7 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
               </div>
             )}
 
-            <div className="actions actions--mt10">
+            <div className="actions actions--mt10" data-guide-target="index-builder-actions">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -597,7 +597,7 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
                 <div className="empty">{t('indexBuilderSelectIndexHint')}</div>
               )}
               {!loadingDef && definition !== null && (
-                <div className="builder__jsonViewBox">
+                <div className="builder__jsonViewBox" data-guide-target="index-builder-editor">
                   <div className="synonym-editor">
                     <ExpandableCodeMirror
                       t={t}

@@ -25,7 +25,7 @@ import type {
 import {
   getInitialPaneSizes,
 } from './utils'
-import { LAST_SELECTED_EXPERIMENT_ID_KEY } from './app/constants'
+import { LAST_SELECTED_EXPERIMENT_ID_KEY, PORTAL_DISMISSED_KEY } from './app/constants'
 import { buildRequestBuilderActiveSummary as buildRequestBuilderActiveSummaryFn } from './app/requestSummary'
 import { useApiOperations } from './hooks/useApiOperations'
 import { useJwtDecoderModal } from './hooks/useJwtDecoderModal'
@@ -146,7 +146,13 @@ function App() {
   const [paneSizes, setPaneSizes] = useState<PaneSizes>(() => getInitialPaneSizes())
   const [dragging, setDragging] = useState<null | { side: 'left' | 'right' | 'vertical'; x0: number; y0: number; s0: PaneSizes }>(null)
 
-  const [centerTab, setCenterTab] = useState<CenterTab>('builder')
+  const [centerTab, setCenterTab] = useState<CenterTab>(() => {
+    try {
+      return localStorage.getItem(PORTAL_DISMISSED_KEY) === '1' ? 'builder' : 'portal'
+    } catch {
+      return 'builder'
+    }
+  })
   const [qpsTesterRestoreRunId, setQpsTesterRestoreRunId] = useState<string | null>(null)
   const [autoTuningRestoreRunId, setAutoTuningRestoreRunId] = useState<string | null>(null)
   const [compareMode, setCompareMode] = useState(false)

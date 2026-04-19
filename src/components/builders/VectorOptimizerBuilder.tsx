@@ -349,7 +349,7 @@ export function VectorOptimizerBuilder(props: {
         </div>
       </div>
 
-      <div className="section">
+      <div className="section" data-guide-target="vo-dimensions">
         <div className="section__title">{t('textToVector')}</div>
 
         <label className="field field--mb16">
@@ -440,7 +440,7 @@ export function VectorOptimizerBuilder(props: {
         </div>
       </div>
 
-      <div className="section vectorOptimizerSettings">
+      <div className="section vectorOptimizerSettings" data-guide-target="vo-settings">
         <div className="section__title">{t('voOptimizationSettingsTitle')}</div>
         <div className="section__hint">{t('voOptimizationSettingsIntro')}</div>
 
@@ -562,7 +562,7 @@ export function VectorOptimizerBuilder(props: {
         )}
       </div>
 
-      <div className="section">
+      <div className="section" data-guide-target="vo-estimate">
         <div className="section__title">{t('voEstimateTitle')}</div>
 
         {!comparison && (
