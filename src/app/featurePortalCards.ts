@@ -538,7 +538,7 @@ export const PORTAL_CARDS: PortalCard[] = [
         '例外は raise せずに errors 配列に詰めて返すと Indexer が他のドキュメントを続行できます。warnings はログとして使いましょう。',
         'Indexer はバッチで複数レコードを送ってきます。process 関数を values 配列のループ処理に対応させるか、サーバー側でラッパーを用意してください。',
         'ACA と Search サービス間は Search のマネージド ID と ACA のイングレス設定 (Public / VNet) を揃えると認証がシンプルになります。セキュリティ面でも推奨。',
-        'samples/ 下のサンプルスキル (Splitter や PII 除去など) をコピーして始めるのが近道です。',
+        'サンプル実装から始める場合は、skill-runtime 側のサンプルや README にある WebApiSkill の例を参照してください。',
       ],
       tipsEn: [
         'Local Run (Pyodide) is convenient but only supports pure Python (most C extensions are off-limits). Always validate the production path with Remote Run.',
@@ -546,7 +546,7 @@ export const PORTAL_CARDS: PortalCard[] = [
         'Return errors in the array instead of raising — the Indexer can keep processing other docs. Use warnings for log-style messages.',
         'Indexers send batches. Either let process iterate the values array, or implement a wrapper on the server side.',
         'Between ACA and Search, use Search’s managed identity and align ACA ingress (Public / VNet) for clean auth — also recommended for security.',
-        'Start by copying the sample skills (under samples/) such as splitters or PII redaction — fastest way to get going.',
+        'If you want to start from a sample, refer to the WebApiSkill examples in the skill-runtime samples or README.',
       ],
       docsUrl: 'https://learn.microsoft.com/azure/search/cognitive-search-custom-skill-web-api',
     },
