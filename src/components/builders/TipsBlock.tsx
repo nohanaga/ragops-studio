@@ -27,7 +27,7 @@ function renderInline(text: string): ReactNode[] {
   // Tokenize: bold, code, link, text. Order matters: code first to avoid
   // `**` clashes inside snippets.
   const out: ReactNode[] = []
-  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)\s]+\))/g
+  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\((?:[^()\s]+|\([^)]*\))+\))/g
   let lastIndex = 0
   let m: RegExpExecArray | null
   let key = 0
@@ -40,7 +40,7 @@ function renderInline(text: string): ReactNode[] {
       out.push(<strong key={`b${key++}`}>{tok.slice(2, -2)}</strong>)
     } else {
       // [text](url)
-      const lm = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(tok)
+      const lm = /^\[([^\]]+)\]\(((?:[^()\s]+|\([^)]*\))+)\)$/.exec(tok)
       if (lm) {
         if (isSafeExternalLink(lm[2])) {
           out.push(

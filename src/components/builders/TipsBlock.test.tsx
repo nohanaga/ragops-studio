@@ -32,8 +32,8 @@ describe('TipsBlock', () => {
   })
 
   it('renders non-http(s) links as plain text', () => {
-    const out = html('bad [x](javascript:alert1) and [y](data:text/plain,1)')
-    expect(out).not.toContain('<a href="javascript:alert1"')
+    const out = html('bad [x](javascript:alert(1)) and [y](data:text/plain,1)')
+    expect(out).not.toContain('<a href="javascript:alert(1)"')
     expect(out).not.toContain('<a href="data:text/plain,1"')
     expect(out).toContain('bad x and y')
   })
