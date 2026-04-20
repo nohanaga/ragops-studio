@@ -113,7 +113,71 @@
   background: var(--panel);
 }
 .edgResults__table {
-  table-layout: auto;
+  table-layout: fixed;
+  width: max-content;
+  min-width: 100%;
+}
+.spvTable.edgResults__table {
+  /* Override .spvTable width:100% so horizontal scroll works with resized cols. */
+  width: max-content;
+  min-width: 100%;
+  table-layout: fixed;
+}
+.edgResults__table th,
+.edgResults__table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.edgResults__table td.edgCell--wrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.edgResults__table th {
+  position: relative;
+  user-select: none;
+}
+/** Resize handle on the right edge of each header cell. */
+.edgColResizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+  /* Render a subtle vertical grip line so users can see the drag handle. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+.edgColResizer::after {
+  content: '';
+  display: block;
+  width: 2px;
+  height: 60%;
+  background: var(--border);
+  border-radius: 1px;
+  transition: background 0.12s ease, height 0.12s ease, width 0.12s ease;
+}
+.edgColResizer:hover::after,
+.edgColResizer--active::after {
+  background: var(--accent);
+  width: 3px;
+  height: 100%;
+}
+/**
+ * Monospace for English-constant cells (ids, enums like factoid/how-to,
+ * language codes, difficulty, grounding rank, rejection reasons).
+ */
+.edgResults__table .edgMono,
+.edgResults__table .edgMono * {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
 }
 .edgResults__col--idx {
   width: 40px;
@@ -5600,6 +5664,8 @@ html[data-theme='light'] .rawJsonViewer {
 }
 
 .guideDrawer__launchBtn:hover {
+  background: var(--accent);
+  border-color: transparent;
   opacity: 0.9;
 }
 
@@ -5614,6 +5680,7 @@ html[data-theme='light'] .rawJsonViewer {
 }
 
 .guideDrawer__launchBtn--ghost:hover {
+  background: var(--surface2);
   border-color: var(--accent);
   color: var(--accent);
   opacity: 1;
@@ -5733,4 +5800,219 @@ html[data-theme='midnight'] .guide-highlight-target,
 html[data-theme='forest'] .guide-highlight-target,
 html[data-theme='solarized'] .guide-highlight-target {
   outline-color: var(--accent);
+}
+/* ─── Eval Dataset Generator: scientific-feature info callout ─────────────── */
+.edgScienceInfo {
+  margin: 0 0 12px;
+  padding: 10px 12px 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel));
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.edgScienceInfo__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 650;
+  font-size: 12.5px;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.edgScienceInfo__header i {
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.edgScienceInfo__body {
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.edgScienceInfo__refs {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed color-mix(in srgb, var(--accent) 25%, var(--border));
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ─── EDAG Tips block: lightweight markdown rendering ─────────────────── */
+.edgTips {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.edgTips__lead {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.edgTips__group {
+  margin-top: 14px;
+}
+
+.edgTips__groupTitle {
+  font-weight: 650;
+  font-size: 12.5px;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+
+.edgTips__list {
+  margin: 0;
+  padding-left: 18px;
+  list-style: disc;
+}
+
+.edgTips__list li {
+  margin: 2px 0;
+}
+
+.edgTips__para {
+  margin: 4px 0;
+}
+
+.edgTips code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-2));
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  color: var(--text);
+}
+
+.edgTips a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.edgTips strong {
+  font-weight: 650;
+  color: var(--text);
+}
+
+/* ─── EDAG pipeline flow diagram ──────────────────────────────────────── */
+.edgFlow {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 6px 0 4px;
+}
+
+.edgFlow__step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  align-items: flex-start;
+}
+
+.edgFlow__step--accent {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel));
+}
+
+.edgFlow__step--optional {
+  border-style: dashed;
+}
+
+.edgFlow__arrow {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 22px;
+  color: color-mix(in srgb, var(--accent) 55%, var(--muted));
+  font-size: 18px;
+  line-height: 1;
+}
+
+.edgFlow__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-2));
+  color: var(--accent);
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.edgFlow__step--accent .edgFlow__icon {
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel-2));
+}
+
+.edgFlow__body {
+  min-width: 0;
+}
+
+.edgFlow__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.edgFlow__num {
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.edgFlow__title {
+  font-weight: 650;
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.edgFlow__badge {
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-2));
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.edgFlow__badge--muted {
+  border-color: var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+}
+
+.edgFlow__desc {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.edgFlow__desc strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.edgFlow__desc code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-2));
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  color: var(--text);
 }

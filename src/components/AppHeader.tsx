@@ -21,6 +21,7 @@ export type AppHeaderProps = {
   onOpenTextToVector: () => void
   onOpenVectorOptimizer: () => void
   onOpenSearchParameterAutoTuning: () => void
+  onOpenEvalDatasetGenerator: () => void
   onOpenTokenAnalyzer: () => void
   onOpenQpsTester: () => void
   onOpenIndexBuilder: () => void
@@ -41,6 +42,7 @@ export function AppHeader({
   onOpenTextToVector,
   onOpenVectorOptimizer,
   onOpenSearchParameterAutoTuning,
+  onOpenEvalDatasetGenerator,
   onOpenTokenAnalyzer,
   onOpenQpsTester,
   onOpenIndexBuilder,
@@ -86,6 +88,9 @@ export function AppHeader({
             </button>
             <button type="button" className="dropdown-item" onClick={onOpenSearchParameterAutoTuning}>
               <i className="bi bi-sliders"></i> {t('searchParameterAutoTuning')}
+            </button>
+            <button type="button" className="dropdown-item" onClick={onOpenEvalDatasetGenerator}>
+              <i className="bi bi-stars"></i> {t('evalDatasetGenerator')}
             </button>
             <button type="button" className="dropdown-item" onClick={onOpenQpsTester}>
               <i className="bi bi-speedometer2"></i> {t('qpsTestTitle')}

@@ -18,6 +18,7 @@ export type PersistedTabs = {
   isSkillPipelineBuilderOpen?: boolean
   isVectorOptimizerOpen?: boolean
   isSkillEditorOpen?: boolean
+  isEvalDatasetGeneratorOpen?: boolean
 }
 
 export function normalizeCenterTab(raw: unknown, ids: string[]): CenterTab {
@@ -40,7 +41,8 @@ export function normalizeCenterTab(raw: unknown, ids: string[]): CenterTab {
     value === 'synonym-map-builder' ||
     value === 'index-builder' ||
     value === 'skill-pipeline-builder' ||
-    value === 'skill-editor'
+    value === 'skill-editor' ||
+    value === 'eval-dataset-generator'
   ) {
     return 'builder'
   }
@@ -88,6 +90,7 @@ export function loadPersistedTabs(experimentId: string): PersistedTabs | null {
       isSkillPipelineBuilderOpen: parsed.isSkillPipelineBuilderOpen ?? false,
       isVectorOptimizerOpen: parsed.isVectorOptimizerOpen ?? false,
       isSkillEditorOpen: parsed.isSkillEditorOpen ?? false,
+      isEvalDatasetGeneratorOpen: parsed.isEvalDatasetGeneratorOpen ?? false,
     }
   } catch {
     return null

@@ -276,4 +276,31 @@ export const BASIC_GUIDES: Record<string, FeatureGuide> = {
     tipsJa: ['pinned Experiment はリスト上部に固定表示されます', 'Run のクエリテキストでフィルタリングして素早く目的の Run を見つけられます'],
     tipsEn: ['Pinned Experiments stay at the top of the list', 'Filter Runs by query text to quickly find what you need'],
   },
+  'eval-dataset-generator': {
+    stepsJa: 'Eval Dataset Generator の使い方',
+    stepsEn: 'How to use Eval Dataset Generator',
+    steps: [
+      { icon: 'list-ul', titleJa: 'インデックスを選ぶ', titleEn: 'Select an index', descJa: 'クエリ生成元となる Azure AI Search インデックスを選択します。Connection 設定で endpoint・API key・key field が解決済みである必要があります。', descEn: 'Choose the Azure AI Search index that will source the documents. The Connection panel must already have endpoint, API key, and key field resolved.', targetSelector: '[data-guide-target="edg-index"]' },
+      { icon: 'sliders', titleJa: 'サンプル件数とクエリ数を決める', titleEn: 'Set sample size & queries per doc', descJa: 'sampleSize (インデックスから取り出すドキュメント数) と queriesPerDoc (1 ドキュメントあたりの生成クエリ数) を設定します。総生成クエリ数 = sampleSize × queriesPerDoc が LLM 呼び出し回数の目安です。', descEn: 'Configure sampleSize (documents to draw from the index) and queriesPerDoc (queries to synthesize per document). Total queries = sampleSize × queriesPerDoc, which is roughly the number of LLM calls.', targetSelector: '[data-guide-target="edg-sample-size"]' },
+      { icon: 'cloud-fill', titleJa: 'Azure OpenAI 接続を確認', titleEn: 'Verify the Azure OpenAI connection', descJa: 'Chat デプロイ (gpt-4o 等) と必要に応じて Embeddings デプロイを設定します。Embeddings は Semantic dedup や Hard Negative Mining を有効にする場合に必要です。', descEn: 'Configure the chat deployment (e.g. gpt-4o) and optionally the embeddings deployment. Embeddings are required if you enable semantic dedup or hard negative mining.', targetSelector: '[data-guide-target="edg-embedding-deployment"]' },
+      { icon: 'play-circle', titleJa: '生成を実行する', titleEn: 'Run generation', descJa: 'Generate を押すと、ドキュメントのサンプリング → 本文の 4000 字切り詰め → LLM によるクエリ生成 → 品質フィルタの順でパイプラインが進行します。進捗バーで現在のステップを確認できます。', descEn: 'Press Generate. The pipeline runs: document sampling → body truncation to 4000 chars → LLM query generation → quality filters. The progress bar shows the current step.', targetSelector: '[data-guide-target="edg-generate"]' },
+      { icon: 'clipboard-data', titleJa: '結果を確認して保存する', titleEn: 'Review & save results', descJa: '生成された各クエリの query / expected_ids / query_type / language を一覧で確認し、必要に応じて手動で編集します。Save にタイトルを付けて保存すると、ブラウザの localStorage (key: ragops.evalDatasets.v1) に永続化されます。', descEn: 'Inspect the generated rows (query / expected_ids / query_type / language) and edit any that look off. Saving with a title persists the dataset to browser localStorage (key: ragops.evalDatasets.v1).', targetSelector: '[data-guide-target="edg-persist-save"]' },
+      { icon: 'arrow-right-circle', titleJa: 'AutoTuning へ送る', titleEn: 'Send to AutoTuning', descJa: 'Send to AutoTuning を押すと、生成データセットがそのまま AutoTuning タブに引き渡されます。保存済みデータセットは AutoTuning 側のドロップダウンからも再選択できます。', descEn: 'Press “Send to AutoTuning” to hand the dataset off directly. Saved datasets are also reselectable from the AutoTuning dropdown.', targetSelector: '[data-guide-target="edg-send-autotuning"]' },
+    ],
+    tipsJa: [
+      '出力はあくまで「合成評価データセット」です。構成変更の相対比較 (A/B) と回帰検知のために使い、本番品質スコアの代理指標としては扱わないでください。',
+      'エクスポートや AutoTuning 投入の前に、必ず人手でクエリと expected_ids をレビューしてください。誤った正解は最適化の方向自体を歪めます。',
+      'コスト感の目安: 1 件のクエリ生成は LLM 呼び出し 1 回。Round-trip Consistency や Hard Negative Mining、Entity-KG を ON にすると 1 クエリあたりの LLM/検索呼び出し回数が増えます。',
+      '保存先はブラウザの localStorage (`ragops.evalDatasets.v1`) なので、サイトデータを消去するとデータセットも失われます。長期保存用には Export で JSONL をローカルへ書き出してください。',
+      'まずは sampleSize と queriesPerDoc を小さく (例: 5 × 2 = 10 件) 設定して動作を確認し、品質と費用感を掴んでから本番規模に拡張するのが安全です。',
+    ],
+    tipsEn: [
+      'Treat the output strictly as a synthetic eval dataset — useful for relative comparison (A/B of configuration changes) and regression detection, not as a proxy for production quality scores.',
+      'Always human-review the queries and expected_ids before exporting or feeding into AutoTuning. Bad ground truth biases the entire optimization direction.',
+      'Cost rule of thumb: each generated query is one LLM call. Enabling Round-trip Consistency, Hard Negative Mining, or Entity-KG adds extra LLM/search calls per query.',
+      'Datasets are stored in browser localStorage (`ragops.evalDatasets.v1`), so clearing site data discards them. For durable storage, export to JSONL locally.',
+      'Start small (e.g. sampleSize=5 × queriesPerDoc=2 → 10 queries) to validate quality and cost, then scale up once you have a feel for it.',
+    ],
+    docsUrl: 'https://learn.microsoft.com/azure/search/search-query-overview',
+  },
 }

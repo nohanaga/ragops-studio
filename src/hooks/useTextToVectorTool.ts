@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { TranslationKey } from '../lib/translations'
 import type { AppSettings } from '../lib/model'
 import { updateSettings } from '../lib/db'
+import { buildLlmAuthHeaders, type LlmAuthMode } from '../lib/llmAuth'
 
 type Translator = (key: TranslationKey) => unknown
 
@@ -21,6 +22,8 @@ export function useTextToVectorTool(args: { t: Translator; settings: AppSettings
   const [textToVectorModel, setTextToVectorModel] = useState<string>('text-embedding-3-large')
   const [textToVectorEndpoint, setTextToVectorEndpoint] = useState<string>('')
   const [textToVectorApiKey, setTextToVectorApiKey] = useState<string>('')
+  const [textToVectorAuthMode, setTextToVectorAuthMode] = useState<LlmAuthMode>('apiKey')
+  const [textToVectorBearerToken, setTextToVectorBearerToken] = useState<string>('')
   const [textToVectorDimensions, setTextToVectorDimensions] = useState<number | null>(null)
   const [textToVectorResult, setTextToVectorResult] = useState<number[] | null>(null)
   const [textToVectorLoading, setTextToVectorLoading] = useState<boolean>(false)
@@ -29,6 +32,8 @@ export function useTextToVectorTool(args: { t: Translator; settings: AppSettings
     if (!settings) return
     if (settings.openAiEndpoint) setTextToVectorEndpoint(settings.openAiEndpoint)
     if (settings.openAiApiKey) setTextToVectorApiKey(settings.openAiApiKey)
+    if (settings.openAiAuthMode) setTextToVectorAuthMode(settings.openAiAuthMode)
+    if (settings.openAiBearerToken) setTextToVectorBearerToken(settings.openAiBearerToken)
   }, [settings])
 
   useEffect(() => {
@@ -37,9 +42,11 @@ export function useTextToVectorTool(args: { t: Translator; settings: AppSettings
       ...settings,
       openAiEndpoint: textToVectorEndpoint,
       openAiApiKey: textToVectorApiKey,
+      openAiAuthMode: textToVectorAuthMode,
+      openAiBearerToken: textToVectorBearerToken,
     }
     void updateSettings(updated)
-  }, [textToVectorEndpoint, textToVectorApiKey, settings])
+  }, [textToVectorEndpoint, textToVectorApiKey, textToVectorAuthMode, textToVectorBearerToken, settings])
 
   const onGenerateVector = useCallback(async () => {
     if (!textToVectorInput.trim()) {
@@ -50,8 +57,12 @@ export function useTextToVectorTool(args: { t: Translator; settings: AppSettings
       alert(String(t('textToVectorAlertEnterEndpoint')))
       return
     }
-    if (!textToVectorApiKey.trim()) {
+    if (textToVectorAuthMode === 'apiKey' && !textToVectorApiKey.trim()) {
       alert(String(t('textToVectorAlertEnterApiKey')))
+      return
+    }
+    if (textToVectorAuthMode === 'bearer' && !textToVectorBearerToken.trim()) {
+      alert(String(t('textToVectorAlertEnterBearerToken')))
       return
     }
 
@@ -64,7 +75,11 @@ export function useTextToVectorTool(args: { t: Translator; settings: AppSettings
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        'api-key': textToVectorApiKey,
+        ...buildLlmAuthHeaders(
+          textToVectorAuthMode === 'bearer'
+            ? { mode: 'bearer', bearerToken: textToVectorBearerToken }
+            : { mode: 'apiKey', apiKey: textToVectorApiKey },
+        ),
       }
 
       const response = await fetch(url, {
@@ -100,7 +115,7 @@ export function useTextToVectorTool(args: { t: Translator; settings: AppSettings
     } finally {
       setTextToVectorLoading(false)
     }
-  }, [t, textToVectorApiKey, textToVectorDimensions, textToVectorEndpoint, textToVectorInput, textToVectorModel])
+  }, [t, textToVectorApiKey, textToVectorAuthMode, textToVectorBearerToken, textToVectorDimensions, textToVectorEndpoint, textToVectorInput, textToVectorModel])
 
   const onCopyVector = useCallback(async () => {
     if (!textToVectorResult) return
@@ -120,6 +135,10 @@ export function useTextToVectorTool(args: { t: Translator; settings: AppSettings
     setTextToVectorEndpoint,
     textToVectorApiKey,
     setTextToVectorApiKey,
+    textToVectorAuthMode,
+    setTextToVectorAuthMode,
+    textToVectorBearerToken,
+    setTextToVectorBearerToken,
     textToVectorDimensions,
     setTextToVectorDimensions,
     textToVectorResult,

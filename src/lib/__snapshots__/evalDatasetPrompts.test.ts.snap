@@ -1,0 +1,134 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildHardenPrompts (Phase 4, Evol-Instruct) > buildHardenSystemPrompt en snapshot 1`] = `
+"You rewrite a search query into a HARDER variant that is STILL answerable from the supplied excerpt only.
+Tactics: paraphrase / negation / numeric or conditional aggregation / one level of abstraction / synonym substitution.
+Never invent facts that are not in the excerpt, never include the answer, and never drift from the original intent.
+Output MUST strictly follow the specified JSON schema (no prose, no code fences)."
+`;
+
+exports[`buildHardenPrompts (Phase 4, Evol-Instruct) > buildHardenSystemPrompt ja snapshot 1`] = `
+"あなたは検索クエリを「より難しいが、依然として与えられた本文だけで回答可能な」形に書き換える専門家です。
+難化の手段例: 言い換え (paraphrase) / 否定形への変換 / 数値や条件の集約 / 一段抽象化 / 同義語置換。
+禁止事項: 本文に書かれていない事実を加えない / 答えを書かない / 元の意図を失わない。
+出力は必ず指定された JSON スキーマに従うこと（追加のテキスト・コードフェンス禁止）。"
+`;
+
+exports[`evalDatasetPrompts (Phase 1 / 3 snapshots) > buildScenarioSystemPrompt (Phase 3 Ragas) > matches snapshot for en with domain 1`] = `
+"You are an expert in building evaluation datasets for search engines (Azure AI Search).
+Following Ragas' 4-quadrant taxonomy (single/multi × specific/abstract), generate exactly ONE evaluation query from the supplied document excerpt(s).
+Constraints:
+- The query MUST be answerable solely from the supplied excerpt(s).
+- For multi_* shapes, the query MUST require consulting ALL supplied excerpts.
+- Avoid overly abstract questions or questions requiring outside knowledge.
+- Output MUST strictly follow the specified JSON schema (no prose, no code fences).
+- Generate exactly one query per call.
+Domain note: Customer-facing knowledge base for a SaaS product"
+`;
+
+exports[`evalDatasetPrompts (Phase 1 / 3 snapshots) > buildScenarioSystemPrompt (Phase 3 Ragas) > matches snapshot for ja without domain 1`] = `
+"あなたは検索エンジン (Azure AI Search) の評価データセットを作成する専門家です。
+Ragas の 4 象限 (single/multi × specific/abstract) に従って、与えられたドキュメント抜粋から評価クエリを 1 件だけ生成してください。
+制約:
+- query は提示された本文だけを根拠に答えられること
+- multi_* の場合は、提示された全ての本文を参照しないと答えられない質問にすること
+- 抽象的すぎる質問・本文外の知識を必要とする質問は禁止
+- 出力は必ず指定された JSON スキーマに従うこと (追加のテキスト・コードフェンス禁止)
+- 1 ターンにつき 1 件のみ生成"
+`;
+
+exports[`evalDatasetPrompts (Phase 1 / 3 snapshots) > buildScenarioUserPrompt (Phase 3 Ragas) > matches snapshot for multi_abstract (en, formal style, long, two docs) 1`] = `
+"[language=en] [shape=multi_abstract] [doc_ids=doc-A,doc-B] [docs=2]
+Shape: multi_abstract: Cross-document synthesis or summarisation that spans all supplied documents (e.g. "Describe the evolution from A to C").
+Persona: system architect
+Style: polite, formal phrasing typical of an internal knowledge search
+Length: 20–35 words
+Generate ONE question that requires consulting ALL of the following excerpts.
+JSON schema: { "query": string, "query_shape": "multi_abstract" }
+---EXCERPT 1 (id=doc-A)---
+Service A handles authentication via OAuth 2.
+---END---
+---EXCERPT 2 (id=doc-B)---
+Service B performs authorisation using policy files.
+---END---"
+`;
+
+exports[`evalDatasetPrompts (Phase 1 / 3 snapshots) > buildScenarioUserPrompt (Phase 3 Ragas) > matches snapshot for single_specific (ja, web_search style, short) 1`] = `
+"[language=ja] [shape=single_specific] [doc_ids=doc-A] [docs=1]
+生成形式: single_specific: 単一文書から、固有名詞・数値・定義などの具体的な事実を尋ねる短い質問。
+想定ユーザ (persona): 新人開発者
+文体 (style): 検索エンジンに入力する短いキーワード列に近い形式
+長さ (length): 10〜25 文字程度
+以下の本文から答えられる質問を 1 件生成してください。
+JSON スキーマ: { "query": string, "query_shape": "single_specific" }
+---本文 1 (id=doc-A)---
+X の値は 42 である。
+---ここまで---"
+`;
+
+exports[`evalDatasetPrompts (Phase 1 / 3 snapshots) > buildSystemPrompt > matches snapshot for en with domain 1`] = `
+"You are an expert in building evaluation datasets for search engines (Azure AI Search).
+Given an excerpt from a document, generate queries a real user is likely to search.
+Constraints:
+- The query must be answerable solely from the supplied excerpt.
+- Preserve proper nouns and numeric values verbatim.
+- Each query must focus on a single aspect.
+- Avoid overly abstract queries or queries that require multiple documents.
+- Output MUST strictly follow the specified JSON schema (no prose, no code fences).
+- query_type MUST be one of the allowed_types; never use a value outside that list.
+- When multiple allowed_types are specified, distribute the generated queries across them as evenly as possible.
+Domain note: API reference for an internal HR portal"
+`;
+
+exports[`evalDatasetPrompts (Phase 1 / 3 snapshots) > buildSystemPrompt > matches snapshot for ja without domain 1`] = `
+"あなたは検索エンジン（Azure AI Search）の精度評価用データセットを作成する専門家です。
+与えられたドキュメント抜粋から、ユーザーが実際に検索しそうな質問を生成してください。
+制約:
+- 抜粋本文だけで答えられる内容のみ
+- 固有名詞・数値はそのまま用いる
+- 1質問につき1観点のみ
+- 抽象的すぎる質問・複数文書を必要とする質問は禁止
+- 出力は必ず指定された JSON スキーマに従うこと（追加のテキスト・コードフェンス禁止）
+- query_type は必ず allowed_types のいずれかを使用し、それ以外を出力してはいけない
+- allowed_types に複数のタイプが指定されている場合は、可能な限り均等に分散させる"
+`;
+
+exports[`evalDatasetPrompts (Phase 1 / 3 snapshots) > buildUserPrompt > matches snapshot for en, factoid+how-to, 3 queries per doc, with domain 1`] = `
+"[language=en] [allowed_types=factoid,how-to] [doc_id=doc-2]
+Generate 3 search queries from the following excerpt.
+query_type MUST be exactly one of:
+- factoid: a question about a single fact, definition, proper noun, or number
+- how-to: a question asking how to do something or describing a procedure
+JSON schema: { "queries": [{ "query": string, "query_type": "factoid"|"how-to" }, ...] }
+Example:
+{"queries":[{"query":"What is the semantic ranker in Azure AI Search used for?","query_type":"factoid"},{"query":"How do you create a vector search index?","query_type":"how-to"}]}
+---BEGIN EXCERPT---
+To configure logging, set the LOG_LEVEL environment variable.
+---END EXCERPT---"
+`;
+
+exports[`evalDatasetPrompts (Phase 1 / 3 snapshots) > buildUserPrompt > matches snapshot for ja, factoid only, 2 queries per doc 1`] = `
+"[language=ja] [allowed_types=factoid] [doc_id=doc-1]
+次の本文から、検索クエリを 2 件生成してください。
+query_type は必ず以下のいずれかを使用してください:
+- 事実確認(factoid): 単一の事実・定義・固有名詞・数値などを尋ねる質問
+JSON スキーマ: { "queries": [{ "query": string, "query_type": "factoid" }, ...] }
+例:
+{"queries":[{"query":"Azure AI Search のセマンティックランカーは何のために使うのか？","query_type":"factoid"}]}
+---本文---
+これはテスト用のドキュメント本文です。X の値は 42 です。
+---本文ここまで---"
+`;
+
+exports[`renderDomainSchema (Phase 4) > renders en schema with all three fields 1`] = `
+"Domain schema:
+  - entities: service, ticket
+  - relations: service → dependent service
+  - constraints: approved-only"
+`;
+
+exports[`renderDomainSchema (Phase 4) > renders ja schema with filled fields 1`] = `
+"ドメインスキーマ:
+  - エンティティ: サービス, チケット
+  - 関係: サービス → 依存サービス"
+`;

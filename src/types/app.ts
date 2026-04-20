@@ -25,6 +25,7 @@ export type CenterTab =
   | 'index-builder'
   | 'skill-pipeline-builder'
   | 'skill-editor'
+  | 'eval-dataset-generator'
 
 export type ResultView = {
   id: 'latest' | `run:${string}`
