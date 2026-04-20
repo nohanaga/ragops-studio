@@ -538,7 +538,7 @@ export const PORTAL_CARDS: PortalCard[] = [
         '例外は raise せずに errors 配列に詰めて返すと Indexer が他のドキュメントを続行できます。warnings はログとして使いましょう。',
         'Indexer はバッチで複数レコードを送ってきます。process 関数を values 配列のループ処理に対応させるか、サーバー側でラッパーを用意してください。',
         'ACA と Search サービス間は Search のマネージド ID と ACA のイングレス設定 (Public / VNet) を揃えると認証がシンプルになります。セキュリティ面でも推奨。',
-        'samples/ 下のサンプルスキル (Splitter や PII 除去など) をコピーして始めるのが近道です。',
+        'サンプル実装から始める場合は、skill-runtime 側のサンプルや README にある WebApiSkill の例を参照してください。',
       ],
       tipsEn: [
         'Local Run (Pyodide) is convenient but only supports pure Python (most C extensions are off-limits). Always validate the production path with Remote Run.',
@@ -546,7 +546,7 @@ export const PORTAL_CARDS: PortalCard[] = [
         'Return errors in the array instead of raising — the Indexer can keep processing other docs. Use warnings for log-style messages.',
         'Indexers send batches. Either let process iterate the values array, or implement a wrapper on the server side.',
         'Between ACA and Search, use Search’s managed identity and align ACA ingress (Public / VNet) for clean auth — also recommended for security.',
-        'Start by copying the sample skills (under samples/) such as splitters or PII redaction — fastest way to get going.',
+        'If you want to start from a sample, refer to the WebApiSkill examples in the skill-runtime samples or README.',
       ],
       docsUrl: 'https://learn.microsoft.com/azure/search/cognitive-search-custom-skill-web-api',
     },
@@ -682,7 +682,7 @@ export const PORTAL_CARDS: PortalCard[] = [
       steps: [
         { icon: 'box-arrow-in-right', titleJa: '開く', titleEn: 'Open', descJa: 'ツールメニューから Vector Optimizer を開きます。Azure AI Search のベクトルコンプレッション設定を GUI で見積もるツールです。', descEn: 'Open Vector Optimizer from the Tools menu. It’s a GUI for previewing Azure AI Search vector compression settings.' },
         { icon: 'sliders', titleJa: 'ベクトルの前提を入力', titleEn: 'Vector basics', descJa: '使う埋め込みモデルの dimensions (例: text-embedding-3-large=3072) とドキュメント数、読み込みフォーマット (float32 / float16 など) を設定します。', descEn: 'Set the embedding model’s dimensions (e.g. text-embedding-3-large = 3072), document count, and source format (float32 / float16).', targetSelector: '[data-guide-target="vo-dimensions"]' },
-        { icon: 'gear', titleJa: '量子化と MRL', titleEn: 'Quantization & MRL', descJa: 'scalarQuantization (int8、約 1/4) / binaryQuantization (1bit、約 1/32 だが品質低下リスク) と truncationDimension (MRL: 約数の次元へ切り詰め) の組み合わせを選択します。rescoring=true なら全精度ベクトルで再検索し、上位のみ再スコアリングしてリコールを補えます。', descEn: 'Pick combinations of scalarQuantization (int8, ~4×) / binaryQuantization (1-bit, ~32× but quality risk) and truncationDimension (MRL truncation to a divisor). With rescoring=true, top results are re-scored against full-precision vectors to recover recall.', targetSelector: '[data-guide-target="vo-settings"]' },
+        { icon: 'gear', titleJa: '量子化と MRL', titleEn: 'Quantization & MRL', descJa: 'scalarQuantization (int8、約 1/4) / binaryQuantization (1bit、約 1/32 だが品質低下リスク) と truncationDimension (MRL: 約数の次元へ切り詰め) の組み合わせを選択します。rescoring=true なら圧縮ベクトルで候補を取り、その上位候補を全精度ベクトルで再スコアリングしてリコールを補えます。', descEn: 'Pick combinations of scalarQuantization (int8, ~4×) / binaryQuantization (1-bit, ~32× but quality risk) and truncationDimension (MRL truncation to a divisor). With rescoring=true, top results are re-scored against full-precision vectors to recover recall.', targetSelector: '[data-guide-target="vo-settings"]' },
         { icon: 'box-seam', titleJa: 'stored / retrievable', titleEn: 'stored / retrievable', descJa: 'クエリ結果としてベクトルを返却しないなら stored=false を推奨 (表示用ストレージが不要になり、サイズがその分削減)。retrievable とは別軸の設定で、検索計算中の HNSW ベクトルには影響しません。', descEn: 'If you do not return vectors as part of query results, set stored=false to drop the display copy and shrink storage. It is independent of retrievable and does not affect HNSW vectors used during search.' },
         { icon: 'bar-chart', titleJa: '見積もりを比較', titleEn: 'Compare estimates', descJa: '各組み合わせの理論ベクトルサイズ (bytes / GB)、ドキュメント数やクエリ負荷の補助見積もりが表示されます。本番適用前の SKU サイズ設計に使いましょう。', descEn: 'See theoretical vector size (bytes / GB) per combination plus side estimates (doc count, query load). Use it to size SKUs before committing.', targetSelector: '[data-guide-target="vo-estimate"]' },
       ],
