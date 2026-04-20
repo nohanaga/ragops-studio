@@ -6,11 +6,15 @@
 
 /* eslint-disable react-refresh/only-export-components */
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import type { PortalCard } from '../app/featurePortalCards'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import type { FeatureGuide, PortalCard } from '../app/featurePortalCards'
 import { PORTAL_CARDS } from '../app/featurePortalCards'
+import { BASIC_GUIDES } from '../app/featurePortalGuides.basic'
 
 export type GuideMode = 'modal' | 'companion'
+export type GuideDetail = 'basic' | 'advanced'
+
+const GUIDE_DETAIL_STORAGE_KEY = 'ragops.guideDetail'
 
 export type ActiveGuide = {
   cardId: string
@@ -21,18 +25,52 @@ export type ActiveGuide = {
 type GuideContextValue = {
   activeGuide: ActiveGuide | null
   activeCard: PortalCard | null
-  /** Open the guide in modal mode (from the Portal). */
+  activeGuideContent: FeatureGuide | null
+  guideDetail: GuideDetail
+  setGuideDetail: (detail: GuideDetail) => void
   openGuide: (cardId: string) => void
   closeGuide: () => void
   setStepIndex: (index: number) => void
-  /** Called when the user clicks "Launch" — switches to companion mode. */
   launchCompanion: () => void
 }
 
 const GuideContext = createContext<GuideContextValue | null>(null)
 
+function readInitialDetail(): GuideDetail {
+  if (typeof window === 'undefined') return 'basic'
+  try {
+    const v = window.localStorage.getItem(GUIDE_DETAIL_STORAGE_KEY)
+    return v === 'advanced' ? 'advanced' : 'basic'
+  } catch {
+    return 'basic'
+  }
+}
+
+export function resolveGuide(card: PortalCard | null, detail: GuideDetail): FeatureGuide | null {
+  if (!card) return null
+  const basic = BASIC_GUIDES[card.id] ?? null
+  const advanced = card.guide ?? null
+  if (detail === 'basic') return basic ?? advanced
+  return advanced ?? basic
+}
+
 export function GuideProvider({ children }: { children: ReactNode }) {
   const [activeGuide, setActiveGuide] = useState<ActiveGuide | null>(null)
+  const [guideDetail, setGuideDetailState] = useState<GuideDetail>(() => readInitialDetail())
+
+  const setGuideDetail = useCallback((detail: GuideDetail) => {
+    setGuideDetailState(detail)
+    setActiveGuide((prev) => (prev ? { ...prev, stepIndex: 0 } : prev))
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(GUIDE_DETAIL_STORAGE_KEY, guideDetail)
+    } catch {
+      /* ignore */
+    }
+  }, [guideDetail])
 
   const openGuide = useCallback((cardId: string) => {
     setActiveGuide({ cardId, stepIndex: 0, mode: 'modal' })
@@ -55,9 +93,21 @@ export function GuideProvider({ children }: { children: ReactNode }) {
     return PORTAL_CARDS.find((c) => c.id === activeGuide.cardId) ?? null
   }, [activeGuide])
 
+  const activeGuideContent = useMemo(() => resolveGuide(activeCard, guideDetail), [activeCard, guideDetail])
+
   const value = useMemo<GuideContextValue>(
-    () => ({ activeGuide, activeCard, openGuide, closeGuide, setStepIndex, launchCompanion }),
-    [activeGuide, activeCard, openGuide, closeGuide, setStepIndex, launchCompanion],
+    () => ({
+      activeGuide,
+      activeCard,
+      activeGuideContent,
+      guideDetail,
+      setGuideDetail,
+      openGuide,
+      closeGuide,
+      setStepIndex,
+      launchCompanion,
+    }),
+    [activeGuide, activeCard, activeGuideContent, guideDetail, setGuideDetail, openGuide, closeGuide, setStepIndex, launchCompanion],
   )
 
   return <GuideContext.Provider value={value}>{children}</GuideContext.Provider>

@@ -834,7 +834,7 @@ export function ClassicSearchBuilderForm(props: ClassicSearchBuilderFormProps) {
 
       {labMode === 'semantic-vector' && (
         <>
-          <label className="field vector-queries-toggle">
+          <label className="field vector-queries-toggle" data-guide-target="vector-toggle">
             <span className="field__label">
               vectorQueries
               <InfoTooltip tooltipKey="vectorEnabled" language={language} />
@@ -850,12 +850,12 @@ export function ClassicSearchBuilderForm(props: ClassicSearchBuilderFormProps) {
           </label>
 
           {searchForm.vectorEnabled && (
-            <div className="vector-queries-section">
+            <div className="vector-queries-section" data-guide-target="vector-section">
               <div className="form__sectionTitle form__sectionTitle--tight">{t('vectorGroupBasics')}</div>
 
               <div className="field__hint vector-queries-rrfHint">{t('vectorQueriesRrfHint')}</div>
 
-              <div className="actions actions--tight actions--wrap vector-queries-addRow">
+              <div className="actions actions--tight actions--wrap vector-queries-addRow" data-guide-target="vector-add">
                 <button
                   type="button"
                   className="btn btn--tab"
@@ -891,7 +891,7 @@ export function ClassicSearchBuilderForm(props: ClassicSearchBuilderFormProps) {
               </div>
 
               {searchForm.vectorQueries.length > 0 && (
-                <div className="form vector-queries-list">
+                <div className="form vector-queries-list" data-guide-target="vector-list">
                   <div className="form__sectionTitle form__sectionTitle--tight">vectorQueries ({searchForm.vectorQueries.length})</div>
                   {searchForm.vectorQueries.map((q, i) => (
                     <div key={i} className="actions actions--tight actions--wrap">
@@ -916,7 +916,7 @@ export function ClassicSearchBuilderForm(props: ClassicSearchBuilderFormProps) {
                 </div>
               )}
 
-              <label className="field">
+              <label className="field" data-guide-target="vector-kind">
                 <span className="field__label">
                   vector.kind
                   <InfoTooltip tooltipKey="vectorKind" language={language} />
@@ -933,7 +933,7 @@ export function ClassicSearchBuilderForm(props: ClassicSearchBuilderFormProps) {
                 </select>
               </label>
 
-              <label className="field">
+              <label className="field" data-guide-target="vector-k">
                 <span className="field__label">
                   vector.k
                   <InfoTooltip tooltipKey="vectorK" language={language} />
@@ -948,7 +948,7 @@ export function ClassicSearchBuilderForm(props: ClassicSearchBuilderFormProps) {
                 />
               </label>
 
-              <label className="field field--full">
+              <label className="field field--full" data-guide-target="vector-fields">
                 <span className="field__label">
                   vector.fields
                   <InfoTooltip tooltipKey="vectorFields" language={language} />
@@ -977,7 +977,7 @@ export function ClassicSearchBuilderForm(props: ClassicSearchBuilderFormProps) {
                 )}
               </label>
 
-              <div className="form__sectionTitle">{t('vectorGroupInput')}</div>
+              <div className="form__sectionTitle" data-guide-target="vector-input">{t('vectorGroupInput')}</div>
 
               {searchForm.vectorKind === 'text' ? (
                 <label className="field field--full">
