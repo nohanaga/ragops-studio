@@ -471,7 +471,7 @@ Manually creating evaluation datasets for search quality benchmarking is one of 
 - **Domain Schema injection (RAGEval)**: Inject domain entities, relations, and constraints for improved factuality
 - **NDCG-compatible relevance grades**: Auto-assign graded relevance scores for use with NDCG/XDCG evaluators
 - **Entity-KG**: LLM entity extraction per document for refined multi-hop pairing
-- **Dataset persistence**: Save/load/delete datasets in IndexedDB; export as JSONL
+- **Dataset persistence**: Save/load/delete generated datasets in browser localStorage; export as JSONL. Note that saved datasets may be lost if browser/site storage is cleared.
 
 ### Feature Portal
 
