@@ -8,6 +8,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react'
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 
 import type { translations } from '../../lib/translations'
 import type { GeneratedQAItem } from '../../types'
@@ -31,7 +32,7 @@ type ColDef = {
   width: number
   mono?: boolean
   wrap?: boolean
-  render: (it: GeneratedQAItem, idx: number) => React.ReactNode
+  render: (it: GeneratedQAItem, idx: number) => ReactNode
 }
 
 const MIN_COL_WIDTH = 60
@@ -167,20 +168,13 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
     // docTextById is intentionally a dependency because preview cells depend on it.
   }, [t, docTextById, enableRagasMode, enableDifficultyEvolution, enableHardNegativeMining])
 
-  // Store per-column widths so columns can be resized.
-  const [widths, setWidths] = useState<Record<string, number>>(() => {
+  // Store user-resized widths. Columns without overrides use their default width.
+  const [widths, setWidths] = useState<Record<string, number>>({})
+  const effectiveWidths = useMemo(() => {
     const out: Record<string, number> = {}
-    for (const c of columns) out[c.key] = c.width
+    for (const c of columns) out[c.key] = widths[c.key] ?? c.width
     return out
-  })
-
-  // Keep `widths` in sync when columns change visibility (Ragas/Difficulty toggles).
-  // We only add new keys to avoid clobbering the user's chosen widths.
-  if (columns.some((c) => widths[c.key] === undefined)) {
-    const next = { ...widths }
-    for (const c of columns) if (next[c.key] === undefined) next[c.key] = c.width
-    setWidths(next)
-  }
+  }, [columns, widths])
 
   const dragState = useRef<{
     key: string
@@ -190,12 +184,12 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
   const [activeResizer, setActiveResizer] = useState<string | null>(null)
 
   const onResizerPointerDown = useCallback(
-    (key: string) => (e: React.PointerEvent<HTMLDivElement>) => {
+    (key: string) => (e: ReactPointerEvent<HTMLDivElement>) => {
       e.preventDefault()
       dragState.current = {
         key,
         startX: e.clientX,
-        startWidth: widths[key] ?? MIN_COL_WIDTH,
+        startWidth: effectiveWidths[key] ?? MIN_COL_WIDTH,
       }
       setActiveResizer(key)
       const target = e.currentTarget
@@ -219,7 +213,7 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
       target.addEventListener('pointerup', onUp)
       target.addEventListener('pointercancel', onUp)
     },
-    [widths],
+    [effectiveWidths],
   )
 
   const rows = items.filter((it) => showRejected || !it.rejected)
@@ -228,8 +222,8 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
     <div className="edgResults__tableWrap">
       <table className="spvTable edgResults__table">
         <colgroup>
-          {columns.map((c) => (
-            <col key={c.key} style={{ width: `${widths[c.key] ?? c.width}px` }} />
+            {columns.map((c) => (
+            <col key={c.key} style={{ width: `${effectiveWidths[c.key]}px` }} />
           ))}
         </colgroup>
         <thead>

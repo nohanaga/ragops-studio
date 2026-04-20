@@ -13,6 +13,15 @@
 
 import type { ReactNode } from 'react'
 
+function isSafeExternalLink(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 /** Split inline `**bold**`, `` `code` ``, and `[text](url)` into ReactNodes. */
 function renderInline(text: string): ReactNode[] {
   // Tokenize: bold, code, link, text. Order matters: code first to avoid
@@ -33,11 +42,15 @@ function renderInline(text: string): ReactNode[] {
       // [text](url)
       const lm = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(tok)
       if (lm) {
-        out.push(
-          <a key={`a${key++}`} href={lm[2]} target="_blank" rel="noreferrer noopener">
-            {lm[1]}
-          </a>,
-        )
+        if (isSafeExternalLink(lm[2])) {
+          out.push(
+            <a key={`a${key++}`} href={lm[2]} target="_blank" rel="noreferrer noopener">
+              {lm[1]}
+            </a>,
+          )
+        } else {
+          out.push(lm[1])
+        }
       } else {
         out.push(tok)
       }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   deleteEvalDataset,
@@ -90,5 +90,23 @@ describe('app/persistedEvalDatasets', () => {
     const list = listEvalDatasets()
     expect(list).toHaveLength(1)
     expect(list[0].id).toBe('ok')
+  })
+
+  it('returns empty list when localStorage getItem throws', () => {
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementationOnce(() => {
+      throw new Error('storage blocked')
+    })
+    expect(listEvalDatasets()).toEqual([])
+    spy.mockRestore()
+  })
+
+  it('does not throw when localStorage setItem throws', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+      throw new Error('quota exceeded')
+    })
+    expect(() =>
+      upsertEvalDataset({ id: 'x', title: 'x', updatedAt: 0, itemCount: 0, items: [sample('q')] }),
+    ).not.toThrow()
+    spy.mockRestore()
   })
 })

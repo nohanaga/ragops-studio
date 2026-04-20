@@ -40,7 +40,12 @@ function safeParse(json: string): unknown {
 
 function readRoot(): PersistedRoot {
   if (typeof localStorage === 'undefined') return { items: [] }
-  const raw = localStorage.getItem(STORAGE_KEY)
+  let raw: string | null = null
+  try {
+    raw = localStorage.getItem(STORAGE_KEY)
+  } catch {
+    return { items: [] }
+  }
   if (!raw) return { items: [] }
 
   const parsed = safeParse(raw)
@@ -73,7 +78,11 @@ function readRoot(): PersistedRoot {
 
 function writeRoot(root: PersistedRoot) {
   if (typeof localStorage === 'undefined') return
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(root))
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(root))
+  } catch {
+    // ignore persistence errors (private mode, quota exceeded, disabled storage)
+  }
 }
 
 export function listEvalDatasets(): PersistedEvalDatasetItem[] {

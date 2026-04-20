@@ -31,6 +31,13 @@ describe('TipsBlock', () => {
     expect(out).toContain('<a href="https://example.com" target="_blank" rel="noreferrer noopener">site</a>')
   })
 
+  it('renders non-http(s) links as plain text', () => {
+    const out = html('bad [x](javascript:alert1) and [y](data:text/plain,1)')
+    expect(out).not.toContain('<a href="javascript:alert1"')
+    expect(out).not.toContain('<a href="data:text/plain,1"')
+    expect(out).toContain('bad x and y')
+  })
+
   it('keeps bullets and paragraphs separate when interleaved', () => {
     const out = html('intro line\n・first item\n・second item\noutro line')
     expect(out).toMatch(

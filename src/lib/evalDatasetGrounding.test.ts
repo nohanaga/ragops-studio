@@ -102,6 +102,23 @@ describe('evalDatasetGrounding.checkGrounding', () => {
     const callArg = mockedSearch.mock.calls[0][0] as { body: { top: number } }
     expect(callArg.body.top).toBe(50)
   })
+
+  it('forwards abort signal to searchDocuments', async () => {
+    mockedSearch.mockResolvedValueOnce({ ok: true, response: { value: [] } })
+    const controller = new AbortController()
+    await checkGrounding({
+      profile: baseProfile,
+      indexName: 'idx',
+      apiVersion: '2024-07-01',
+      keyField: 'docid',
+      query: 'q',
+      expectedDocId: 'target',
+      topK: 5,
+      signal: controller.signal,
+    })
+    const callArg = mockedSearch.mock.calls[0][0] as { signal?: AbortSignal }
+    expect(callArg.signal).toBe(controller.signal)
+  })
 })
 
 describe('evalDatasetGrounding.mineHardNegatives', () => {
@@ -171,5 +188,24 @@ describe('evalDatasetGrounding.mineHardNegatives', () => {
     })
     expect(out).toEqual([])
     expect(mockedSearch).not.toHaveBeenCalled()
+  })
+
+  it('forwards abort signal to searchDocuments', async () => {
+    mockedSearch.mockResolvedValueOnce({ ok: true, response: { value: [] } })
+    const controller = new AbortController()
+    await mineHardNegatives({
+      profile: baseProfile,
+      indexName: 'idx',
+      apiVersion: '2024-07-01',
+      keyField: 'docid',
+      query: 'q',
+      expectedIds: [],
+      topK: 10,
+      maxNegatives: 5,
+      language: 'ja',
+      signal: controller.signal,
+    })
+    const callArg = mockedSearch.mock.calls[0][0] as { signal?: AbortSignal }
+    expect(callArg.signal).toBe(controller.signal)
   })
 })
