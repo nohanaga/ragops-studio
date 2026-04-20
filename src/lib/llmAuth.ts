@@ -42,3 +42,62 @@ export function buildLlmAuthHeaders(auth: LlmAuth): Record<string, string> {
 export function buildAadCliCommand(resource: string = AOAI_AAD_RESOURCE): string {
   return `az account get-access-token --resource ${resource} --query accessToken -o tsv`
 }
+
+/**
+ * Authentication failure raised by LLM helpers when the server returns a
+ * 401/403. Callers can catch this to short-circuit pipelines and surface
+ * actionable guidance (rather than spamming the same auth error per worker).
+ */
+export class LlmAuthError extends Error {
+  readonly status: number
+  readonly authMode: LlmAuthMode
+  readonly responseText: string
+  constructor(status: number, authMode: LlmAuthMode, responseText: string) {
+    super(`LLM authentication failed (HTTP ${status})`)
+    this.name = 'LlmAuthError'
+    this.status = status
+    this.authMode = authMode
+    this.responseText = responseText
+  }
+}
+
+/** Treat 401/403 as authentication-class failures. */
+export function isLlmAuthStatus(status: number): boolean {
+  return status === 401 || status === 403
+}
+
+/**
+ * Build a user-facing, localized message explaining how to recover from an
+ * LLM auth failure. For bearer auth the AAD CLI command is included so the
+ * user can re-acquire an expired access token in one copy/paste.
+ */
+export function formatLlmAuthErrorMessage(
+  err: LlmAuthError,
+  lang: 'ja' | 'en',
+): string {
+  const cli = buildAadCliCommand()
+  if (lang === 'ja') {
+    if (err.authMode === 'bearer') {
+      return (
+        `Azure OpenAI の認証に失敗しました (HTTP ${err.status})。` +
+        `Bearer トークンが期限切れか、スコープ・テナントが正しくない可能性があります。` +
+        `次のコマンドで再取得し、貼り直してから再実行してください:\n${cli}`
+      )
+    }
+    return (
+      `Azure OpenAI の認証に失敗しました (HTTP ${err.status})。` +
+      `API Key が正しいか、ローテーションされていないかを確認してください。`
+    )
+  }
+  if (err.authMode === 'bearer') {
+    return (
+      `Azure OpenAI authentication failed (HTTP ${err.status}). ` +
+      `Your bearer token may be expired or scoped to the wrong resource/tenant. ` +
+      `Re-acquire one and paste it again before retrying:\n${cli}`
+    )
+  }
+  return (
+    `Azure OpenAI authentication failed (HTTP ${err.status}). ` +
+    `Check that the API key is correct and has not been rotated.`
+  )
+}

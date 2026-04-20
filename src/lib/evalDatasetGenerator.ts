@@ -12,7 +12,7 @@ import type { SampledDoc } from './evalDatasetSampling'
 import type { BuildPromptParams, ExpectedQueryObject } from './evalDatasetPrompts'
 import { buildSystemPrompt, buildUserPrompt } from './evalDatasetPrompts'
 import type { LlmAuth } from './llmAuth'
-import { buildLlmAuthHeaders } from './llmAuth'
+import { buildLlmAuthHeaders, LlmAuthError, isLlmAuthStatus } from './llmAuth'
 
 /** Hard cap for the per-doc excerpt fed to the LLM (chars, not tokens). */
 const MAX_CHUNK_CHARS = 4000
@@ -65,6 +65,9 @@ export async function callAzureOpenAIChat(params: CallAoaiParams): Promise<strin
 
   if (!res.ok) {
     const errorText = await res.text().catch(() => '')
+    if (isLlmAuthStatus(res.status)) {
+      throw new LlmAuthError(res.status, auth.mode, errorText.slice(0, 500))
+    }
     throw new Error(`Azure OpenAI request failed (${res.status}): ${errorText.slice(0, 300)}`)
   }
 

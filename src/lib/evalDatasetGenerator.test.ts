@@ -3,7 +3,8 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { parseGeneratedQueries, dedupBySurface, toJsonl, parseHardenedQuery, computeRelevanceGrades } from './evalDatasetGenerator'
+import { callAzureOpenAIChat, parseGeneratedQueries, dedupBySurface, toJsonl, parseHardenedQuery, computeRelevanceGrades } from './evalDatasetGenerator'
+import { LlmAuthError } from './llmAuth'
 import type { GeneratedQAItem } from '../types'
 
 describe('parseGeneratedQueries', () => {
@@ -252,6 +253,64 @@ describe('computeRelevanceGrades (Phase 6)', () => {
       hard_negative_ids: ['a'],
     }
     expect(computeRelevanceGrades(item)).toEqual({ a: 3 })
+  })
+})
+
+describe('callAzureOpenAIChat (auth failures)', () => {
+  const baseParams = {
+    endpoint: 'https://example.openai.azure.com',
+    deployment: 'gpt',
+    apiVersion: '2024-02-15-preview',
+    systemPrompt: 's',
+    userPrompt: 'u',
+  }
+
+  it('throws LlmAuthError on HTTP 401 (bearer)', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response('Unauthorized', { status: 401 })) as typeof fetch
+    try {
+      await expect(
+        callAzureOpenAIChat({
+          ...baseParams,
+          auth: { mode: 'bearer', bearerToken: 'expired' },
+        }),
+      ).rejects.toBeInstanceOf(LlmAuthError)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('throws LlmAuthError on HTTP 403 (apiKey)', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response('Forbidden', { status: 403 })) as typeof fetch
+    try {
+      await expect(
+        callAzureOpenAIChat({
+          ...baseParams,
+          auth: { mode: 'apiKey', apiKey: 'wrong' },
+        }),
+      ).rejects.toMatchObject({ name: 'LlmAuthError', status: 403, authMode: 'apiKey' })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('throws a regular Error on non-auth failures (e.g. 500)', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response('boom', { status: 500 })) as typeof fetch
+    try {
+      const p = callAzureOpenAIChat({
+        ...baseParams,
+        auth: { mode: 'apiKey', apiKey: 'k' },
+      })
+      await expect(p).rejects.toThrow(/500/)
+      await expect(p).rejects.not.toBeInstanceOf(LlmAuthError)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })
 
