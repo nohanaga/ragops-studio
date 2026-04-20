@@ -243,7 +243,7 @@ A browser-integrated Python development environment for building, testing, and d
 - **NDCG-compatible relevance grades**: Automatically assign graded relevance scores (`expected_ids[0]` → 3, secondary → 2, hard negatives → 0)
 - **Entity-KG**: Optional LLM entity extraction per document for refined multi-hop pairing via entity Jaccard (with token Jaccard fallback)
 - **LLM authentication**: API Key, Bearer Token, and Azure AD (Entra ID) authentication for Azure OpenAI
-- **Dataset persistence**: Save/load/delete generated datasets in IndexedDB
+- **Dataset persistence**: Save/load/delete generated datasets in browser local storage (`localStorage`), with browser-local durability
 - **JSONL export**: Download evaluation datasets in JSONL format, or send directly to Search Parameter AutoTuning
 - **Real-time progress tracking**: Phase-by-phase progress display (sampling → generating → grounding → embedding → difficulty → hard negatives → done)
 - **Cancellation support**: Cancel generation at any point with partial results preserved
