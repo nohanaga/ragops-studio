@@ -63,7 +63,7 @@ export async function sampleDocsFromIndex(params: SampleDocsParams): Promise<Sam
     queryType: 'simple',
   }
 
-  const result = await searchDocuments({ profile, indexName, apiVersion, body, language })
+  const result = await searchDocuments({ profile, indexName, apiVersion, body, language, signal })
   if (!result.ok) {
     throw new Error(result.error?.message ?? 'searchDocuments failed')
   }
