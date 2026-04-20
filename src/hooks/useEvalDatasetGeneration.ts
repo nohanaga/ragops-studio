@@ -18,6 +18,7 @@ import { useCallback, useRef, useState } from 'react'
 import type { ConnectionProfile, SearchApiVersion } from '../lib/model'
 import type { Language } from '../lib/translations'
 import { computeRelevanceGrades, dedupBySurface, generateForDoc, generateForScenario, hardenQuery } from '../lib/evalDatasetGenerator'
+import { LlmAuthError, formatLlmAuthErrorMessage } from '../lib/llmAuth'
 import { sampleDocsFromIndex } from '../lib/evalDatasetSampling'
 import { checkGrounding, mineHardNegatives } from '../lib/evalDatasetGrounding'
 import { embedTexts, findSemanticDuplicates } from '../lib/evalDatasetEmbeddings'
@@ -109,6 +110,13 @@ export function useEvalDatasetGeneration(
       const runId = newRunId()
       const generatedAt = new Date().toISOString()
 
+      // Fatal LLM auth failure (HTTP 401/403). Captured separately so that:
+      //   - The pipeline can short-circuit (`controller.abort()`) instead of
+      //     spamming the same auth error per doc/worker.
+      //   - The user-facing message wins over later non-fatal errors.
+      let fatalAuthMsg: string | null = null
+      const edgLang: 'ja' | 'en' = language === 'ja' ? 'ja' : 'en'
+
       try {
         // 1) Sample docs.
         const docs = await sampleDocsFromIndex({
@@ -161,6 +169,15 @@ export function useEvalDatasetGeneration(
 
         const collected: GeneratedQAItem[] = []
         let firstError: string | null = null
+        const recordWorkerError = (e: unknown): void => {
+          if (e instanceof LlmAuthError) {
+            if (!fatalAuthMsg) fatalAuthMsg = formatLlmAuthErrorMessage(e, edgLang)
+            controller.abort()
+            return
+          }
+          const msg = e instanceof Error ? e.message : String(e)
+          if (!firstError) firstError = msg
+        }
 
         if (config.enableRagasMode) {
           // -------- Ragas scenario pipeline --------
@@ -188,10 +205,10 @@ export function useEvalDatasetGeneration(
                   })
                   if (ents.size > 0 && entitySetsById) entitySetsById[d.id] = ents
                 } catch (e) {
-                  // Per-doc failure is non-fatal; we just lose KG signal for it.
+                  // Per-doc failure is normally non-fatal; we just lose KG signal for it.
+                  // recordWorkerError still escalates 401/403 to fatalAuthMsg + abort.
                   if (controller.signal.aborted) return
-                  const msg = e instanceof Error ? e.message : String(e)
-                  if (!firstError) firstError = msg
+                  recordWorkerError(e)
                 } finally {
                   setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
                 }
@@ -236,8 +253,7 @@ export function useEvalDatasetGeneration(
                 }
               } catch (e) {
                 if (controller.signal.aborted) return
-                const msg = e instanceof Error ? e.message : String(e)
-                if (!firstError) firstError = msg
+                recordWorkerError(e)
               } finally {
                 setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
               }
@@ -266,8 +282,7 @@ export function useEvalDatasetGeneration(
                 setItems([...collected])
               } catch (e) {
                 if (controller.signal.aborted) return
-                const msg = e instanceof Error ? e.message : String(e)
-                if (!firstError) firstError = msg
+                recordWorkerError(e)
               } finally {
                 setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
               }
@@ -338,8 +353,7 @@ export function useEvalDatasetGeneration(
                 }
               } catch (e) {
                 if (controller.signal.aborted) return
-                const msg = e instanceof Error ? e.message : String(e)
-                if (!firstError) firstError = msg
+                recordWorkerError(e)
               } finally {
                 setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
               }
@@ -383,8 +397,7 @@ export function useEvalDatasetGeneration(
               setItems([...pipeline])
             } catch (e) {
               if (controller.signal.aborted) return
-              const msg = e instanceof Error ? e.message : String(e)
-              if (!firstError) firstError = msg
+              recordWorkerError(e)
             }
           }
         }
@@ -435,8 +448,7 @@ export function useEvalDatasetGeneration(
                   }
                 } catch (e) {
                   if (controller.signal.aborted) return
-                  const msg = e instanceof Error ? e.message : String(e)
-                  if (!firstError) firstError = msg
+                  recordWorkerError(e)
                 } finally {
                   setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
                 }
@@ -489,8 +501,7 @@ export function useEvalDatasetGeneration(
                   if (negatives.length > 0) item.hard_negative_ids = negatives
                 } catch (e) {
                   if (controller.signal.aborted) return
-                  const msg = e instanceof Error ? e.message : String(e)
-                  if (!firstError) firstError = msg
+                  recordWorkerError(e)
                 } finally {
                   setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
                 }
@@ -519,13 +530,21 @@ export function useEvalDatasetGeneration(
         setProgress((p) => ({ ...p, phase: 'done' }))
         if (firstError) {
           // Surface non-fatal errors so users notice partial failures.
+          // (fatalAuthMsg is handled in `finally` so it wins even when the
+          // pipeline short-circuited via controller.abort().)
           setError(firstError)
         }
       } catch (e) {
-        if (!controller.signal.aborted) {
+        if (e instanceof LlmAuthError) {
+          if (!fatalAuthMsg) fatalAuthMsg = formatLlmAuthErrorMessage(e, edgLang)
+        } else if (!controller.signal.aborted) {
           setError(e instanceof Error ? e.message : String(e))
         }
       } finally {
+        if (fatalAuthMsg) {
+          // Fatal LLM auth failure always wins over per-item firstError noise.
+          setError(fatalAuthMsg)
+        }
         setIsRunning(false)
         abortRef.current = null
       }

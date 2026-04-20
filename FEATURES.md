@@ -228,6 +228,26 @@ A browser-integrated Python development environment for building, testing, and d
 
 ![](./docs/images/screenshot10_en.png)
 
+### Eval Dataset Generator
+- **LLM-powered evaluation dataset generation**: Automatically generate Search Parameter AutoTuning-compatible JSONL evaluation datasets from real documents in your Azure AI Search index
+- **Two generation modes**:
+  - **Classic mode**: Sample N documents from the index, then generate M queries per document via Azure OpenAI
+  - **Ragas mode**: Plan scenarios across 4 quadrants (Single/Multi × Specific/Abstract) with orthogonal axes (Persona, Style, Length) using the largest-remainder method for diverse, real-world-like query distributions
+- **Multi-stage quality pipeline**:
+  - **Surface dedup**: Jaccard similarity-based deduplication (threshold: 0.85)
+  - **Round-trip consistency (Promptagator)**: Reject queries whose source document does not appear in top-k search results
+  - **Semantic dedup**: Embedding cosine similarity-based deduplication via Azure OpenAI embeddings
+  - **Difficulty Evolution (Evol-Instruct)**: Rewrite queries via paraphrase/negation/aggregation/abstraction to increase difficulty
+  - **Hard Negative Mining (DPR-style)**: Record top-k non-expected documents as `hard_negative_ids` for contrastive training
+- **Domain Schema injection (RAGEval)**: Inject domain-specific entities, relations, and constraints into prompts for improved factuality
+- **NDCG-compatible relevance grades**: Automatically assign graded relevance scores (`expected_ids[0]` → 3, secondary → 2, hard negatives → 0)
+- **Entity-KG**: Optional LLM entity extraction per document for refined multi-hop pairing via entity Jaccard (with token Jaccard fallback)
+- **LLM authentication**: API Key, Bearer Token, and Azure AD (Entra ID) authentication for Azure OpenAI
+- **Dataset persistence**: Save/load/delete generated datasets in browser local storage (`localStorage`), with browser-local durability
+- **JSONL export**: Download evaluation datasets in JSONL format, or send directly to Search Parameter AutoTuning
+- **Real-time progress tracking**: Phase-by-phase progress display (sampling → generating → grounding → embedding → difficulty → hard negatives → done)
+- **Cancellation support**: Cancel generation at any point with partial results preserved
+
 ### Search Parameter AutoTuning
 - **Automated parameter optimization**: Systematically test parameter combinations to find the best configuration
 - **JSONL dataset support**: Upload evaluation datasets in JSONL format with query/answer fields
@@ -327,6 +347,20 @@ A browser-integrated Python development environment for building, testing, and d
   - `exportedAt`: Export timestamp (ISO8601)
   - `runs`, `artifacts` arrays
 - **Import**: Import exported bundles in other environments
+
+### Feature Portal
+- **Welcome screen / feature directory**: Card-based overview of all available RAGOps Studio features, displayed on startup
+- **Category grouping**: Features organized into 6 categories — Search Modes, Builder Tools, Optimization & Testing, Developer Tools, Experiment Management, Azure AI Search Features (Coming Soon)
+- **Feature cards**: Each card shows feature name, icon, and description; click to launch the feature directly
+- **Step-by-step guides**: Click the `?` button on any card to open a guided walkthrough
+  - **Two guide modes**: Basic (beginner-friendly) and Advanced (detailed with tips)
+  - **Modal mode**: Full guide overlay opened from the Portal
+  - **Companion mode**: Persistent floating guide that highlights target UI elements while you use the feature
+  - **DOM element highlighting**: Active step highlights the relevant UI element with smooth scroll-into-view
+  - **Tips section**: Expert tips and best practices for each feature
+  - **Documentation links**: Direct links to official Microsoft Learn documentation
+- **Startup control**: "Don't show on startup" checkbox to dismiss automatic display (persisted in localStorage)
+- **Bilingual support**: All card titles, descriptions, and guide content available in Japanese and English
 
 ## 5. UI/UX Features
 

@@ -2,7 +2,7 @@
 
 **RAGOps, from query to quality.**
 
-Azure AI Search の高度な機能を学習・実験できる Web ベースの開発ツールです。検索クエリのテスト、セマンティック検索、ベクトル検索、エージェント検索（Knowledge Retrieval API）、テキスト分析など、様々な機能を GUI で簡単に試すことができます.
+Azure AI Search の高度な機能を学習・実験できる Web ベースの開発ツールです。検索クエリのテスト、セマンティック検索、ベクトル検索、エージェント検索（Knowledge Retrieval API）、テキスト分析など、さまざまな機能を GUI で簡単に試すことができます。
 
 ## Table of Contents
 
@@ -235,6 +235,26 @@ RAGOps Studio を離れることなく、Azure AI Search の Custom Skill をブ
 ![](./docs/images/screenshot10_jp.png)
 
 
+### Eval Dataset Generator（評価データセットジェネレーター）
+- **LLM による評価データセット自動生成**: Azure AI Search インデックス内の実ドキュメントから、Search Parameter AutoTuning 互換の JSONL 評価データセットを自動生成
+- **2つの生成モード**:
+  - **Classic モード**: インデックスから N 件のドキュメントをサンプリングし、Azure OpenAI でドキュメントごとに M 件のクエリを生成
+  - **Ragas モード**: 4 象限（Single/Multi × Specific/Abstract）にクエリ総数を largest-remainder 法で按分し、Persona・Style（web_search/chat/formal/informal）・Length（short/medium/long）を直交軸として多様なクエリ分布を実現
+- **多段階品質パイプライン**:
+  - **表層重複排除**: Jaccard 類似度による重複排除（閾値: 0.85）
+  - **Round-trip Consistency（Promptagator）**: 再検索して元ドキュメントが top-k に入らないクエリを棄却
+  - **意味的重複排除**: Azure OpenAI Embeddings のコサイン類似度による重複排除
+  - **Difficulty Evolution（Evol-Instruct）**: パラフレーズ・否定・集約・抽象化によるクエリ難化
+  - **Hard Negative Mining（DPR スタイル）**: expected_ids 外の上位 k 件を `hard_negative_ids` として記録し、対比学習信号を強化
+- **Domain Schema 注入（RAGEval）**: ドメイン固有のエンティティ・関係・制約をプロンプトに注入し、事実性とスキーマ整合性を向上
+- **NDCG 互換 relevance_grades**: 関連度スコアを自動付与（`expected_ids[0]` → 3、副ドキュメント → 2、hard negatives → 0）
+- **Entity-KG**: ドキュメントごとに固有名詞・専門用語を LLM 抽出し、entity Jaccard で multi-hop ペアを精緻化（token Jaccard へ自動フォールバック）
+- **LLM 認証**: Azure OpenAI 向けの API Key、Bearer Token、Azure AD（Entra ID）認証に対応
+- **データセット永続化**: 生成済みデータセットを localStorage（`ragops.evalDatasets.v1`）に保存・読み込み・削除
+- **JSONL エクスポート**: JSONL 形式でのダウンロード、または Search Parameter AutoTuning への直接送信
+- **リアルタイム進捗表示**: フェーズごとの進捗表示（サンプリング → 生成 → グラウンディング → 埋め込み → 難化 → ハードネガティブ → 完了）
+- **キャンセル対応**: 任意の時点で生成をキャンセル可能（部分的な結果は保持）
+
 #### Search Parameter AutoTuning（検索パラメータ自動チューニング）
 - **パラメータ自動最適化**: パラメータの組み合わせを網羅的にテストして最適な設定を発見
 - **JSONLデータセット対応**: クエリ/回答フィールドを含むJSONL形式の評価データセットをアップロード
@@ -335,6 +355,20 @@ RAGOps Studio を離れることなく、Azure AI Search の Custom Skill をブ
   - `exportedAt`: エクスポート日時（ISO8601）
   - `runs`, `artifacts` の配列
 - **インポート**: エクスポートしたBundleを別環境でインポート
+
+### Feature Portal（フィーチャーポータル）
+- **ウェルカム画面 / 機能ディレクトリ**: RAGOps Studio の全機能をカード形式で一覧表示する起動時画面
+- **カテゴリ別グルーピング**: 検索モード、ビルダーツール、最適化 & テスト、開発者ツール、実験管理、Azure AI Search 機能（Coming Soon）の 6 カテゴリで整理
+- **機能カード**: 各カードに機能名・アイコン・説明を表示し、クリックで直接機能を起動
+- **ステップバイステップガイド**: カードの `?` ボタンをクリックして使い方ガイドを表示
+  - **2つのガイドモード**: Basic（初心者向け簡易版）と Advanced（詳細版 + Tips）
+  - **Modal モード**: ポータルからフルオーバーレイでガイドを表示
+  - **Companion モード**: 機能起動後もフローティングで持続し、対象の UI 要素をハイライト
+  - **DOM 要素ハイライト**: アクティブなステップに対応する UI 要素をハイライトし、スムーズにスクロール
+  - **Tips セクション**: 各機能のエキスパート向けヒントとベストプラクティス
+  - **ドキュメントリンク**: Microsoft Learn の公式ドキュメントへの直接リンク
+- **起動時表示の制御**: 「次回から自動表示しない」チェックボックスで非表示設定（localStorage に永続化）
+- **日英バイリンガル対応**: すべてのカードタイトル・説明・ガイド内容が日本語と英語で利用可能
 
 ### 5. **UI/UX**
 

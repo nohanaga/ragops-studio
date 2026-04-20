@@ -33,10 +33,14 @@ type ColDef = {
   mono?: boolean
   wrap?: boolean
   render: (it: GeneratedQAItem, idx: number) => ReactNode
+  /** Optional full-text tooltip (overrides the default rendered content as title). */
+  titleFn?: (it: GeneratedQAItem) => string | undefined
 }
 
 const MIN_COL_WIDTH = 60
 const MAX_COL_WIDTH = 1000
+
+const CONTENT_PREVIEW_MAX_CHARS = 200
 
 /** Best-effort content preview for the first expected_id (or source_doc_id). */
 function previewFor(it: GeneratedQAItem, docTextById: Record<string, string>): string {
@@ -44,7 +48,11 @@ function previewFor(it: GeneratedQAItem, docTextById: Record<string, string>): s
   const text = id ? docTextById[id] : ''
   if (!text) return ''
   // Collapse whitespace to keep the cell readable when wrapped.
-  return text.replace(/\s+/g, ' ').trim()
+  const collapsed = text.replace(/\s+/g, ' ').trim()
+  if (collapsed.length > CONTENT_PREVIEW_MAX_CHARS) {
+    return collapsed.slice(0, CONTENT_PREVIEW_MAX_CHARS) + '…'
+  }
+  return collapsed
 }
 
 export function EdgResultsTable(props: EdgResultsTableProps) {
@@ -77,16 +85,21 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
       {
         key: 'expected_ids',
         title: String(t('edgColExpectedIds')),
-        width: 200,
+        width: 140,
         mono: true,
         render: (it) => it.expected_ids.join(', '),
       },
       {
         key: 'content_preview',
         title: String(t('edgColContentPreview')),
-        width: 360,
+        width: 240,
         wrap: true,
         render: (it) => previewFor(it, docTextById),
+        titleFn: (it) => {
+          const id = it.source_doc_id || it.expected_ids[0] || ''
+          const text = id ? docTextById[id] : ''
+          return text ? text.replace(/\s+/g, ' ').trim() : undefined
+        },
       },
       {
         key: 'query_type',
@@ -183,6 +196,33 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
   } | null>(null)
   const [activeResizer, setActiveResizer] = useState<string | null>(null)
 
+  const tableRef = useRef<HTMLTableElement>(null)
+
+  /** Double-click a resizer to auto-fit the column width to its content. */
+  const onResizerDoubleClick = useCallback(
+    (key: string) => () => {
+      const table = tableRef.current
+      if (!table) return
+      const colIdx = columns.findIndex((c) => c.key === key)
+      if (colIdx < 0) return
+      // Measure the natural width of each cell in this column.
+      let maxW = MIN_COL_WIDTH
+      const cells = table.querySelectorAll<HTMLElement>(
+        `thead th:nth-child(${colIdx + 1}), tbody td:nth-child(${colIdx + 1})`,
+      )
+      cells.forEach((cell) => {
+        // Temporarily remove width constraints so scrollWidth reflects content.
+        const prev = cell.style.width
+        cell.style.width = 'auto'
+        maxW = Math.max(maxW, cell.scrollWidth + 2)
+        cell.style.width = prev
+      })
+      const fitted = Math.min(MAX_COL_WIDTH, maxW)
+      setWidths((prev) => ({ ...prev, [key]: fitted }))
+    },
+    [columns],
+  )
+
   const onResizerPointerDown = useCallback(
     (key: string) => (e: ReactPointerEvent<HTMLDivElement>) => {
       e.preventDefault()
@@ -220,7 +260,7 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
 
   return (
     <div className="edgResults__tableWrap">
-      <table className="spvTable edgResults__table">
+      <table className="spvTable edgResults__table" ref={tableRef}>
         <colgroup>
             {columns.map((c) => (
             <col key={c.key} style={{ width: `${effectiveWidths[c.key]}px` }} />
@@ -238,6 +278,7 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
                 <div
                   className={`edgColResizer${activeResizer === c.key ? ' edgColResizer--active' : ''}`}
                   onPointerDown={onResizerPointerDown(c.key)}
+                  onDoubleClick={onResizerDoubleClick(c.key)}
                 />
               </th>
             ))}
@@ -254,7 +295,9 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
                 if (c.mono) classNames.push('edgMono')
                 if (c.wrap) classNames.push('edgCell--wrap')
                 const content = c.render(it, idx)
-                const titleStr = typeof content === 'string' ? content : undefined
+                const titleStr = c.titleFn
+                  ? c.titleFn(it)
+                  : typeof content === 'string' ? content : undefined
                 return (
                   <td
                     key={c.key}

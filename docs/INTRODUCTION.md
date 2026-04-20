@@ -442,6 +442,58 @@ A **browser-integrated Python development environment** for rapidly building, te
 
 ![image.png](./images/screenshot32_en.gif)
 
+### Eval Dataset Generator
+
+Manually creating evaluation datasets for search quality benchmarking is one of the most time-consuming tasks in RAG system development. The **Eval Dataset Generator** automates this process by leveraging Azure OpenAI to generate realistic queries from real documents in your search index.
+
+**Comparison with Traditional Approach**
+| Aspect | Manual Dataset Creation | Eval Dataset Generator |
+|------|--------|----------------------------|
+| Query authoring | Domain experts write queries by hand | LLM generates queries from real index documents |
+| Diversity | Limited by human creativity and time | Ragas 4-quadrant taxonomy ensures systematic coverage |
+| Quality assurance | Manual review only | Multi-stage filters: round-trip consistency, dedup, grounding |
+| Difficulty control | Subjective assessment | Evol-Instruct rewrites with hard negative mining |
+| Scale | Dozens of queries after hours of work | Hundreds of queries in minutes |
+| AutoTuning integration | Manually format JSONL | One-click export or direct send to AutoTuning |
+
+**Two Generation Modes**
+- **Classic mode**: Sample N documents, generate M queries per document — simple and fast
+- **Ragas mode**: Plan scenarios across 4 quadrants (Single/Multi × Specific/Abstract) with orthogonal axes (Persona, Style, Length) for diverse, real-world-like query distributions
+
+**Multi-Stage Quality Pipeline**
+1. **Surface dedup**: Jaccard similarity-based deduplication removes near-duplicate queries
+2. **Round-trip Consistency (Promptagator)**: Rejects queries whose source document does not appear in top-k search results — filters out hallucinated queries
+3. **Semantic dedup**: Embedding cosine similarity-based deduplication via Azure OpenAI embeddings
+4. **Difficulty Evolution (Evol-Instruct)**: Rewrites queries via paraphrase/negation/aggregation/abstraction
+5. **Hard Negative Mining (DPR-style)**: Records top-k non-expected documents as contrastive examples
+
+**Advanced Capabilities**
+- **Domain Schema injection (RAGEval)**: Inject domain entities, relations, and constraints for improved factuality
+- **NDCG-compatible relevance grades**: Auto-assign graded relevance scores for use with NDCG/XDCG evaluators
+- **Entity-KG**: LLM entity extraction per document for refined multi-hop pairing
+- **Dataset persistence**: Save/load/delete generated datasets in browser localStorage; export as JSONL. Note that saved datasets may be lost if browser/site storage is cleared.
+
+### Feature Portal
+
+The **Feature Portal** is an interactive welcome screen that serves as a comprehensive directory of all RAGOps Studio features. It is designed to help both new users discover capabilities and experienced users quickly navigate to specific tools.
+
+**Card-Based Feature Directory**
+- All features organized into 6 categories: Search Modes, Builder Tools, Optimization & Testing, Developer Tools, Experiment Management, and Azure AI Search Features (Coming Soon)
+- Each card displays feature name, icon, and description
+- Click any card to launch the feature directly
+
+**Step-by-Step Guided Walkthroughs**
+- Click the `?` icon on any card to open an interactive guide
+- **Two detail levels**: Basic (beginner-friendly short walkthroughs) and Advanced (in-depth with expert tips)
+- **Modal mode**: Full guide overlay opened from the Portal
+- **Companion mode**: After launching a feature, the guide persists as a floating panel that highlights the relevant UI element for each step — enabling hands-on learning while actually using the tool
+- **Tips section**: Expert tips and best practices curated for each feature
+- **Documentation links**: Direct links to official Microsoft Learn documentation
+
+**Startup Control**
+- "Don't show on startup" checkbox to dismiss automatic display (persisted in localStorage)
+- Can always be re-opened from the header
+
 # 🧑‍💻 Maximum Developer Experience (DX)
 
 ## 1. Experiment Management Workflow

@@ -8,7 +8,7 @@
  */
 
 import type { LlmAuth } from './llmAuth'
-import { buildLlmAuthHeaders } from './llmAuth'
+import { buildLlmAuthHeaders, LlmAuthError, isLlmAuthStatus } from './llmAuth'
 
 export interface EmbedParams {
   endpoint: string
@@ -55,6 +55,9 @@ export async function embedTexts(params: EmbedParams): Promise<number[][]> {
     })
     if (!res.ok) {
       const errorText = await res.text().catch(() => '')
+      if (isLlmAuthStatus(res.status)) {
+        throw new LlmAuthError(res.status, auth.mode, errorText.slice(0, 500))
+      }
       throw new Error(`Azure OpenAI embeddings failed (${res.status}): ${errorText.slice(0, 300)}`)
     }
     const data = (await res.json()) as AoaiEmbeddingsResponse

@@ -165,7 +165,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
   const [schemaConstraints, setSchemaConstraints] = useState<string>('')
 
   // Phase 6: NDCG/XDCG-compatible relevance grades + entity-KG (opt-in).
-  const [enableRelevanceGrades, setEnableRelevanceGrades] = useState<boolean>(true)
+  const [enableRelevanceGrades, setEnableRelevanceGrades] = useState<boolean>(false)
   const [enableEntityKG, setEnableEntityKG] = useState<boolean>(false)
 
   // Phase 3: persistence
