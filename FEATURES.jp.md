@@ -250,7 +250,7 @@ RAGOps Studio を離れることなく、Azure AI Search の Custom Skill をブ
 - **NDCG 互換 relevance_grades**: 関連度スコアを自動付与（`expected_ids[0]` → 3、副ドキュメント → 2、hard negatives → 0）
 - **Entity-KG**: ドキュメントごとに固有名詞・専門用語を LLM 抽出し、entity Jaccard で multi-hop ペアを精緻化（token Jaccard へ自動フォールバック）
 - **LLM 認証**: Azure OpenAI 向けの API Key、Bearer Token、Azure AD（Entra ID）認証に対応
-- **データセット永続化**: 生成済みデータセットを IndexedDB に保存・読み込み・削除
+- **データセット永続化**: 生成済みデータセットを localStorage（`ragops.evalDatasets.v1`）に保存・読み込み・削除
 - **JSONL エクスポート**: JSONL 形式でのダウンロード、または Search Parameter AutoTuning への直接送信
 - **リアルタイム進捗表示**: フェーズごとの進捗表示（サンプリング → 生成 → グラウンディング → 埋め込み → 難化 → ハードネガティブ → 完了）
 - **キャンセル対応**: 任意の時点で生成をキャンセル可能（部分的な結果は保持）
