@@ -357,6 +357,13 @@ type ModalStateContextValue = {
   setIsSkillEditorOpen: Dispatch<SetStateAction<boolean>>
   skillEditorLinkedNodeId: string | null
   setSkillEditorLinkedNodeId: Dispatch<SetStateAction<string | null>>
+  isEvalDatasetGeneratorOpen: boolean
+  setIsEvalDatasetGeneratorOpen: Dispatch<SetStateAction<boolean>>
+  /** Phase 3: handoff payload from EDAG to AutoTuning ("Send to AutoTuning"). */
+  pendingAutoTuningJsonl: { fileName: string; text: string } | null
+  setPendingAutoTuningJsonl: Dispatch<
+    SetStateAction<{ fileName: string; text: string } | null>
+  >
 }
 
 const ModalStateContext = createContext<ModalStateContextValue | null>(null)
@@ -374,6 +381,10 @@ export function ModalStateProvider(props: { children: ReactNode }) {
   const [isFilterBuilderOpen, setIsFilterBuilderOpen] = useState(false)
   const [isSkillEditorOpen, setIsSkillEditorOpen] = useState(false)
   const [skillEditorLinkedNodeId, setSkillEditorLinkedNodeId] = useState<string | null>(null)
+  const [isEvalDatasetGeneratorOpen, setIsEvalDatasetGeneratorOpen] = useState(false)
+  const [pendingAutoTuningJsonl, setPendingAutoTuningJsonl] = useState<
+    { fileName: string; text: string } | null
+  >(null)
 
   const value = useMemo<ModalStateContextValue>(
     () => ({
@@ -401,6 +412,10 @@ export function ModalStateProvider(props: { children: ReactNode }) {
       setIsSkillEditorOpen,
       skillEditorLinkedNodeId,
       setSkillEditorLinkedNodeId,
+      isEvalDatasetGeneratorOpen,
+      setIsEvalDatasetGeneratorOpen,
+      pendingAutoTuningJsonl,
+      setPendingAutoTuningJsonl,
     }),
     [
       isQpsTesterOpen,
@@ -415,6 +430,8 @@ export function ModalStateProvider(props: { children: ReactNode }) {
       isFilterBuilderOpen,
       isSkillEditorOpen,
       skillEditorLinkedNodeId,
+      isEvalDatasetGeneratorOpen,
+      pendingAutoTuningJsonl,
     ]
   )
 

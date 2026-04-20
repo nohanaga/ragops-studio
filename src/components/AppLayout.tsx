@@ -22,6 +22,7 @@ import {
   SkillPipelineRightPane,
   SkillCodeEditor,
   SearchParameterAutoTuning,
+  EvalDatasetGenerator,
   SearchPipelineVisualizer,
   SynonymMapBuilder,
   TextToVectorModal,
@@ -61,6 +62,10 @@ export function AppLayout(props: {
     setTextToVectorEndpoint: (v: string) => void
     textToVectorApiKey: string
     setTextToVectorApiKey: (v: string) => void
+    textToVectorAuthMode: 'apiKey' | 'bearer'
+    setTextToVectorAuthMode: (v: 'apiKey' | 'bearer') => void
+    textToVectorBearerToken: string
+    setTextToVectorBearerToken: (v: string) => void
     textToVectorModel: string
     setTextToVectorModel: (v: string) => void
     textToVectorDimensions: number | null
@@ -222,6 +227,8 @@ export function AppLayout(props: {
     isSkillEditorOpen,
     setIsSkillEditorOpen,
     setSkillEditorLinkedNodeId,
+    isEvalDatasetGeneratorOpen,
+    setIsEvalDatasetGeneratorOpen,
   } = useModalState()
   const {
     uiError,
@@ -433,6 +440,10 @@ export function AppLayout(props: {
         setIsAutoTuningOpen(true)
         setCenterTab('auto-tuning')
         break
+      case 'openEvalDatasetGenerator':
+        setIsEvalDatasetGeneratorOpen(true)
+        setCenterTab('eval-dataset-generator')
+        break
       case 'openVectorOptimizer':
         setIsVectorOptimizerOpen(true)
         setCenterTab('vector-optimizer')
@@ -476,6 +487,10 @@ export function AppLayout(props: {
         onOpenSearchParameterAutoTuning={() => {
           setIsAutoTuningOpen(true)
           setCenterTab('auto-tuning')
+        }}
+        onOpenEvalDatasetGenerator={() => {
+          setIsEvalDatasetGeneratorOpen(true)
+          setCenterTab('eval-dataset-generator')
         }}
         onOpenQpsTester={() => {
           setIsQpsTesterOpen(true)
@@ -596,6 +611,36 @@ export function AppLayout(props: {
                     e.stopPropagation()
                     setIsAutoTuningOpen(false)
                     if (centerTab === 'auto-tuning') {
+                      setCenterTab('builder')
+                    }
+                  }}
+                  aria-label="Close tab"
+                  title="Close tab"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
+            {isEvalDatasetGeneratorOpen && (
+              <div className="tabWrapper">
+                <button
+                  type="button"
+                  className={'tab ' + (centerTab === 'eval-dataset-generator' ? 'tab--active' : '')}
+                  onClick={() => setCenterTab('eval-dataset-generator')}
+                >
+                  <span className="tab__label">
+                    <i className="bi bi-stars icon--mr6"></i>
+                    {t('evalDatasetGenerator')}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="tab__closeBtn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setIsEvalDatasetGeneratorOpen(false)
+                    if (centerTab === 'eval-dataset-generator') {
                       setCenterTab('builder')
                     }
                   }}
@@ -995,6 +1040,8 @@ export function AppLayout(props: {
                   format={format}
                   defaultTextToVectorEndpoint={textToVector.textToVectorEndpoint}
                   defaultTextToVectorApiKey={textToVector.textToVectorApiKey}
+                  defaultTextToVectorAuthMode={textToVector.textToVectorAuthMode}
+                  defaultTextToVectorBearerToken={textToVector.textToVectorBearerToken}
                 />
               </div>
             </div>
@@ -1020,6 +1067,31 @@ export function AppLayout(props: {
                 selectedExperimentId={selectedExperimentId}
                 reloadRuns={reloadRuns}
                 restoreRunId={autoTuningRestoreRunId}
+                onOpenEvalDatasetGenerator={() => {
+                  setIsEvalDatasetGeneratorOpen(true)
+                  setCenterTab('eval-dataset-generator')
+                }}
+              />
+            </div>
+          )}
+
+          {isEvalDatasetGeneratorOpen && (
+            <div className="tabPane" hidden={centerTab !== 'eval-dataset-generator'}>
+              <EvalDatasetGenerator
+                t={t}
+                language={language}
+                activeProfile={activeProfile}
+                apiVersion={effectiveApiVersion}
+                indexName={indexName}
+                availableIndexNames={availableIndexNames}
+                setIndexName={setIndexName}
+                indexFieldNames={props.requestBuilderIndexFieldNames}
+                defaultIdFieldName={props.requestBuilderKeyFieldName}
+                defaultLlmEndpoint={textToVector.textToVectorEndpoint}
+                defaultLlmApiKey={textToVector.textToVectorApiKey}
+                defaultLlmAuthMode={textToVector.textToVectorAuthMode}
+                defaultLlmBearerToken={textToVector.textToVectorBearerToken}
+                openIndexInspector={openIndexInspector}
               />
             </div>
           )}
@@ -1133,7 +1205,8 @@ export function AppLayout(props: {
             centerTab !== 'index-builder' &&
             centerTab !== 'skill-pipeline-builder' &&
             centerTab !== 'skill-editor' &&
-            centerTab !== 'search-pipeline-visualizer' && (
+            centerTab !== 'search-pipeline-visualizer' &&
+            centerTab !== 'eval-dataset-generator' && (
               <div className="pane__centerContent">
                 <div className="resultGrid" style={{ gridTemplateColumns: `repeat(${resultViews.length}, minmax(0, 1fr))` }}>
                   {resultViews.map((view) => (
@@ -1214,6 +1287,10 @@ export function AppLayout(props: {
         setTextToVectorEndpoint={textToVector.setTextToVectorEndpoint}
         textToVectorApiKey={textToVector.textToVectorApiKey}
         setTextToVectorApiKey={textToVector.setTextToVectorApiKey}
+        textToVectorAuthMode={textToVector.textToVectorAuthMode}
+        setTextToVectorAuthMode={textToVector.setTextToVectorAuthMode}
+        textToVectorBearerToken={textToVector.textToVectorBearerToken}
+        setTextToVectorBearerToken={textToVector.setTextToVectorBearerToken}
         textToVectorModel={textToVector.textToVectorModel}
         setTextToVectorModel={textToVector.setTextToVectorModel}
         textToVectorDimensions={textToVector.textToVectorDimensions}

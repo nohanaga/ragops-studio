@@ -90,6 +90,8 @@ function App() {
     setIsFilterBuilderOpen,
     isSkillEditorOpen,
     setIsSkillEditorOpen,
+    isEvalDatasetGeneratorOpen,
+    setIsEvalDatasetGeneratorOpen,
   } = useModalState()
   const {
     setUiError,
@@ -709,6 +711,7 @@ function App() {
     isSkillPipelineBuilderOpen,
     isVectorOptimizerOpen,
     isSkillEditorOpen,
+    isEvalDatasetGeneratorOpen,
   })
 
   useLatestResponseRestore({
@@ -751,6 +754,7 @@ function App() {
     setIsSkillPipelineBuilderOpen,
     setIsVectorOptimizerOpen,
     setIsSkillEditorOpen,
+    setIsEvalDatasetGeneratorOpen,
   })
 
   useSelectedRunsArtifacts({
@@ -777,6 +781,7 @@ function App() {
     setIsIndexBuilderOpen,
     setIsSkillPipelineBuilderOpen,
     setIsVectorOptimizerOpen,
+    setIsEvalDatasetGeneratorOpen,
   })
 
   const { renderResultView } = useResultViewRenderer({

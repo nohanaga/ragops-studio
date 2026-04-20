@@ -190,6 +190,7 @@ export async function searchDocuments(input: {
   apiVersion: SearchApiVersion;
   body: JsonValue;
   language?: Language;
+  signal?: AbortSignal;
 }): Promise<RestResult> {
   const lang = getLang(input.language);
   const endpoint = normalizeEndpoint(input.profile.endpoint);
@@ -226,6 +227,7 @@ export async function searchDocuments(input: {
       method: 'POST',
       headers,
       body: JSON.stringify(input.body ?? {}),
+      signal: input.signal,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -238,6 +240,7 @@ export async function searchDocuments(input: {
           method: 'POST',
           headers: fallbackHeaders,
           body: JSON.stringify(input.body ?? {}),
+          signal: input.signal,
         });
         resultUrl = fallbackUrl;
       } catch (fallbackError) {

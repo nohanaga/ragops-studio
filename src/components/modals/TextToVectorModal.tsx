@@ -6,6 +6,8 @@
  */
 
 import type { TranslationKey } from '../../lib/translations'
+import { buildAadCliCommand, type LlmAuthMode } from '../../lib/llmAuth'
+import { useState } from 'react'
 
 export function TextToVectorModal(props: {
   open: boolean
@@ -16,6 +18,10 @@ export function TextToVectorModal(props: {
   setTextToVectorEndpoint: (v: string) => void
   textToVectorApiKey: string
   setTextToVectorApiKey: (v: string) => void
+  textToVectorAuthMode: LlmAuthMode
+  setTextToVectorAuthMode: (v: LlmAuthMode) => void
+  textToVectorBearerToken: string
+  setTextToVectorBearerToken: (v: string) => void
   textToVectorModel: string
   setTextToVectorModel: (v: string) => void
   textToVectorDimensions: number | null
@@ -37,6 +43,10 @@ export function TextToVectorModal(props: {
     setTextToVectorEndpoint,
     textToVectorApiKey,
     setTextToVectorApiKey,
+    textToVectorAuthMode,
+    setTextToVectorAuthMode,
+    textToVectorBearerToken,
+    setTextToVectorBearerToken,
     textToVectorModel,
     setTextToVectorModel,
     textToVectorDimensions,
@@ -49,6 +59,17 @@ export function TextToVectorModal(props: {
     onCopyVector,
     onPasteVectorToBuilder,
   } = props
+
+  const [cliCopied, setCliCopied] = useState(false)
+  async function onCopyCliCommand() {
+    try {
+      await navigator.clipboard.writeText(buildAadCliCommand())
+      setCliCopied(true)
+      window.setTimeout(() => setCliCopied(false), 1500)
+    } catch {
+      // ignore
+    }
+  }
 
   if (!open) return null
 
@@ -76,21 +97,68 @@ export function TextToVectorModal(props: {
           </label>
 
           <label className="field field--mb16">
-            <span className="field__label">
-              {t('textToVectorApiKeyLabel')}
-              <span className="infoTooltip infoTooltip--danger" title={String(t('textToVectorSecurityNoticeBody'))}>
-                ⚠️
-              </span>
-            </span>
-            <input
+            <span className="field__label">{t('llmAuthModeLabel')}</span>
+            <select
               className="field__input"
-              type="password"
-              value={textToVectorApiKey}
-              onChange={(e) => setTextToVectorApiKey(e.target.value)}
-              placeholder={String(t('textToVectorApiKeyPlaceholder'))}
+              value={textToVectorAuthMode}
+              onChange={(e) => setTextToVectorAuthMode(e.target.value === 'bearer' ? 'bearer' : 'apiKey')}
               disabled={textToVectorLoading}
-            />
+            >
+              <option value="apiKey">apiKey</option>
+              <option value="bearer">bearer (Entra ID)</option>
+            </select>
           </label>
+
+          {textToVectorAuthMode === 'apiKey' ? (
+            <label className="field field--mb16">
+              <span className="field__label">
+                {t('textToVectorApiKeyLabel')}
+                <span className="infoTooltip infoTooltip--danger" title={String(t('textToVectorSecurityNoticeBody'))}>
+                  ⚠️
+                </span>
+              </span>
+              <input
+                className="field__input"
+                type="password"
+                value={textToVectorApiKey}
+                onChange={(e) => setTextToVectorApiKey(e.target.value)}
+                placeholder={String(t('textToVectorApiKeyPlaceholder'))}
+                disabled={textToVectorLoading}
+              />
+            </label>
+          ) : (
+            <label className="field field--mb16">
+              <span className="field__label">
+                {t('llmBearerTokenLabel')}
+                <span className="infoTooltip infoTooltip--danger" title={String(t('textToVectorSecurityNoticeBody'))}>
+                  ⚠️
+                </span>
+              </span>
+              <input
+                className="field__input"
+                type="password"
+                value={textToVectorBearerToken}
+                onChange={(e) => setTextToVectorBearerToken(e.target.value)}
+                placeholder={String(t('llmBearerTokenPlaceholder'))}
+                disabled={textToVectorLoading}
+              />
+              <div className="field__hint" style={{ marginTop: 6 }}>
+                <div>{t('aadCliHelperDesc')}</div>
+                <div className="aadCliHelper">
+                  <code className="aadCliHelper__code">{buildAadCliCommand()}</code>
+                  <button
+                    type="button"
+                    className="btn btn--icon"
+                    onClick={() => void onCopyCliCommand()}
+                    disabled={textToVectorLoading}
+                    title={String(t('aadCliCopy'))}
+                  >
+                    <i className={cliCopied ? 'bi bi-check2' : 'bi bi-clipboard'}></i>
+                  </button>
+                </div>
+              </div>
+            </label>
+          )}
 
           <label className="field field--mb16">
             <span className="field__label">{t('textToVectorModelLabel')}</span>

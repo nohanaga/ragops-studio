@@ -122,9 +122,18 @@ export interface AppSettings {
   profiles: Record<string, ConnectionProfile>;
   openAiEndpoint?: string;
   openAiApiKey?: string;
+  openAiAuthMode?: 'apiKey' | 'bearer';
+  openAiBearerToken?: string;
   language?: 'ja' | 'en';
   displayTitleFields?: string;
   displayTextFields?: string;
+  /**
+   * JSON-serialized snapshot of the Eval Dataset Generator (EDAG) form
+   * (see {@link ../app/persistedEvalDatasetForm.ts}). Stored as a string to
+   * avoid coupling AppSettings to the EDAG-specific shape, and to keep the
+   * type stable across schema additions.
+   */
+  evalDatasetFormJson?: string;
 }
 
 export interface SettingsRecord {

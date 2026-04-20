@@ -18,6 +18,13 @@ import { translations } from '../../lib/translations'
 import type { SearchFormState } from '../../types'
 import { buildSearchBodyFromForm } from '../../utils/appRequestBodies'
 import { JsonViewer } from '../viewers/JsonViewer'
+import { useModalState } from '../../contexts'
+import {
+  getEvalDataset,
+  listEvalDatasets,
+  type PersistedEvalDatasetItem,
+} from '../../app/persistedEvalDatasets'
+import { toJsonl } from '../../lib/evalDatasetGenerator'
 
 type TranslationKey = keyof typeof translations.ja
 
@@ -237,6 +244,8 @@ export type SearchParameterAutoTuningProps = {
   selectedExperimentId: string | null
   reloadRuns: (experimentId: string | null) => Promise<void>
   restoreRunId?: string | null
+  /** Open the Eval Dataset Generator and switch the center tab to it. */
+  onOpenEvalDatasetGenerator?: () => void
 }
 
 export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps) {
@@ -259,6 +268,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
     selectedExperimentId,
     reloadRuns,
     restoreRunId,
+    onOpenEvalDatasetGenerator,
   } = props
 
   const format = useCallback((key: TranslationKey, params: Record<string, string | number>): string => {
@@ -285,6 +295,10 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
   const [rows, setRows] = useState<JsonlRow[]>([])
   const [datasetError, setDatasetError] = useState<string | null>(null)
   const [restoredRowsCount, setRestoredRowsCount] = useState<number | null>(null)
+
+  const { setIsEvalDatasetGeneratorOpen, pendingAutoTuningJsonl, setPendingAutoTuningJsonl } = useModalState()
+  const [savedDatasetList, setSavedDatasetList] = useState<PersistedEvalDatasetItem[]>(() => listEvalDatasets())
+  const [selectedSavedDatasetId, setSelectedSavedDatasetId] = useState<string>('')
 
   const fieldStats = useMemo(() => inferFieldStats(rows), [rows])
   const stringFields = useMemo(() => fieldStats.filter((s) => s.hasString).map((s) => s.key), [fieldStats])
@@ -662,14 +676,18 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
   }, [activeProfile, apiVersion, indexName, indexNameValuesCsv, optIndexName, rows.length])
 
   async function onUploadDataset(file: File) {
+    const text = await file.text()
+    loadDatasetFromText(text, file.name)
+  }
+
+  function loadDatasetFromText(text: string, fileName: string) {
     setDatasetError(null)
     setRunError(null)
     setBestResult(null)
     setRows([])
     setRestoredRowsCount(null)
-    setDatasetFileName(file.name)
+    setDatasetFileName(fileName)
 
-    const text = await file.text()
     const parsed = safeParseJsonl(text)
     if (parsed.error) {
       if (parsed.error.kind === 'invalidObject') {
@@ -697,6 +715,28 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
     setQueryField(q)
     setAnswerField(a)
     setResultIdField((prev) => prev || effectiveDefaultIdField)
+  }
+
+  // Consume pending JSONL handed off from the Eval Dataset Generator.
+  useEffect(() => {
+    if (!pendingAutoTuningJsonl) return
+    loadDatasetFromText(pendingAutoTuningJsonl.text, pendingAutoTuningJsonl.fileName)
+    setPendingAutoTuningJsonl(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAutoTuningJsonl])
+
+  function onLoadSavedDataset(id: string) {
+    setSelectedSavedDatasetId(id)
+    if (!id) return
+    const got = getEvalDataset(id)
+    if (!got) return
+    const text = toJsonl(got.items)
+    const fname = `${got.title.replace(/[^a-z0-9_-]/gi, '_') || 'eval-dataset'}.jsonl`
+    loadDatasetFromText(text, fname)
+  }
+
+  function refreshSavedDatasetList() {
+    setSavedDatasetList(listEvalDatasets())
   }
 
   function buildCombinations(): Combination[] {
@@ -1224,7 +1264,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
         </div>
 
         <div className="form form--compact">
-          <label className="field" style={{ gridColumn: '1 / -1' }}>
+          <div className="field" style={{ gridColumn: '1 / -1' }}>
             <span className="field__label">{t('atDatasetLabel')}</span>
             <div className="atDatasetUploadBox" data-guide-target="autotuning-upload">
               <div className="actions">
@@ -1235,6 +1275,38 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
                 >
                   {t('atUploadJsonl')}
                 </button>
+                <button
+                  type="button"
+                  className="btn btn--search"
+                  title={String(t('atGenerateDatasetHint'))}
+                  onClick={() => {
+                    if (onOpenEvalDatasetGenerator) {
+                      onOpenEvalDatasetGenerator()
+                    } else {
+                      setIsEvalDatasetGeneratorOpen(true)
+                    }
+                  }}
+                >
+                  <i className="bi bi-stars icon--mr6"></i>
+                  {t('atGenerateDataset')}
+                </button>
+                {savedDatasetList.length > 0 && (
+                  <select
+                    className="field__input"
+                    style={{ minWidth: 220, maxWidth: 360 }}
+                    title={String(t('atLoadSavedDatasetHint'))}
+                    value={selectedSavedDatasetId}
+                    onChange={(e) => onLoadSavedDataset(e.target.value)}
+                    onFocus={refreshSavedDatasetList}
+                  >
+                    <option value="">{t('atLoadSavedDataset')}</option>
+                    {savedDatasetList.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.title} ({p.itemCount})
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -1254,7 +1326,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
                 {t('atJsonlFormatHint')}
               </div>
             </div>
-          </label>
+          </div>
 
           {datasetError && (
             <div className="notice notice--error" style={{ gridColumn: '1 / -1' }}>

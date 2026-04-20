@@ -8,6 +8,7 @@
 import { useMemo, useState } from 'react'
 
 import { translations } from '../../lib/translations'
+import { buildAadCliCommand, buildLlmAuthHeaders, type LlmAuthMode } from '../../lib/llmAuth'
 
 type TranslationKey = keyof typeof translations.ja
 
@@ -98,12 +99,16 @@ export function VectorOptimizerBuilder(props: {
   // These are only used as initial values (not synchronized).
   defaultTextToVectorEndpoint?: string
   defaultTextToVectorApiKey?: string
+  defaultTextToVectorAuthMode?: LlmAuthMode
+  defaultTextToVectorBearerToken?: string
 }) {
   const {
     t,
     format,
     defaultTextToVectorEndpoint,
     defaultTextToVectorApiKey,
+    defaultTextToVectorAuthMode,
+    defaultTextToVectorBearerToken,
   } = props
 
   // Local Text to Vector state (NOT shared with the Tools modal)
@@ -111,9 +116,22 @@ export function VectorOptimizerBuilder(props: {
   const [textToVectorModel, setTextToVectorModel] = useState<string>('text-embedding-3-large')
   const [textToVectorEndpoint, setTextToVectorEndpoint] = useState<string>(() => defaultTextToVectorEndpoint ?? '')
   const [textToVectorApiKey, setTextToVectorApiKey] = useState<string>(() => defaultTextToVectorApiKey ?? '')
+  const [textToVectorAuthMode, setTextToVectorAuthMode] = useState<LlmAuthMode>(() => defaultTextToVectorAuthMode ?? 'apiKey')
+  const [textToVectorBearerToken, setTextToVectorBearerToken] = useState<string>(() => defaultTextToVectorBearerToken ?? '')
+  const [cliCopied, setCliCopied] = useState<boolean>(false)
   const [textToVectorDimensions, setTextToVectorDimensions] = useState<number | null>(null)
   const [textToVectorResult, setTextToVectorResult] = useState<number[] | null>(null)
   const [textToVectorLoading, setTextToVectorLoading] = useState<boolean>(false)
+
+  async function onCopyCliCommand() {
+    try {
+      await navigator.clipboard.writeText(buildAadCliCommand())
+      setCliCopied(true)
+      window.setTimeout(() => setCliCopied(false), 1500)
+    } catch {
+      // ignore
+    }
+  }
 
   async function onGenerateVector() {
     if (!textToVectorInput.trim()) {
@@ -124,8 +142,12 @@ export function VectorOptimizerBuilder(props: {
       alert(String(t('textToVectorAlertEnterEndpoint')))
       return
     }
-    if (!textToVectorApiKey.trim()) {
+    if (textToVectorAuthMode === 'apiKey' && !textToVectorApiKey.trim()) {
       alert(String(t('textToVectorAlertEnterApiKey')))
+      return
+    }
+    if (textToVectorAuthMode === 'bearer' && !textToVectorBearerToken.trim()) {
+      alert(String(t('textToVectorAlertEnterBearerToken')))
       return
     }
 
@@ -138,7 +160,11 @@ export function VectorOptimizerBuilder(props: {
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        'api-key': textToVectorApiKey,
+        ...buildLlmAuthHeaders(
+          textToVectorAuthMode === 'bearer'
+            ? { mode: 'bearer', bearerToken: textToVectorBearerToken }
+            : { mode: 'apiKey', apiKey: textToVectorApiKey },
+        ),
       }
 
       const response = await fetch(url, {
@@ -364,21 +390,68 @@ export function VectorOptimizerBuilder(props: {
         </label>
 
         <label className="field field--mb16">
-          <span className="field__label">
-            {t('textToVectorApiKeyLabel')}
-            <span className="infoTooltip infoTooltip--danger" title={String(t('textToVectorSecurityNoticeBody'))}>
-              ⚠️
-            </span>
-          </span>
-          <input
+          <span className="field__label">{t('llmAuthModeLabel')}</span>
+          <select
             className="field__input"
-            type="password"
-            value={textToVectorApiKey}
-            onChange={(e) => setTextToVectorApiKey(e.target.value)}
-            placeholder={String(t('textToVectorApiKeyPlaceholder'))}
+            value={textToVectorAuthMode}
+            onChange={(e) => setTextToVectorAuthMode(e.target.value === 'bearer' ? 'bearer' : 'apiKey')}
             disabled={textToVectorLoading}
-          />
+          >
+            <option value="apiKey">apiKey</option>
+            <option value="bearer">bearer (Entra ID)</option>
+          </select>
         </label>
+
+        {textToVectorAuthMode === 'apiKey' ? (
+          <label className="field field--mb16">
+            <span className="field__label">
+              {t('textToVectorApiKeyLabel')}
+              <span className="infoTooltip infoTooltip--danger" title={String(t('textToVectorSecurityNoticeBody'))}>
+                ⚠️
+              </span>
+            </span>
+            <input
+              className="field__input"
+              type="password"
+              value={textToVectorApiKey}
+              onChange={(e) => setTextToVectorApiKey(e.target.value)}
+              placeholder={String(t('textToVectorApiKeyPlaceholder'))}
+              disabled={textToVectorLoading}
+            />
+          </label>
+        ) : (
+          <label className="field field--mb16">
+            <span className="field__label">
+              {t('llmBearerTokenLabel')}
+              <span className="infoTooltip infoTooltip--danger" title={String(t('textToVectorSecurityNoticeBody'))}>
+                ⚠️
+              </span>
+            </span>
+            <input
+              className="field__input"
+              type="password"
+              value={textToVectorBearerToken}
+              onChange={(e) => setTextToVectorBearerToken(e.target.value)}
+              placeholder={String(t('llmBearerTokenPlaceholder'))}
+              disabled={textToVectorLoading}
+            />
+            <div className="field__hint" style={{ marginTop: 6 }}>
+              <div>{t('aadCliHelperDesc')}</div>
+              <div className="aadCliHelper">
+                <code className="aadCliHelper__code">{buildAadCliCommand()}</code>
+                <button
+                  type="button"
+                  className="btn btn--icon"
+                  onClick={() => void onCopyCliCommand()}
+                  disabled={textToVectorLoading}
+                  title={String(t('aadCliCopy'))}
+                >
+                  <i className={cliCopied ? 'bi bi-check2' : 'bi bi-clipboard'}></i>
+                </button>
+              </div>
+            </div>
+          </label>
+        )}
 
         <label className="field field--mb16">
           <span className="field__label">{t('textToVectorModelLabel')}</span>
