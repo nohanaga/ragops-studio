@@ -110,6 +110,13 @@ export function useEvalDatasetGeneration(
       const runId = newRunId()
       const generatedAt = new Date().toISOString()
 
+      // Fatal LLM auth failure (HTTP 401/403). Captured separately so that:
+      //   - The pipeline can short-circuit (`controller.abort()`) instead of
+      //     spamming the same auth error per doc/worker.
+      //   - The user-facing message wins over later non-fatal errors.
+      let fatalAuthMsg: string | null = null
+      const edgLang: 'ja' | 'en' = language === 'ja' ? 'ja' : 'en'
+
       try {
         // 1) Sample docs.
         const docs = await sampleDocsFromIndex({
@@ -162,12 +169,6 @@ export function useEvalDatasetGeneration(
 
         const collected: GeneratedQAItem[] = []
         let firstError: string | null = null
-        // Fatal LLM auth failure (HTTP 401/403). Captured separately so that:
-        //   - The pipeline can short-circuit (`controller.abort()`) instead of
-        //     spamming the same auth error per doc/worker.
-        //   - The user-facing message wins over later non-fatal errors.
-        let fatalAuthMsg: string | null = null
-        const edgLang: 'ja' | 'en' = language === 'ja' ? 'ja' : 'en'
         const recordWorkerError = (e: unknown): void => {
           if (e instanceof LlmAuthError) {
             if (!fatalAuthMsg) fatalAuthMsg = formatLlmAuthErrorMessage(e, edgLang)
