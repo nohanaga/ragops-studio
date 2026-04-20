@@ -27,13 +27,16 @@ export type FeatureGuideDrawerProps = {
 const HIGHLIGHT_CLASS = 'guide-highlight-target'
 
 export function FeatureGuideDrawer({ language, onLaunch }: FeatureGuideDrawerProps) {
-  const { activeGuide, activeCard, closeGuide, setStepIndex } = useGuide()
+  const { activeGuide, activeCard, activeGuideContent, guideDetail, setGuideDetail, closeGuide, setStepIndex } = useGuide()
   const drawerRef = useRef<HTMLDivElement>(null)
   const isJa = language === 'ja'
 
   // Always call hooks at the top-level.
-  const guide = activeCard?.guide ?? null
-  const activeStep = guide && activeGuide ? guide.steps[activeGuide.stepIndex] ?? null : null
+  const guide = activeGuideContent
+  // Clamp the step index in case the resolved guide has fewer steps
+  // than the previously active variant (e.g. after switching detail level).
+  const stepIndex = guide && activeGuide ? Math.min(activeGuide.stepIndex, guide.steps.length - 1) : 0
+  const activeStep = guide && activeGuide ? guide.steps[stepIndex] ?? null : null
   const selector = activeStep?.targetSelector
 
   // Apply DOM highlight while in companion mode with an active targetSelector.
@@ -83,15 +86,18 @@ export function FeatureGuideDrawer({ language, onLaunch }: FeatureGuideDrawerPro
   // Scroll the active step into view in the drawer.
   useEffect(() => {
     if (!activeGuide) return
-    const el = drawerRef.current?.querySelector(`[data-step="${activeGuide.stepIndex}"]`)
+    const el = drawerRef.current?.querySelector(`[data-step="${stepIndex}"]`)
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [activeGuide])
+  }, [activeGuide, stepIndex])
 
   if (!activeGuide || !activeCard || !guide) return null
 
   const isCompanion = activeGuide.mode === 'companion'
   const steps = guide.steps
   const tips = isJa ? guide.tipsJa : guide.tipsEn
+  // Use the clamped index for all rendering so the UI stays in sync
+  // when the resolved guide is shorter than the persisted step index.
+  const currentStep = stepIndex
 
   const drawerNode = (
     <div
@@ -119,6 +125,32 @@ export function FeatureGuideDrawer({ language, onLaunch }: FeatureGuideDrawerPro
         </button>
       </div>
 
+      {/* Detail-level toggle (basic / advanced) */}
+      <div className="guideDrawer__detailToggle" role="radiogroup" aria-label={isJa ? 'ガイドの詳しさ' : 'Guide detail level'}>
+        <label className={'guideDrawer__detailOption' + (guideDetail === 'basic' ? ' is-active' : '')}>
+          <input
+            type="radio"
+            name="guideDetail"
+            value="basic"
+            checked={guideDetail === 'basic'}
+            onChange={() => setGuideDetail('basic')}
+          />
+          <i className="bi bi-mortarboard"></i>
+          <span>{isJa ? '基礎ガイド' : 'Basic'}</span>
+        </label>
+        <label className={'guideDrawer__detailOption' + (guideDetail === 'advanced' ? ' is-active' : '')}>
+          <input
+            type="radio"
+            name="guideDetail"
+            value="advanced"
+            checked={guideDetail === 'advanced'}
+            onChange={() => setGuideDetail('advanced')}
+          />
+          <i className="bi bi-stars"></i>
+          <span>{isJa ? 'アドバンスドガイド' : 'Advanced'}</span>
+        </label>
+      </div>
+
       {/* Body */}
       <div className="guideDrawer__body">
         <div className="guideDrawer__steps">
@@ -129,13 +161,13 @@ export function FeatureGuideDrawer({ language, onLaunch }: FeatureGuideDrawerPro
               data-step={i}
               className={
                 'guideStep' +
-                (i === activeGuide.stepIndex ? ' guideStep--active' : '') +
-                (i < activeGuide.stepIndex ? ' guideStep--done' : '')
+                (i === currentStep ? ' guideStep--active' : '') +
+                (i < currentStep ? ' guideStep--done' : '')
               }
               onClick={() => setStepIndex(i)}
             >
               <div className="guideStep__number">
-                {i < activeGuide.stepIndex ? <i className="bi bi-check-lg"></i> : <span>{i + 1}</span>}
+                {i < currentStep ? <i className="bi bi-check-lg"></i> : <span>{i + 1}</span>}
               </div>
               <div className="guideStep__connector" />
               <div className="guideStep__content">
@@ -161,20 +193,20 @@ export function FeatureGuideDrawer({ language, onLaunch }: FeatureGuideDrawerPro
           <button
             type="button"
             className="guideDrawer__navBtn"
-            disabled={activeGuide.stepIndex === 0}
-            onClick={() => setStepIndex(Math.max(0, activeGuide.stepIndex - 1))}
+            disabled={currentStep === 0}
+            onClick={() => setStepIndex(Math.max(0, currentStep - 1))}
           >
             <i className="bi bi-chevron-left"></i>
             {isJa ? '前へ' : 'Previous'}
           </button>
           <span className="guideDrawer__navProgress">
-            {activeGuide.stepIndex + 1} / {steps.length}
+            {currentStep + 1} / {steps.length}
           </span>
           <button
             type="button"
             className="guideDrawer__navBtn"
-            disabled={activeGuide.stepIndex === steps.length - 1}
-            onClick={() => setStepIndex(Math.min(steps.length - 1, activeGuide.stepIndex + 1))}
+            disabled={currentStep === steps.length - 1}
+            onClick={() => setStepIndex(Math.min(steps.length - 1, currentStep + 1))}
           >
             {isJa ? '次へ' : 'Next'}
             <i className="bi bi-chevron-right"></i>

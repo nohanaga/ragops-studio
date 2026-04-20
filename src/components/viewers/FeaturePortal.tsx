@@ -10,6 +10,7 @@ import { useState } from 'react'
 import type { Language } from '../../lib/translations'
 import { PORTAL_DISMISSED_KEY } from '../../app/constants'
 import { CATEGORY_META, CATEGORY_ORDER, PORTAL_CARDS } from '../../app/featurePortalCards'
+import { BASIC_GUIDES } from '../../app/featurePortalGuides.basic'
 import { isPortalDismissed } from '../../app/portalDismissed'
 import { useGuide } from '../../contexts/GuideContext'
 
@@ -112,7 +113,7 @@ export function FeaturePortal({ language, onAction, onClose }: FeaturePortalProp
                       </span>
                     )}
                   </button>
-                  {!card.disabled && card.guide && (
+                  {!card.disabled && (card.guide || BASIC_GUIDES[card.id]) && (
                     <button
                       type="button"
                       className="portal__guideBtn"
