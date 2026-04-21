@@ -575,7 +575,11 @@ export function UiStateProvider(props: { children: ReactNode }) {
 
   useEffect(() => {
     try {
-      localStorage.setItem(RIGHT_PANE_COLLAPSED_KEY, isRightPaneCollapsed ? '1' : '0')
+      if (isRightPaneCollapsed) {
+        localStorage.setItem(RIGHT_PANE_COLLAPSED_KEY, '1')
+      } else {
+        localStorage.removeItem(RIGHT_PANE_COLLAPSED_KEY)
+      }
     } catch {
       // ignore
     }
