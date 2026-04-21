@@ -80,6 +80,9 @@ export const DEBUG_RUNNER_BLOB_PATH_KEY = 'ragops:debugRunner:blobPath'
 /** localStorage key for portal auto-show dismissal */
 export const PORTAL_DISMISSED_KEY = 'ragops:portalDismissed'
 
+/** localStorage key for right pane collapsed state */
+export const RIGHT_PANE_COLLAPSED_KEY = 'ragops:rightPaneCollapsed'
+
 // ============================================================================
 // Index Inspector
 // ============================================================================

@@ -14,6 +14,7 @@ import type { ThemePreference, LabMode, BuilderMode, SearchFormState, AgenticFor
 import type { Language } from '../lib/translations'
 import { getInitialThemePreference, getBrowserLanguage } from '../utils'
 import { DEFAULT_SEARCH_FORM } from '../app/defaults'
+import { RIGHT_PANE_COLLAPSED_KEY } from '../app/constants'
 import { translations } from '../lib/translations'
 import { deleteSkillPipeline, getSkillPipeline, listSkillPipelines, updateSkillEditorDrafts as persistDraftsToSkillset, upsertSkillPipeline, type PersistedSkillPipelineItem } from '../app/persistedSkillPipeline'
 import { GuideProvider } from './GuideContext'
@@ -564,7 +565,25 @@ export function UiStateProvider(props: { children: ReactNode }) {
   const [resultPages, setResultPages] = useState<Record<string, number>>({ latest: 1 })
   const [runResultMap, setRunResultMap] = useState<Record<string, { run: Run; response: LatestResponse | null }>>({})
   const [jsonViewerMode, setJsonViewerMode] = useState<'request' | 'response' | 'facets'>('response')
-  const [isRightPaneCollapsed, setIsRightPaneCollapsed] = useState(false)
+  const [isRightPaneCollapsed, setIsRightPaneCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(RIGHT_PANE_COLLAPSED_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    try {
+      if (isRightPaneCollapsed) {
+        localStorage.setItem(RIGHT_PANE_COLLAPSED_KEY, '1')
+      } else {
+        localStorage.removeItem(RIGHT_PANE_COLLAPSED_KEY)
+      }
+    } catch {
+      // ignore
+    }
+  }, [isRightPaneCollapsed])
 
   const value = useMemo<UiStateContextValue>(
     () => ({
