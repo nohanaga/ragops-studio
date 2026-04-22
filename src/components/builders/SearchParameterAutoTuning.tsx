@@ -847,6 +847,10 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
       .map((f) => f.name.trim())
   }
 
+  /** System prompt for HyDE hypothetical document generation. */
+  const HYDE_SYSTEM_PROMPT =
+    'You are a helpful assistant. Write a short passage (2-4 sentences) that would directly answer the following question. Focus on factual content that would appear in a relevant document. Output only the passage text, with no preamble.'
+
   async function runOptimization() {
     setRunError(null)
     setBestResult(null)
@@ -1122,14 +1126,12 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
           if (comboHydeEnabled && form.vectorKind === 'text' && form.vectorEnabled) {
             let hydeDoc = hydeDocCache.get(query)
             if (!hydeDoc) {
-              const hydeSystemPrompt =
-                'You are a helpful assistant. Write a short passage (2-4 sentences) that would directly answer the following question. Focus on factual content that would appear in a relevant document. Output only the passage text, with no preamble.'
               hydeDoc = await callAzureOpenAIChatText({
                 endpoint: hydeLlmEndpoint,
                 auth: hydeLlmAuth,
                 deployment: hydeLlmDeployment,
                 apiVersion: hydeLlmApiVersion,
-                systemPrompt: hydeSystemPrompt,
+                systemPrompt: HYDE_SYSTEM_PROMPT,
                 userPrompt: query,
               })
               hydeDocCache.set(query, hydeDoc)
