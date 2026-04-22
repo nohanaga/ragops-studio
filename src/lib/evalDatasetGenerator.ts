@@ -34,6 +34,54 @@ export interface AoaiChatResponse {
 }
 
 /**
+ * Call Azure OpenAI Chat Completions in plain-text mode (no json_object response_format).
+ * Returns the raw assistant content string.
+ *
+ * Used for HyDE (Hypothetical Document Embeddings) query expansion in AutoTuning,
+ * where the LLM generates a free-text hypothetical document rather than a JSON structure.
+ */
+export async function callAzureOpenAIChatText(params: CallAoaiParams): Promise<string> {
+  const { endpoint, auth, deployment, apiVersion, systemPrompt, userPrompt, signal } = params
+  if (!endpoint.trim()) throw new Error('LLM endpoint is required')
+  if (!deployment.trim()) throw new Error('LLM deployment is required')
+  if (!apiVersion.trim()) throw new Error('LLM apiVersion is required')
+
+  const base = endpoint.replace(/\/+$/, '')
+  const url = `${base}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildLlmAuthHeaders(auth),
+    },
+    signal,
+    body: JSON.stringify({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.7,
+    }),
+  })
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => '')
+    if (isLlmAuthStatus(res.status)) {
+      throw new LlmAuthError(res.status, auth.mode, errorText.slice(0, 500))
+    }
+    throw new Error(`Azure OpenAI request failed (${res.status}): ${errorText.slice(0, 300)}`)
+  }
+
+  const data = (await res.json()) as AoaiChatResponse
+  const content = data?.choices?.[0]?.message?.content ?? ''
+  if (!content) {
+    throw new Error('Azure OpenAI returned an empty completion')
+  }
+  return content
+}
+
+/**
  * Call Azure OpenAI Chat Completions in JSON mode.
  * Returns the raw assistant content string (expected to be a JSON object).
  */

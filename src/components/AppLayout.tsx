@@ -1071,6 +1071,10 @@ export function AppLayout(props: {
                   setIsEvalDatasetGeneratorOpen(true)
                   setCenterTab('eval-dataset-generator')
                 }}
+                defaultLlmEndpoint={textToVector.textToVectorEndpoint}
+                defaultLlmApiKey={textToVector.textToVectorApiKey}
+                defaultLlmAuthMode={textToVector.textToVectorAuthMode}
+                defaultLlmBearerToken={textToVector.textToVectorBearerToken}
               />
             </div>
           )}

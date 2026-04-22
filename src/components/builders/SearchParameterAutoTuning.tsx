@@ -24,7 +24,8 @@ import {
   listEvalDatasets,
   type PersistedEvalDatasetItem,
 } from '../../app/persistedEvalDatasets'
-import { toJsonl } from '../../lib/evalDatasetGenerator'
+import { toJsonl, callAzureOpenAIChatText } from '../../lib/evalDatasetGenerator'
+import type { LlmAuthMode } from '../../lib/llmAuth'
 
 type TranslationKey = keyof typeof translations.ja
 
@@ -38,6 +39,7 @@ type AutoTuningLogRow = {
   score: number
   evaluatedQueries: number
   params: Partial<SearchFormState>
+  hydeEnabled: boolean
   isBest: boolean
 }
 
@@ -246,6 +248,11 @@ export type SearchParameterAutoTuningProps = {
   restoreRunId?: string | null
   /** Open the Eval Dataset Generator and switch the center tab to it. */
   onOpenEvalDatasetGenerator?: () => void
+  /** Default Azure OpenAI settings (pre-populated from AppSettings / Text-to-Vector). */
+  defaultLlmEndpoint?: string
+  defaultLlmApiKey?: string
+  defaultLlmAuthMode?: LlmAuthMode
+  defaultLlmBearerToken?: string
 }
 
 export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps) {
@@ -269,6 +276,10 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
     reloadRuns,
     restoreRunId,
     onOpenEvalDatasetGenerator,
+    defaultLlmEndpoint,
+    defaultLlmApiKey,
+    defaultLlmAuthMode,
+    defaultLlmBearerToken,
   } = props
 
   const format = useCallback((key: TranslationKey, params: Record<string, string | number>): string => {
@@ -378,7 +389,18 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
   type Combination = {
     indexName: string
     patch: Partial<SearchFormState>
+    hydeEnabled: boolean
   }
+
+  const [optHyde, setOptHyde] = useState(false)
+  const [hydeIncludeOff, setHydeIncludeOff] = useState(true)
+  const [hydeIncludeOn, setHydeIncludeOn] = useState(true)
+  const [hydeLlmEndpoint, setHydeLlmEndpoint] = useState<string>(() => defaultLlmEndpoint ?? '')
+  const [hydeLlmDeployment, setHydeLlmDeployment] = useState<string>('gpt-4o-mini')
+  const [hydeLlmApiVersion, setHydeLlmApiVersion] = useState<string>('2025-01-01-preview')
+  const [hydeLlmAuthMode, setHydeLlmAuthMode] = useState<LlmAuthMode>(() => defaultLlmAuthMode ?? 'apiKey')
+  const [hydeLlmApiKey, setHydeLlmApiKey] = useState<string>(() => defaultLlmApiKey ?? '')
+  const [hydeLlmBearerToken, setHydeLlmBearerToken] = useState<string>(() => defaultLlmBearerToken ?? '')
 
   const [optVectorThresholdKind, setOptVectorThresholdKind] = useState(false)
   const [thresholdKindIncludeUnset, setThresholdKindIncludeUnset] = useState(true)
@@ -433,10 +455,17 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
       vectorThresholdValueMin: number
       vectorThresholdValueMax: number
       vectorThresholdValueStep: number
+      optHyde: boolean
+      hydeIncludeOff: boolean
+      hydeIncludeOn: boolean
+      hydeLlmEndpoint: string
+      hydeLlmDeployment: string
+      hydeLlmApiVersion: string
     }
     bestResult?: {
       indexName: string
       params: Partial<SearchFormState>
+      hydeEnabled: boolean
       score: number
       objective: Objective
       k: number
@@ -500,6 +529,12 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
           if (typeof opt.vectorThresholdValueMin === 'number') setVectorThresholdValueMin(opt.vectorThresholdValueMin)
           if (typeof opt.vectorThresholdValueMax === 'number') setVectorThresholdValueMax(opt.vectorThresholdValueMax)
           if (typeof opt.vectorThresholdValueStep === 'number') setVectorThresholdValueStep(opt.vectorThresholdValueStep)
+          setOptHyde(Boolean(opt.optHyde))
+          setHydeIncludeOff(typeof opt.hydeIncludeOff === 'boolean' ? opt.hydeIncludeOff : true)
+          setHydeIncludeOn(typeof opt.hydeIncludeOn === 'boolean' ? opt.hydeIncludeOn : true)
+          if (typeof opt.hydeLlmEndpoint === 'string') setHydeLlmEndpoint(opt.hydeLlmEndpoint)
+          if (typeof opt.hydeLlmDeployment === 'string') setHydeLlmDeployment(opt.hydeLlmDeployment)
+          if (typeof opt.hydeLlmApiVersion === 'string') setHydeLlmApiVersion(opt.hydeLlmApiVersion)
         }
 
         const restoredBest = parsed.bestResult
@@ -508,6 +543,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
             setBestResult({
               indexName: restoredBest.indexName,
               params: restoredBest.params as Partial<SearchFormState>,
+              hydeEnabled: Boolean(restoredBest.hydeEnabled),
               score: restoredBest.score,
               objective: (restoredBest.objective ?? objective) as Objective,
               k: (typeof restoredBest.k === 'number' ? restoredBest.k : evalK),
@@ -529,6 +565,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
                   score: typeof rr.score === 'number' ? rr.score : 0,
                   evaluatedQueries: typeof rr.evaluatedQueries === 'number' ? rr.evaluatedQueries : 0,
                   params: (rr.params && typeof rr.params === 'object') ? (rr.params as Partial<SearchFormState>) : {},
+                  hydeEnabled: Boolean(rr.hydeEnabled),
                   isBest: Boolean(rr.isBest),
                 }
               }),
@@ -552,6 +589,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
     | {
         indexName: string
         params: Partial<SearchFormState>
+        hydeEnabled: boolean
         score: number
         objective: Objective
         k: number
@@ -741,7 +779,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
 
   function buildCombinations(): Combination[] {
     const baseIndex = indexName.trim()
-    let combos: Combination[] = [{ indexName: baseIndex, patch: {} }]
+    let combos: Combination[] = [{ indexName: baseIndex, patch: {}, hydeEnabled: false }]
 
     const expandIndexName = (values: string[]): void => {
       combos = combos.flatMap((c) => values.map((v) => ({ ...c, indexName: v })))
@@ -778,6 +816,12 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
     }
     if (optVectorThresholdValue) {
       expandPatchValue('vectorThresholdValue', buildRange(vectorThresholdValueMin, vectorThresholdValueMax, vectorThresholdValueStep))
+    }
+    if (optHyde) {
+      const hydeValues: boolean[] = []
+      if (hydeIncludeOff) hydeValues.push(false)
+      if (hydeIncludeOn) hydeValues.push(true)
+      combos = combos.flatMap((c) => hydeValues.map((v) => ({ ...c, hydeEnabled: v })))
     }
 
     return combos
@@ -929,6 +973,33 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
       setRunError(t('atErrVectorThresholdValueRangeInvalid'))
       return
     }
+    if (optHyde) {
+      if (!hydeIncludeOff && !hydeIncludeOn) {
+        setRunError(t('atErrHydeAtLeastOne'))
+        return
+      }
+      if (hydeIncludeOn) {
+        if (!hydeLlmEndpoint.trim()) {
+          setRunError(t('atErrHydeEndpointRequired'))
+          return
+        }
+        if (!hydeLlmDeployment.trim()) {
+          setRunError(t('atErrHydeDeploymentRequired'))
+          return
+        }
+        if (!hydeLlmApiVersion.trim()) {
+          setRunError(t('atErrHydeApiVersionRequired'))
+          return
+        }
+        const hasAuth =
+          (hydeLlmAuthMode === 'apiKey' && hydeLlmApiKey.trim()) ||
+          (hydeLlmAuthMode === 'bearer' && hydeLlmBearerToken.trim())
+        if (!hasAuth) {
+          setRunError(t('atErrHydeAuthRequired'))
+          return
+        }
+      }
+    }
 
     if (combinations.length > 2000) {
       setRunError(format('atErrTooManyCombinations', { n: combinations.length }))
@@ -985,6 +1056,15 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
       let bestScore = -Infinity
       let bestParams: Partial<SearchFormState> | null = null
       let bestIndexName: string | null = null
+      let bestHydeEnabled = false
+
+      // Cache hypothetical documents per query string to avoid redundant LLM calls
+      // across combinations that all have hydeEnabled=true.
+      const hydeDocCache = new Map<string, string>()
+
+      const hydeLlmAuth = hydeLlmAuthMode === 'bearer'
+        ? { mode: 'bearer' as const, bearerToken: hydeLlmBearerToken }
+        : { mode: 'apiKey' as const, apiKey: hydeLlmApiKey }
 
       // Local log for reliable persistence (React state can lag behind).
       const logRowsLocal: AutoTuningLogRow[] = []
@@ -995,6 +1075,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
         const combo = combinations[ci]
         const patch = combo.patch
         const comboIndexName = combo.indexName
+        const comboHydeEnabled = combo.hydeEnabled
         setProgressCurrent(ci + 1)
         setProgressText(format('atProgressTesting', { current: ci + 1, total: combinations.length }))
 
@@ -1036,8 +1117,26 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
           const patchHasSearch = Object.prototype.hasOwnProperty.call(patch, 'search')
           form.search = patchHasSearch ? String((patch as Partial<SearchFormState>).search ?? '') : query
 
-          // If vector is enabled with integrated vectorization, default vectorText from query (not from search)
-          if (form.vectorKind === 'text' && form.vectorEnabled) {
+          // HyDE: replace vectorText with a LLM-generated hypothetical document.
+          // Only applies when vectorKind=text (integrated vectorization) + vectorEnabled.
+          if (comboHydeEnabled && form.vectorKind === 'text' && form.vectorEnabled) {
+            let hydeDoc = hydeDocCache.get(query)
+            if (!hydeDoc) {
+              const hydeSystemPrompt =
+                'You are a helpful assistant. Write a short passage (2-4 sentences) that would directly answer the following question. Focus on factual content that would appear in a relevant document. Output only the passage text, with no preamble.'
+              hydeDoc = await callAzureOpenAIChatText({
+                endpoint: hydeLlmEndpoint,
+                auth: hydeLlmAuth,
+                deployment: hydeLlmDeployment,
+                apiVersion: hydeLlmApiVersion,
+                systemPrompt: hydeSystemPrompt,
+                userPrompt: query,
+              })
+              hydeDocCache.set(query, hydeDoc)
+            }
+            form.vectorText = hydeDoc
+          } else if (form.vectorKind === 'text' && form.vectorEnabled) {
+            // If vector is enabled with integrated vectorization, default vectorText from query (not from search)
             if (!form.vectorText.trim()) form.vectorText = query
           }
 
@@ -1091,7 +1190,8 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
           bestScore = avg
           bestParams = patch
           bestIndexName = comboIndexName
-          setBestResult({ indexName: comboIndexName, params: patch, score: avg, objective, k: evalK })
+          bestHydeEnabled = comboHydeEnabled
+          setBestResult({ indexName: comboIndexName, params: patch, hydeEnabled: comboHydeEnabled, score: avg, objective, k: evalK })
         }
 
         if (isNewBest) {
@@ -1103,6 +1203,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
           score: avg,
           evaluatedQueries: count,
           params: patch,
+          hydeEnabled: comboHydeEnabled,
           isBest: isNewBest,
         })
         setLogRows([...logRowsLocal])
@@ -1182,10 +1283,17 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
             vectorThresholdValueMin,
             vectorThresholdValueMax,
             vectorThresholdValueStep,
+            optHyde,
+            hydeIncludeOff,
+            hydeIncludeOn,
+            hydeLlmEndpoint,
+            hydeLlmDeployment,
+            hydeLlmApiVersion,
           },
           bestResult: bestParams && bestIndexName ? {
             indexName: bestIndexName,
             params: bestParams,
+            hydeEnabled: bestHydeEnabled,
             score: bestScore,
             objective,
             k: evalK,
@@ -1625,6 +1733,92 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
                   <label className="mono">{t('atStepLabel')} <input type="number" className="field__input" style={{ width: 120 }} value={vectorThresholdValueStep} step={0.01} onChange={(e) => setVectorThresholdValueStep(Number(e.target.value))} disabled={!optVectorThresholdValue} /></label>
                 </div>
               </div>
+
+              <div className="qpsTable__row" style={{ gridTemplateColumns: '220px 1fr' }}>
+                <div className="mono" style={{ fontSize: 12 }}>
+                  <label>
+                    <input type="checkbox" checked={optHyde} onChange={(e) => setOptHyde(e.target.checked)} />
+                    {' '}{t('atHydeLabel')}
+                  </label>
+                </div>
+                <div style={{ fontSize: 12 }}>
+                  <div className="actions" style={{ gap: 10, flexWrap: 'wrap' }}>
+                    <label className="mono"><input type="checkbox" checked={hydeIncludeOff} onChange={(e) => setHydeIncludeOff(e.target.checked)} disabled={!optHyde} /> {t('atHydeIncludeOff')}</label>
+                    <label className="mono"><input type="checkbox" checked={hydeIncludeOn} onChange={(e) => setHydeIncludeOn(e.target.checked)} disabled={!optHyde} /> {t('atHydeIncludeOn')}</label>
+                  </div>
+                  <div className="field__hint" style={{ marginTop: 4 }}>{t('atHydeHint')}</div>
+                  {optHyde && hydeIncludeOn && (
+                    <div className="form form--compact" style={{ marginTop: 10, padding: '10px', background: 'var(--surface-subtle, rgba(0,0,0,0.03))', borderRadius: 6 }}>
+                      <div className="field__label" style={{ gridColumn: '1 / -1', marginBottom: 0 }}>{t('atHydeLlmTitle')}</div>
+
+                      <label className="field" style={{ gridColumn: '1 / -1' }}>
+                        <span className="field__label">{t('atHydeLlmEndpointLabel')}</span>
+                        <input
+                          type="text"
+                          className="field__input"
+                          value={hydeLlmEndpoint}
+                          onChange={(e) => setHydeLlmEndpoint(e.target.value)}
+                          placeholder="https://YOUR_RESOURCE.openai.azure.com"
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span className="field__label">{t('atHydeLlmDeploymentLabel')}</span>
+                        <input
+                          type="text"
+                          className="field__input"
+                          value={hydeLlmDeployment}
+                          onChange={(e) => setHydeLlmDeployment(e.target.value)}
+                          placeholder="gpt-4o-mini"
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span className="field__label">{t('atHydeLlmApiVersionLabel')}</span>
+                        <input
+                          type="text"
+                          className="field__input"
+                          value={hydeLlmApiVersion}
+                          onChange={(e) => setHydeLlmApiVersion(e.target.value)}
+                          placeholder="2025-01-01-preview"
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span className="field__label">{t('llmAuthModeLabel')}</span>
+                        <select className="field__input" value={hydeLlmAuthMode} onChange={(e) => setHydeLlmAuthMode(e.target.value as LlmAuthMode)}>
+                          <option value="apiKey">{t('llmAuthModeApiKey')}</option>
+                          <option value="bearer">{t('llmAuthModeBearer')}</option>
+                        </select>
+                      </label>
+
+                      {hydeLlmAuthMode === 'apiKey' ? (
+                        <label className="field">
+                          <span className="field__label">{t('edgLlmApiKeyLabel')}</span>
+                          <input
+                            type="password"
+                            className="field__input"
+                            value={hydeLlmApiKey}
+                            onChange={(e) => setHydeLlmApiKey(e.target.value)}
+                            placeholder="Azure OpenAI API Key"
+                          />
+                        </label>
+                      ) : (
+                        <label className="field">
+                          <span className="field__label">{t('llmBearerTokenLabel')}</span>
+                          <input
+                            type="password"
+                            className="field__input"
+                            value={hydeLlmBearerToken}
+                            onChange={(e) => setHydeLlmBearerToken(e.target.value)}
+                            placeholder={String(t('llmBearerTokenPlaceholder'))}
+                          />
+                        </label>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1687,6 +1881,12 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
                   <div className="kv__k">score</div>
                   <div className="kv__v mono">{bestResult.score.toFixed(6)}</div>
                 </div>
+                {optHyde && (
+                  <div className="kv__row">
+                    <div className="kv__k">HyDE</div>
+                    <div className="kv__v mono">{bestResult.hydeEnabled ? t('atHydeIncludeOn') : t('atHydeIncludeOff')}</div>
+                  </div>
+                )}
               </div>
 
               <div className="mono jsonViewer__body" style={{ marginBottom: 10 }}>
@@ -1724,6 +1924,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
                       <th className="spvCell--ellipsis">{t('atLogColIndex')}</th>
                       <th className="spvCol--score spvCell--ellipsis">{t('atLogColScore')}</th>
                       <th className="spvCol--docid spvCell--ellipsis">{t('atLogColQueries')}</th>
+                      {optHyde && <th className="spvCell--ellipsis">HyDE</th>}
                       <th className="spvCell--ellipsis">{t('atLogColParams')}</th>
                     </tr>
                   </thead>
@@ -1747,6 +1948,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
                           })()}
                         </td>
                         <td className="spvCell--ellipsis">{r.evaluatedQueries}</td>
+                        {optHyde && <td className="spvCell--ellipsis mono">{r.hydeEnabled ? 'on' : 'off'}</td>}
                         <td style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                           <span className="mono">{JSON.stringify(r.params, null, 2)}</span>
                         </td>
