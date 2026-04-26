@@ -168,6 +168,20 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
   const [enableRelevanceGrades, setEnableRelevanceGrades] = useState<boolean>(false)
   const [enableEntityKG, setEnableEntityKG] = useState<boolean>(false)
 
+  // Phase 7a: Judge LLM (deployment name only — same endpoint/auth as generation LLM).
+  const [judgeLlmDeployment, setJudgeLlmDeployment] = useState<string>('')
+
+  // Phase 7b: Style Evolution (SNS mode).
+  const [enableStyleEvolution, setEnableStyleEvolution] = useState<boolean>(false)
+  const [seKeyword, setSeKeyword] = useState<boolean>(true)
+  const [seColloquial, setSeColloquial] = useState<boolean>(true)
+  const [seTypo, setSeTypo] = useState<boolean>(true)
+  const [seAbbreviated, setSeAbbreviated] = useState<boolean>(true)
+  const [seCodeSwitch, setSeCodeSwitch] = useState<boolean>(true)
+
+  // Phase 7c: Query Transformation Trace.
+  const [enableTrace, setEnableTrace] = useState<boolean>(true)
+
   // Phase 3: persistence
   const [persistTitle, setPersistTitle] = useState<string>('')
   const [persistList, setPersistList] = useState<PersistedEvalDatasetItem[]>(() => listEvalDatasets())
@@ -237,6 +251,17 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         if (form.enableRelevanceGrades !== undefined)
           setEnableRelevanceGrades(form.enableRelevanceGrades)
         if (form.enableEntityKG !== undefined) setEnableEntityKG(form.enableEntityKG)
+        // Phase 7a: Judge LLM
+        if (form.judgeLlmDeployment !== undefined) setJudgeLlmDeployment(form.judgeLlmDeployment)
+        // Phase 7b: Style Evolution
+        if (form.enableStyleEvolution !== undefined) setEnableStyleEvolution(form.enableStyleEvolution)
+        if (form.seKeyword !== undefined) setSeKeyword(form.seKeyword)
+        if (form.seColloquial !== undefined) setSeColloquial(form.seColloquial)
+        if (form.seTypo !== undefined) setSeTypo(form.seTypo)
+        if (form.seAbbreviated !== undefined) setSeAbbreviated(form.seAbbreviated)
+        if (form.seCodeSwitch !== undefined) setSeCodeSwitch(form.seCodeSwitch)
+        // Phase 7c: Trace
+        if (form.enableTrace !== undefined) setEnableTrace(form.enableTrace)
         if (form.persistTitle !== undefined) setPersistTitle(form.persistTitle)
         if (form.selectedPersistId !== undefined) setSelectedPersistId(form.selectedPersistId)
       }
@@ -295,6 +320,14 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         schemaConstraints,
         enableRelevanceGrades,
         enableEntityKG,
+        judgeLlmDeployment,
+        enableStyleEvolution,
+        seKeyword,
+        seColloquial,
+        seTypo,
+        seAbbreviated,
+        seCodeSwitch,
+        enableTrace,
         persistTitle,
         selectedPersistId,
       })
@@ -342,6 +375,14 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     schemaConstraints,
     enableRelevanceGrades,
     enableEntityKG,
+    judgeLlmDeployment,
+    enableStyleEvolution,
+    seKeyword,
+    seColloquial,
+    seTypo,
+    seAbbreviated,
+    seCodeSwitch,
+    enableTrace,
     persistTitle,
     selectedPersistId,
   ])
@@ -474,6 +515,21 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
       // Phase 6: NDCG/XDCG-compatible relevance grades + entity-KG.
       enableRelevanceGrades,
       enableEntityKG: enableRagasMode ? enableEntityKG : undefined,
+      // Phase 7a: Judge LLM (deployment name only).
+      judgeLlmDeployment: judgeLlmDeployment.trim() || undefined,
+      // Phase 7b: Style Evolution (SNS mode).
+      enableStyleEvolution,
+      styleEvolutionKinds: enableStyleEvolution
+        ? ([
+            seKeyword ? 'keyword' : null,
+            seColloquial ? 'colloquial' : null,
+            seTypo ? 'typo' : null,
+            seAbbreviated ? 'abbreviated' : null,
+            seCodeSwitch ? 'code_switch' : null,
+          ].filter(Boolean) as EvalDatasetGenerationConfig['styleEvolutionKinds'])
+        : undefined,
+      // Phase 7c: Trace.
+      enableTrace,
     }
     await start(config)
   }
@@ -560,7 +616,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
       <div className="section">
         <div className="section__title">{t('evalDatasetGenerator')}</div>
         <div className="app__hint">{t('edgIntro')}</div>
-        <div className="edgSyntheticBanner">{t('edgSyntheticBanner')}</div>
+        <div className="notice notice--warning" role="status" aria-live="polite">{t('edgSyntheticBanner')}</div>
       </div>
 
       {/* Source ------------------------------------------------------ */}
@@ -1205,6 +1261,68 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         </div>
       </div>
 
+      {/* Phase 7: Judge LLM / Style Evolution / Trace --------------- */}
+      <div className="section" data-guide-target="edg-phase7">
+        <h4 className="section__title">{t('edgPhase7Title')}</h4>
+
+        {/* 7a: Judge LLM ------------------------------------------- */}
+        <div className="formGrid">
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span className="field__label">{t('edgJudgeLlmTitle')}</span>
+            <input
+              className="field__input"
+              value={judgeLlmDeployment}
+              onChange={(e) => setJudgeLlmDeployment(e.target.value)}
+              placeholder={t('edgJudgeLlmDeploymentPlaceholder')}
+            />
+            <div className="field__hint">{t('edgJudgeLlmHint')}</div>
+          </label>
+          {judgeLlmDeployment.trim() &&
+            judgeLlmDeployment.trim() === llmDeployment.trim() && (
+              <div className="notice notice--warning" style={{ gridColumn: '1 / -1' }} role="status" aria-live="polite">{t('edgJudgeSameModelWarning')}</div>
+            )}
+        </div>
+
+        {/* 7b: Style Evolution (SNS mode) -------------------------- */}
+        <div className="formGrid" style={{ marginTop: 12 }}>
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span className="field__label edgCheckboxLabel">
+              <input
+                type="checkbox"
+                checked={enableStyleEvolution}
+                onChange={(e) => setEnableStyleEvolution(e.target.checked)}
+              />{' '}
+              {t('edgStyleEvolEnableLabel')}
+            </span>
+            <div className="field__hint">{t('edgStyleEvolHint')}</div>
+          </label>
+          {enableStyleEvolution && (
+            <div className="edgCheckboxGroup" style={{ gridColumn: '1 / -1' }}>
+              <label className="edgCheckboxLabel"><input type="checkbox" checked={seKeyword} onChange={(e) => setSeKeyword(e.target.checked)} /> {t('edgSeKeyword')}</label>
+              <label className="edgCheckboxLabel"><input type="checkbox" checked={seColloquial} onChange={(e) => setSeColloquial(e.target.checked)} /> {t('edgSeColloquial')}</label>
+              <label className="edgCheckboxLabel"><input type="checkbox" checked={seTypo} onChange={(e) => setSeTypo(e.target.checked)} /> {t('edgSeTypo')}</label>
+              <label className="edgCheckboxLabel"><input type="checkbox" checked={seAbbreviated} onChange={(e) => setSeAbbreviated(e.target.checked)} /> {t('edgSeAbbreviated')}</label>
+              <label className="edgCheckboxLabel"><input type="checkbox" checked={seCodeSwitch} onChange={(e) => setSeCodeSwitch(e.target.checked)} /> {t('edgSeCodeSwitch')}</label>
+            </div>
+          )}
+        </div>
+
+        {/* 7c: Query Transformation Trace -------------------------- */}
+        <div className="formGrid" style={{ marginTop: 12 }}>
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span className="field__label edgCheckboxLabel">
+              <input
+                type="checkbox"
+                checked={enableTrace}
+                onChange={(e) => setEnableTrace(e.target.checked)}
+              />{' '}
+              {t('edgTraceEnableLabel')}
+            </span>
+            <div className="field__hint">{t('edgTraceHint')}</div>
+          </label>
+        </div>
+      </div>
+
       {/* Phase 3: persistence (Save / Load / Send to AutoTuning) ---- */}
       <div className="section">
         <h4 className="section__title">{t('edgPersistTitle')}</h4>
@@ -1336,6 +1454,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
                     return t('edgPhaseGrounding')
                   case 'embedding':
                     return t('edgPhaseEmbedding')
+                  case 'styleevol':
+                    return t('edgPhaseStyleEvol')
                   case 'difficulty':
                     return t('edgPhaseDifficulty')
                   case 'hardneg':
@@ -1349,9 +1469,9 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
           )}
         </div>
         {validationError && (
-          <div className="errorNotice" style={{ marginTop: 8 }}>{validationError}</div>
+          <div className="notice notice--error" role="alert">{validationError}</div>
         )}
-        {error && <div className="errorNotice" style={{ marginTop: 8 }}>{error}</div>}
+        {error && <div className="notice notice--error" role="alert">{error}</div>}
       </div>
 
       {/* Results ----------------------------------------------------- */}
@@ -1382,6 +1502,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
             enableRagasMode={enableRagasMode}
             enableDifficultyEvolution={enableDifficultyEvolution}
             enableHardNegativeMining={enableHardNegativeMining}
+            enableStyleEvolution={enableStyleEvolution}
+            enableTrace={enableTrace}
           />
         )}
       </div>

@@ -97,6 +97,7 @@
   font-size: 13px;
   color: var(--text);
   margin-top: 4px;
+  margin-bottom: 8px;
 }
 .edgQueryTypes__item {
   display: inline-flex;
@@ -212,6 +213,209 @@
   gap: 4px;
 }
 
+/* Phase 7: Details/summary for collapsible Judge LLM section */
+.edgDetails {
+  margin-bottom: 8px;
+}
+.edgDetails__summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 4px 0;
+  user-select: none;
+}
+
+/* Phase 7c: Trace — button in table cell */
+.edgTraceBtn {
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* Phase 7c: Trace Modal — vertical pipeline timeline */
+.edgTraceModal {
+  max-width: 720px;
+}
+.edgTraceModal__summary {
+  margin-bottom: 20px;
+  padding: 12px;
+  background: var(--panel-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.edgTraceModal__queryLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.edgTraceModal__queryText {
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.edgTraceModal__rejected {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #dc3545;
+  background: rgba(220, 53, 69, 0.1);
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+/* Vertical pipeline rail */
+.edgTracePipeline {
+  display: flex;
+  flex-direction: column;
+}
+.edgTraceNode {
+  display: flex;
+  gap: 12px;
+  min-height: 56px;
+}
+.edgTraceNode__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 32px;
+  flex-shrink: 0;
+}
+.edgTraceNode__dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+  background: var(--panel);
+  border: 2px solid var(--border);
+}
+.edgTraceNode__dot--created { border-color: #28a745; }
+.edgTraceNode__dot--kept { border-color: #17a2b8; }
+.edgTraceNode__dot--rejected { border-color: #dc3545; }
+.edgTraceNode__dot--modified { border-color: #fd7e14; }
+.edgTraceNode__dot--enriched { border-color: #6f42c1; }
+.edgTraceNode__line {
+  flex: 1;
+  width: 2px;
+  background: var(--border);
+  min-height: 12px;
+}
+
+/* Step card */
+.edgTraceNode__card {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  background: var(--panel);
+}
+.edgTraceNode__card--created { border-left: 3px solid #28a745; }
+.edgTraceNode__card--kept { border-left: 3px solid #17a2b8; }
+.edgTraceNode__card--rejected { border-left: 3px solid #dc3545; background: rgba(220,53,69,0.03); }
+.edgTraceNode__card--modified { border-left: 3px solid #fd7e14; }
+.edgTraceNode__card--enriched { border-left: 3px solid #6f42c1; }
+
+.edgTraceNode__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.edgTraceNode__phase {
+  font-weight: 600;
+  font-size: 13px;
+}
+.edgTraceNode__desc {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+.edgTraceNode__action {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.edgTraceNode__action--created { color: #28a745; background: rgba(40,167,69,0.1); }
+.edgTraceNode__action--kept { color: #17a2b8; background: rgba(23,162,184,0.1); }
+.edgTraceNode__action--rejected { color: #dc3545; background: rgba(220,53,69,0.1); }
+.edgTraceNode__action--modified { color: #fd7e14; background: rgba(253,126,20,0.1); }
+.edgTraceNode__action--enriched { color: #6f42c1; background: rgba(111,66,193,0.1); }
+
+/* Before/after diff block */
+.edgTraceNode__diff {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.edgTraceNode__diffRow {
+  padding: 4px 10px;
+  word-break: break-word;
+  display: flex;
+  gap: 8px;
+}
+.edgTraceNode__diffRow--del {
+  background: rgba(220,53,69,0.06);
+  color: #85182a;
+  text-decoration: line-through;
+}
+.edgTraceNode__diffRow--ins {
+  background: rgba(40,167,69,0.06);
+  color: #1a6928;
+  font-weight: 600;
+}
+.edgTraceNode__diffLabel {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  opacity: 0.6;
+  min-width: 40px;
+  flex-shrink: 0;
+}
+.edgTraceNode__diffArrow {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 0 10px;
+  background: var(--panel-2);
+}
+
+/* Metadata chips */
+.edgTraceNode__reason {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+.edgTraceNode__meta {
+  margin-top: 4px;
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--muted);
+}
+.edgTraceNode__badge {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  background: var(--badge-bg, #e9ecef);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
 .edgProgressBar__wrap {
   margin-left: 12px;
   display: inline-flex;
@@ -237,18 +441,6 @@
   background: var(--accent);
   border-radius: 3px;
   transition: width 0.25s ease;
-}
-
-.edgSyntheticBanner {
-  margin-top: 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-left: 4px solid #d97706;
-  border-radius: var(--radius-sm);
-  background: var(--panel-2);
-  color: var(--text);
-  font-size: 12.5px;
-  line-height: 1.5;
 }
 
 /* Search Parameter AutoTuning */
@@ -1835,6 +2027,26 @@ summary.section__title {
 .field__label {
   font-size: 12px;
   color: var(--muted);
+  margin-top: 6px;
+}
+
+.edgCheckboxLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.edgCheckboxGroup {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-left: 18px;
+}
+
+.edgCheckboxLabel input[type="checkbox"] {
+  margin: 0;
 }
 
 .field__input,
@@ -3945,6 +4157,11 @@ html[data-theme='light'] .rawJsonViewer {
 .notice--success {
   border-color: color-mix(in srgb, #4caf50 50%, var(--border));
   background: color-mix(in srgb, #4caf50 12%, var(--panel-2));
+}
+
+.notice--info {
+  border-color: color-mix(in srgb, #2196f3 50%, var(--border));
+  background: color-mix(in srgb, #2196f3 12%, var(--panel-2));
 }
 
 .notice--warning {

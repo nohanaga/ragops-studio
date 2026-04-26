@@ -11,7 +11,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 
 import type { translations } from '../../lib/translations'
-import type { GeneratedQAItem } from '../../types'
+import type { GeneratedQAItem, TraceEvent } from '../../types'
 
 type TranslationKey = keyof typeof translations.ja
 
@@ -24,6 +24,8 @@ export interface EdgResultsTableProps {
   enableRagasMode: boolean
   enableDifficultyEvolution: boolean
   enableHardNegativeMining: boolean
+  enableStyleEvolution?: boolean
+  enableTrace?: boolean
 }
 
 type ColDef = {
@@ -64,6 +66,8 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
     enableRagasMode,
     enableDifficultyEvolution,
     enableHardNegativeMining,
+    enableStyleEvolution,
+    enableTrace,
   } = props
 
   const columns = useMemo<ColDef[]>(() => {
@@ -158,6 +162,28 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
         render: (it) => (it.hard_negative_ids ?? []).join(', '),
       })
     }
+    if (enableStyleEvolution) {
+      cols.push({
+        key: 'style_evolution_kind',
+        title: String(t('edgColStyleEvolution')),
+        width: 120,
+        mono: true,
+        render: (it) => {
+          if (!it.style_evolution_kind) return ''
+          const labelKey = STYLE_KIND_LABELS[it.style_evolution_kind]
+          return labelKey ? t(labelKey) : it.style_evolution_kind
+        },
+      })
+    }
+    if (enableTrace) {
+      cols.push({
+        key: 'trace',
+        title: String(t('edgColTrace')),
+        width: 90,
+        mono: true,
+        render: (it) => (it.trace?.length ?? 0) > 0 ? `${it.trace!.length} steps` : '',
+      })
+    }
     cols.push(
       {
         key: 'grounding_rank',
@@ -179,7 +205,7 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
     )
     return cols
     // docTextById is intentionally a dependency because preview cells depend on it.
-  }, [t, docTextById, enableRagasMode, enableDifficultyEvolution, enableHardNegativeMining])
+  }, [t, docTextById, enableRagasMode, enableDifficultyEvolution, enableHardNegativeMining, enableStyleEvolution, enableTrace])
 
   // Store user-resized widths. Columns without overrides use their default width.
   const [widths, setWidths] = useState<Record<string, number>>({})
@@ -257,6 +283,7 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
   )
 
   const rows = items.filter((it) => showRejected || !it.rejected)
+  const [traceModalItem, setTraceModalItem] = useState<GeneratedQAItem | null>(null)
 
   return (
     <div className="edgResults__tableWrap">
@@ -298,6 +325,20 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
                 const titleStr = c.titleFn
                   ? c.titleFn(it)
                   : typeof content === 'string' ? content : undefined
+                // Trace column: render as clickable button
+                if (c.key === 'trace' && (it.trace?.length ?? 0) > 0) {
+                  return (
+                    <td key={c.key} className="edgMono">
+                      <button
+                        type="button"
+                        className="btn btn--xs edgTraceBtn"
+                        onClick={() => setTraceModalItem(it)}
+                      >
+                        {it.trace!.length} steps
+                      </button>
+                    </td>
+                  )
+                }
                 return (
                   <td
                     key={c.key}
@@ -312,6 +353,197 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
           ))}
         </tbody>
       </table>
+
+      {/* Trace Modal */}
+      {traceModalItem && (
+        <TraceModal
+          t={t}
+          item={traceModalItem}
+          onClose={() => setTraceModalItem(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Trace Modal — vertical pipeline timeline                            */
+/* ------------------------------------------------------------------ */
+
+const PHASE_LABELS: Record<string, string> = {
+  generation: 'edgTracePhaseGenerationLabel',
+  'surface-dedup': 'edgTracePhaseSurfaceDedupLabel',
+  grounding: 'edgTracePhaseGroundingLabel',
+  'semantic-dedup': 'edgTracePhaseSemanticDedupLabel',
+  'style-evolution': 'edgTracePhaseStyleEvolutionLabel',
+  difficulty: 'edgTracePhaseDifficultyLabel',
+  hardneg: 'edgTracePhaseHardnegLabel',
+  relevance: 'edgTracePhaseRelevanceLabel',
+}
+
+const PHASE_DESC: Record<string, TranslationKey> = {
+  generation: 'edgTracePhaseGenerationDesc',
+  'surface-dedup': 'edgTracePhaseSurfaceDedupDesc',
+  grounding: 'edgTracePhaseGroundingDesc',
+  'semantic-dedup': 'edgTracePhaseSemanticDedupDesc',
+  'style-evolution': 'edgTracePhaseStyleEvolutionDesc',
+  difficulty: 'edgTracePhaseDifficultyDesc',
+  hardneg: 'edgTracePhaseHardnegDesc',
+  relevance: 'edgTracePhaseRelevanceDesc',
+}
+
+const ACTION_LABELS: Record<string, TranslationKey> = {
+  created: 'edgTraceActionCreated',
+  kept: 'edgTraceActionKept',
+  rejected: 'edgTraceActionRejected',
+  modified: 'edgTraceActionModified',
+  enriched: 'edgTraceActionEnriched',
+}
+
+const STYLE_KIND_LABELS: Record<string, TranslationKey> = {
+  keyword: 'edgSeKeyword',
+  colloquial: 'edgSeColloquial',
+  typo: 'edgSeTypo',
+  abbreviated: 'edgSeAbbreviated',
+  code_switch: 'edgSeCodeSwitch',
+}
+
+const TRACE_REASON_KEYS: Record<string, TranslationKey> = {
+  unchanged: 'edgTraceReasonUnchanged',
+  error: 'edgTraceReasonError',
+  'surface-dup': 'edgTraceReasonSurfaceDup',
+  'semantic-dup': 'edgTraceReasonSemanticDup',
+  'no-candidate-ids': 'edgTraceReasonNoCandidateIds',
+  grounding: 'edgTraceReasonGrounding',
+}
+
+const ACTION_ICONS: Record<string, string> = {
+  created: '🟢',
+  kept: '🔵',
+  rejected: '🔴',
+  modified: '🟠',
+  enriched: '🟣',
+}
+
+function TraceModal(props: {
+  t: (key: TranslationKey) => string
+  item: GeneratedQAItem
+  onClose: () => void
+}) {
+  const { t, item, onClose } = props
+  const trace = item.trace ?? []
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-content edgTraceModal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-header">
+          <h2>{t('edgTraceModalTitle')}</h2>
+          <button type="button" className="btn" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          {/* Query summary */}
+          <div className="edgTraceModal__summary">
+            <div className="edgTraceModal__queryLabel">{t('edgColQuery')}</div>
+            <div className="edgTraceModal__queryText">{item.query}</div>
+            {item.rejected && (
+              <span className="edgTraceModal__rejected">
+                {t('edgTraceRejected')}
+                {item.rejection_reason ? ` (${formatTraceReason(t, item.rejection_reason)})` : ''}
+              </span>
+            )}
+          </div>
+
+          {/* Vertical pipeline */}
+          <div className="edgTracePipeline">
+            {trace.map((evt, i) => (
+              <TraceStepCard key={i} t={t} evt={evt} isLast={i === trace.length - 1} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function formatTraceReason(t: (key: TranslationKey) => string, reason?: string): string {
+  if (!reason) return ''
+  const key = TRACE_REASON_KEYS[reason]
+  if (key) return t(key)
+
+  const negativesMined = reason.match(/^(\d+) negatives mined$/)
+  if (negativesMined) return t('edgTraceReasonNegativesMined').replace('{count}', negativesMined[1])
+
+  const grades = reason.match(/^(\d+) grades$/)
+  if (grades) return t('edgTraceReasonGrades').replace('{count}', grades[1])
+
+  return reason
+}
+
+function TraceStepCard(props: { t: (key: TranslationKey) => string; evt: TraceEvent; isLast: boolean }) {
+  const { t, evt, isLast } = props
+  const phaseLabelKey = PHASE_LABELS[evt.phase]
+  const phaseLabel = phaseLabelKey ? t(phaseLabelKey as TranslationKey) : evt.phase
+  const phaseDescKey = PHASE_DESC[evt.phase]
+  const actionLabelKey = ACTION_LABELS[evt.action]
+  const icon = ACTION_ICONS[evt.action] ?? '⚪'
+
+  return (
+    <div className="edgTraceNode">
+      {/* Connector line */}
+      <div className="edgTraceNode__rail">
+        <div className={`edgTraceNode__dot edgTraceNode__dot--${evt.action}`}>{icon}</div>
+        {!isLast && <div className="edgTraceNode__line" />}
+      </div>
+
+      {/* Card */}
+      <div className={`edgTraceNode__card edgTraceNode__card--${evt.action}`}>
+        <div className="edgTraceNode__header">
+          <span className="edgTraceNode__phase">{phaseLabel}</span>
+          <span className={`edgTraceNode__action edgTraceNode__action--${evt.action}`}>
+            {actionLabelKey ? t(actionLabelKey) : evt.action}
+          </span>
+        </div>
+        {phaseDescKey && (
+          <div className="edgTraceNode__desc">{t(phaseDescKey)}</div>
+        )}
+
+        {/* Before → After diff */}
+        {evt.detail?.before && evt.detail?.after && (
+          <div className="edgTraceNode__diff">
+            <div className="edgTraceNode__diffRow edgTraceNode__diffRow--del">
+              <span className="edgTraceNode__diffLabel">{t('edgTraceBefore')}</span>
+              <span>{evt.detail.before}</span>
+            </div>
+            <div className="edgTraceNode__diffArrow">↓</div>
+            <div className="edgTraceNode__diffRow edgTraceNode__diffRow--ins">
+              <span className="edgTraceNode__diffLabel">{t('edgTraceAfter')}</span>
+              <span>{evt.detail.after}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Reason */}
+        {evt.detail?.reason && !evt.detail?.before && (
+          <div className="edgTraceNode__reason">{formatTraceReason(t, evt.detail.reason)}</div>
+        )}
+
+        {/* Score */}
+        {typeof evt.detail?.score === 'number' && (
+          <div className="edgTraceNode__meta">{t('edgTraceScore')}: {evt.detail.score}</div>
+        )}
+
+        {/* Style kind badge */}
+        {evt.detail?.styleKind && (
+          <span className="edgTraceNode__badge">
+            {STYLE_KIND_LABELS[evt.detail.styleKind]
+              ? t(STYLE_KIND_LABELS[evt.detail.styleKind])
+              : evt.detail.styleKind}
+          </span>
+        )}
+      </div>
     </div>
   )
 }

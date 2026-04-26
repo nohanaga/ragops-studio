@@ -32,6 +32,44 @@ export type EvalStyle = 'web_search' | 'chat' | 'formal' | 'informal'
 export type EvalLength = 'short' | 'medium' | 'long'
 
 /**
+ * Phase 7 (Style Evolution / SNS mode): surface-form degradation types
+ * that make clean LLM queries resemble real user traffic.
+ */
+export type StyleEvolutionKind =
+  | 'keyword'       // strip particles/connectives → noun-list style
+  | 'colloquial'    // casual / spoken form (e.g. "〜って何")
+  | 'typo'          // random char substitution / deletion
+  | 'abbreviated'   // drop subject / object for contextual brevity
+  | 'code_switch'   // mix ja/en in one query
+
+/**
+ * Phase 7: Query Transformation Trace event.
+ * Records how each query was modified (or rejected) at every pipeline step.
+ */
+export interface TraceEvent {
+  /** Pipeline step number (1-based, aligns with the 9-step flow). */
+  step: number
+  /** Pipeline phase identifier. */
+  phase: 'generation' | 'surface-dedup' | 'grounding' | 'semantic-dedup' | 'difficulty' | 'style-evolution' | 'hardneg' | 'relevance'
+  /** What happened to the query at this step. */
+  action: 'created' | 'kept' | 'rejected' | 'modified' | 'enriched'
+  /** ISO 8601 timestamp. */
+  timestamp: string
+  detail?: {
+    /** Query text before modification (for 'modified' actions). */
+    before?: string
+    /** Query text after modification. */
+    after?: string
+    /** Machine-readable rejection / action reason. */
+    reason?: string
+    /** Numeric score (Jaccard, cosine, grounding rank, etc.). */
+    score?: number
+    /** Style evolution kind applied (for style-evolution phase). */
+    styleKind?: StyleEvolutionKind
+  }
+}
+
+/**
  * Phase 4: Evol-Instruct difficulty label.
  *  - `easy`   : original single-pass generation.
  *  - `hard`   : LLM-rewritten harder variant (paraphrase / negation / aggregation).
@@ -103,6 +141,10 @@ export interface GeneratedQAItem {
    * Foundry / TREC-style evaluators consume this directly.
    */
   relevance_grades?: Record<string, number>
+  // Phase 7: Style Evolution (SNS mode) — which degradation was applied.
+  style_evolution_kind?: StyleEvolutionKind
+  // Phase 7: Query Transformation Trace — full lifecycle of this item.
+  trace?: TraceEvent[]
 }
 
 /**
@@ -168,4 +210,18 @@ export interface EvalDatasetGenerationConfig {
    * document. Falls back to Jaccard if extraction fails.
    */
   enableEntityKG?: boolean
+
+  // Phase 7a: Judge LLM (separate deployment on the same endpoint).
+  /** When set, grounding / difficulty / hard-neg / style-evolution steps use this deployment instead of the generation LLM. */
+  judgeLlmDeployment?: string
+
+  // Phase 7b: Style Evolution (SNS mode).
+  /** Enable surface-form degradation of clean LLM queries to mimic real user traffic. */
+  enableStyleEvolution?: boolean
+  /** Which degradation kinds to apply. When empty, all 5 are uniformly sampled. */
+  styleEvolutionKinds?: StyleEvolutionKind[]
+
+  // Phase 7c: Query Transformation Trace.
+  /** Record trace events on each item through every pipeline step. */
+  enableTrace?: boolean
 }

@@ -27,6 +27,8 @@ export interface CallAoaiParams {
   systemPrompt: string
   userPrompt: string
   signal?: AbortSignal
+  /** When false, omit `response_format: json_object`. Defaults to true. */
+  jsonMode?: boolean
 }
 
 export interface AoaiChatResponse {
@@ -34,11 +36,12 @@ export interface AoaiChatResponse {
 }
 
 /**
- * Call Azure OpenAI Chat Completions in JSON mode.
- * Returns the raw assistant content string (expected to be a JSON object).
+ * Call Azure OpenAI Chat Completions.
+ * When `jsonMode` is true (default), sends `response_format: json_object`.
+ * Returns the raw assistant content string.
  */
 export async function callAzureOpenAIChat(params: CallAoaiParams): Promise<string> {
-  const { endpoint, auth, deployment, apiVersion, systemPrompt, userPrompt, signal } = params
+  const { endpoint, auth, deployment, apiVersion, systemPrompt, userPrompt, signal, jsonMode = true } = params
   if (!endpoint.trim()) throw new Error('LLM endpoint is required')
   if (!deployment.trim()) throw new Error('LLM deployment is required')
   if (!apiVersion.trim()) throw new Error('LLM apiVersion is required')
@@ -59,7 +62,7 @@ export async function callAzureOpenAIChat(params: CallAoaiParams): Promise<strin
         { role: 'user', content: userPrompt },
       ],
       temperature: 0.3,
-      response_format: { type: 'json_object' },
+      ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
     }),
   })
 
@@ -358,6 +361,8 @@ export function toJsonl(items: GeneratedQAItem[]): string {
         out['hard_negative_ids'] = i.hard_negative_ids
       if (i.relevance_grades && Object.keys(i.relevance_grades).length > 0)
         out['relevance_grades'] = i.relevance_grades
+      if (i.style_evolution_kind) out['style_evolution_kind'] = i.style_evolution_kind
+      if (i.trace && i.trace.length > 0) out['trace'] = i.trace
       return JSON.stringify(out)
     })
     .join('\n')

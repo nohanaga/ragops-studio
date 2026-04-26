@@ -24,7 +24,8 @@ import { checkGrounding, mineHardNegatives } from '../lib/evalDatasetGrounding'
 import { embedTexts, findSemanticDuplicates } from '../lib/evalDatasetEmbeddings'
 import { planScenarios } from '../lib/evalDatasetRagas'
 import { extractEntities } from '../lib/evalDatasetEntities'
-import type { EvalDatasetGenerationConfig, GeneratedQAItem } from '../types'
+import { degradeQuery } from '../lib/evalDatasetStyleEvolution'
+import type { EvalDatasetGenerationConfig, GeneratedQAItem, TraceEvent } from '../types'
 
 const CONCURRENCY = 3
 const SURFACE_DEDUP_THRESHOLD = 0.85
@@ -42,6 +43,7 @@ export type EdgPhase =
   | 'generating'
   | 'grounding'
   | 'embedding'
+  | 'styleevol'
   | 'difficulty'
   | 'hardneg'
   | 'done'
@@ -63,6 +65,12 @@ function newRunId(): string {
   const rand = Math.random().toString(36).slice(2, 10)
   const ts = Date.now().toString(36)
   return `edg-${ts}-${rand}`
+}
+
+/** Append a trace event to an item (mutates in place). */
+function pushTrace(item: GeneratedQAItem, evt: Omit<TraceEvent, 'timestamp'>): void {
+  if (!item.trace) item.trace = []
+  item.trace.push({ ...evt, timestamp: new Date().toISOString() })
 }
 
 export function useEvalDatasetGeneration(
@@ -154,6 +162,11 @@ export function useEvalDatasetGeneration(
           deployment: config.llmDeployment,
           apiVersion: config.llmApiVersion,
         }
+        // Judge LLM: same endpoint/auth, different deployment only.
+        const judgeLlm = config.judgeLlmDeployment?.trim()
+          ? { ...llm, deployment: config.judgeLlmDeployment.trim() }
+          : llm
+        const tracing = config.enableTrace ?? false
         const promptCfg = {
           language: config.language,
           queryTypes: config.queryTypes,
@@ -296,8 +309,25 @@ export function useEvalDatasetGeneration(
 
         if (controller.signal.aborted) return
 
+        // Trace: mark all collected items as 'created' at generation step.
+        if (tracing) {
+          for (const it of collected) {
+            pushTrace(it, { step: 1, phase: 'generation', action: 'created', detail: { after: it.query } })
+          }
+        }
+
         // 3) Surface dedup (Jaccard).
         const pipeline: GeneratedQAItem[] = dedupBySurface(collected, SURFACE_DEDUP_THRESHOLD)
+        // Trace: mark surface-dedup outcomes.
+        if (tracing) {
+          for (const it of pipeline) {
+            if (it.rejected && it.rejection_reason === 'surface-dup') {
+              pushTrace(it, { step: 2, phase: 'surface-dedup', action: 'rejected', detail: { reason: 'surface-dup' } })
+            } else if (!it.rejected) {
+              pushTrace(it, { step: 2, phase: 'surface-dedup', action: 'kept' })
+            }
+          }
+        }
         setItems(pipeline)
 
         // 4) Round-trip consistency filter (Phase 2.1).
@@ -324,6 +354,7 @@ export function useEvalDatasetGeneration(
                 item.grounding_top_k = topK
                 item.rejected = true
                 item.rejection_reason = 'grounding'
+                if (tracing) pushTrace(item, { step: 3, phase: 'grounding', action: 'rejected', detail: { reason: 'no-candidate-ids' } })
                 setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
                 continue
               }
@@ -350,6 +381,9 @@ export function useEvalDatasetGeneration(
                 if (bestRank === 0) {
                   item.rejected = true
                   item.rejection_reason = 'grounding'
+                  if (tracing) pushTrace(item, { step: 3, phase: 'grounding', action: 'rejected', detail: { reason: 'grounding', score: 0 } })
+                } else {
+                  if (tracing) pushTrace(item, { step: 3, phase: 'grounding', action: 'kept', detail: { score: bestRank } })
                 }
               } catch (e) {
                 if (controller.signal.aborted) return
@@ -393,6 +427,12 @@ export function useEvalDatasetGeneration(
                 const globalIdx = survivorIdx[localIdx]
                 pipeline[globalIdx].rejected = true
                 pipeline[globalIdx].rejection_reason = 'semantic-dup'
+                if (tracing) pushTrace(pipeline[globalIdx], { step: 4, phase: 'semantic-dedup', action: 'rejected', detail: { reason: 'semantic-dup' } })
+              }
+              if (tracing) {
+                for (const i of survivorIdx) {
+                  if (!pipeline[i].rejected) pushTrace(pipeline[i], { step: 4, phase: 'semantic-dedup', action: 'kept' })
+                }
               }
               setItems([...pipeline])
             } catch (e) {
@@ -405,6 +445,66 @@ export function useEvalDatasetGeneration(
         // Build id → text lookup once for difficulty rewrite (Phase 4.2).
         const docTextById = new Map<string, string>()
         for (const d of docs) docTextById.set(d.id, d.text)
+
+        // 5.5) Style Evolution / SNS mode (Phase 7b).
+        //      Degrades clean LLM queries into real-traffic surface forms.
+        if (config.enableStyleEvolution) {
+          const survivors: number[] = []
+          for (let i = 0; i < pipeline.length; i++) {
+            if (!pipeline[i].rejected) survivors.push(i)
+          }
+          if (survivors.length > 0) {
+            setProgress({ done: 0, total: survivors.length, phase: 'styleevol' })
+            const seLlm = judgeLlm // style evolution uses judge LLM (or generation LLM as fallback)
+            const allowedKinds = config.styleEvolutionKinds ?? []
+
+            let seCursor = 0
+            const seWorker = async () => {
+              while (!controller.signal.aborted) {
+                const localIdx = seCursor++
+                if (localIdx >= survivors.length) return
+                const globalIdx = survivors[localIdx]
+                const item = pipeline[globalIdx]
+                try {
+                  const before = item.query
+                  const result = await degradeQuery({
+                    endpoint: seLlm.endpoint,
+                    auth: seLlm.auth,
+                    deployment: seLlm.deployment,
+                    apiVersion: seLlm.apiVersion,
+                    query: item.query,
+                    language: config.language,
+                    allowedKinds,
+                    signal: controller.signal,
+                  })
+                  const changed = result.degraded.normalize('NFC') !== before.normalize('NFC')
+                  if (changed) {
+                    item.query = result.degraded
+                    item.style_evolution_kind = result.kind
+                  }
+                  if (tracing) pushTrace(item, {
+                    step: 5, phase: 'style-evolution',
+                    action: changed ? 'modified' : 'kept',
+                    detail: changed
+                      ? { before, after: result.degraded, styleKind: result.kind }
+                      : { reason: 'unchanged', styleKind: result.kind },
+                  })
+                } catch (e) {
+                  if (controller.signal.aborted) return
+                  recordWorkerError(e)
+                  if (tracing) pushTrace(item, { step: 5, phase: 'style-evolution', action: 'kept', detail: { reason: 'error' } })
+                } finally {
+                  setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
+                }
+              }
+            }
+            const seWorkers: Promise<void>[] = []
+            const sew = Math.min(CONCURRENCY, survivors.length)
+            for (let i = 0; i < sew; i++) seWorkers.push(seWorker())
+            await Promise.all(seWorkers)
+            setItems([...pipeline])
+          }
+        }
 
         // 6) Difficulty Evolution (Phase 4.2, Evol-Instruct).
         //    Sequentially rewrites each kept query into a HARDER variant.
@@ -439,12 +539,16 @@ export function useEvalDatasetGeneration(
                     language: config.language,
                     query: item.query,
                     contextText: ctx,
-                    llm,
+                    llm: judgeLlm,
                     signal: controller.signal,
                   })
                   if (harder) {
+                    const before = item.query
                     item.query = harder
                     item.difficulty = 'hard'
+                    if (tracing) pushTrace(item, { step: 6, phase: 'difficulty', action: 'modified', detail: { before, after: harder } })
+                  } else {
+                    if (tracing) pushTrace(item, { step: 6, phase: 'difficulty', action: 'kept' })
                   }
                 } catch (e) {
                   if (controller.signal.aborted) return
@@ -498,7 +602,12 @@ export function useEvalDatasetGeneration(
                     language,
                     signal: controller.signal,
                   })
-                  if (negatives.length > 0) item.hard_negative_ids = negatives
+                  if (negatives.length > 0) {
+                    item.hard_negative_ids = negatives
+                    if (tracing) pushTrace(item, { step: 7, phase: 'hardneg', action: 'enriched', detail: { reason: `${negatives.length} negatives mined` } })
+                  } else {
+                    if (tracing) pushTrace(item, { step: 7, phase: 'hardneg', action: 'kept' })
+                  }
                 } catch (e) {
                   if (controller.signal.aborted) return
                   recordWorkerError(e)
@@ -522,7 +631,10 @@ export function useEvalDatasetGeneration(
           for (const it of pipeline) {
             if (it.rejected) continue
             const grades = computeRelevanceGrades(it)
-            if (grades) it.relevance_grades = grades
+            if (grades) {
+              it.relevance_grades = grades
+              if (tracing) pushTrace(it, { step: 8, phase: 'relevance', action: 'enriched', detail: { reason: `${Object.keys(grades).length} grades` } })
+            }
           }
           setItems([...pipeline])
         }

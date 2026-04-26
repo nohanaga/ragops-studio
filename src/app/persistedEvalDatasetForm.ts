@@ -70,6 +70,20 @@ export type PersistedEvalDatasetForm = {
   enableRelevanceGrades?: boolean
   enableEntityKG?: boolean
 
+  // Phase 7a: Judge LLM (deployment name only)
+  judgeLlmDeployment?: string
+
+  // Phase 7b: Style Evolution (SNS mode)
+  enableStyleEvolution?: boolean
+  seKeyword?: boolean
+  seColloquial?: boolean
+  seTypo?: boolean
+  seAbbreviated?: boolean
+  seCodeSwitch?: boolean
+
+  // Phase 7c: Trace
+  enableTrace?: boolean
+
   // Persistence panel
   persistTitle?: string
   selectedPersistId?: string
