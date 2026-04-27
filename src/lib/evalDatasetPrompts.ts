@@ -466,3 +466,67 @@ export function buildRaftAnswerUserPrompt(params: BuildRaftAnswerPromptParams): 
 
   return sections.join('\n')
 }
+
+/* --------------------------------------------------------------------- */
+/* HyDE: Hypothetical Document Embeddings prompts                         */
+/* --------------------------------------------------------------------- */
+
+export interface BuildHydePromptParams {
+  language: EvalLanguage
+  query: string
+}
+
+/**
+ * System prompt for HyDE hypothesis generation.
+ * Instructs the LLM to write a short hypothetical passage that could answer
+ * the given query, suitable for embedding-based retrieval.
+ */
+export function buildHydeSystemPrompt(language: EvalLanguage): string {
+  if (language === 'ja') {
+    return [
+      'あなたは情報検索の専門家です。',
+      'ユーザーの検索クエリに対して、そのクエリに答えうる仮想的なドキュメント段落を生成してください。',
+      '制約:',
+      '- 回答は 100〜200 語程度の自然な文章で書くこと。',
+      '- 具体的で情報豊富な内容にすること。',
+      '- 検索エンジンのベクトル検索でマッチしやすい表現を用いること。',
+      '- 出力は必ず指定された JSON スキーマに従うこと（追加のテキスト・コードフェンス禁止）。',
+    ].join('\n')
+  }
+  return [
+    'You are an expert in information retrieval.',
+    'Given a user search query, generate a hypothetical document passage that could answer the query.',
+    'Constraints:',
+    '- Write a natural passage of approximately 100–200 words.',
+    '- Make the content specific and information-rich.',
+    '- Use vocabulary and phrasing that would match well in vector similarity search.',
+    '- Output MUST strictly follow the specified JSON schema (no prose, no code fences).',
+  ].join('\n')
+}
+
+/**
+ * User prompt for HyDE hypothesis generation.
+ * JSON schema: `{ "hypothesis": string }`
+ */
+export function buildHydeUserPrompt(params: BuildHydePromptParams): string {
+  const { language, query } = params
+  const sections: string[] = []
+  if (language === 'ja') {
+    sections.push(
+      `[language=ja]`,
+      `検索クエリ: ${query}`,
+      '',
+      '上記のクエリに答えうる仮想的なドキュメント段落を 1 つ生成してください。',
+      'JSON スキーマ: { "hypothesis": string }',
+    )
+  } else {
+    sections.push(
+      `[language=en]`,
+      `Search query: ${query}`,
+      '',
+      'Generate one hypothetical document passage that could answer the above query.',
+      'JSON schema: { "hypothesis": string }',
+    )
+  }
+  return sections.join('\n')
+}

@@ -27,6 +27,7 @@ export interface EdgResultsTableProps {
   enableStyleEvolution?: boolean
   enableTrace?: boolean
   enableRaftMode?: boolean
+  enableHydeMode?: boolean
 }
 
 type ColDef = {
@@ -70,6 +71,7 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
     enableStyleEvolution,
     enableTrace,
     enableRaftMode,
+    enableHydeMode,
   } = props
 
   const columns = useMemo<ColDef[]>(() => {
@@ -222,6 +224,22 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
         },
       )
     }
+    if (enableHydeMode) {
+      cols.push({
+        key: 'hyde_hypothesis',
+        title: String(t('edgColHydeHypothesis')),
+        width: 300,
+        wrap: true,
+        render: (it) => {
+          const hyp = it.hyde_hypothesis
+          if (!hyp) return ''
+          return hyp.length > CONTENT_PREVIEW_MAX_CHARS
+            ? hyp.slice(0, CONTENT_PREVIEW_MAX_CHARS) + '…'
+            : hyp
+        },
+        titleFn: (it) => it.hyde_hypothesis ?? undefined,
+      })
+    }
     cols.push(
       {
         key: 'grounding_rank',
@@ -243,7 +261,7 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
     )
     return cols
     // docTextById is intentionally a dependency because preview cells depend on it.
-  }, [t, docTextById, enableRagasMode, enableDifficultyEvolution, enableHardNegativeMining, enableStyleEvolution, enableTrace, enableRaftMode])
+  }, [t, docTextById, enableRagasMode, enableDifficultyEvolution, enableHardNegativeMining, enableStyleEvolution, enableTrace, enableRaftMode, enableHydeMode])
 
   // Store user-resized widths. Columns without overrides use their default width.
   const [widths, setWidths] = useState<Record<string, number>>({})

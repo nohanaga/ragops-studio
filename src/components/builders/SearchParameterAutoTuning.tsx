@@ -5,7 +5,8 @@
  * combinations and scores them with IR metrics (precision@k / recall@k / NDCG / MRR).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 
 import Dropdown from 'bootstrap/js/dist/dropdown'
 
@@ -32,6 +33,29 @@ type Objective = 'precision@k' | 'recall@k' | 'ndcg' | 'mrr'
 
 type JsonlRow = Record<string, unknown>
 
+type AutoTuningQueryTrace = {
+  /** 1-based row index inside the dataset */
+  rowIndex: number
+  query: string
+  expectedIds: string[]
+  returnedIds: string[]
+  score: number
+  /** HTTP status code from the search API (e.g. 200, 400, 0=network error) */
+  httpStatus?: number
+  /** Non-empty when the search API returned an error for this row */
+  error?: string
+  /** Raw API error response text (may contain LLM/vectorizer error details) */
+  apiResponseText?: string
+  /** Warnings such as empty results, skipped rows, etc. */
+  warning?: string
+  /** Search request body sent to the API (for debugging) */
+  requestBody?: Record<string, unknown>
+  /** Number of result items returned by the API */
+  resultCount?: number
+  /** Full search API response JSON (for debugging score-0 rows) */
+  searchResponse?: JsonValue
+}
+
 type AutoTuningLogRow = {
   i: number
   indexName: string
@@ -39,6 +63,8 @@ type AutoTuningLogRow = {
   evaluatedQueries: number
   params: Partial<SearchFormState>
   isBest: boolean
+  /** Per-query traces — populated when enableTrace is true */
+  queryTraces?: AutoTuningQueryTrace[]
 }
 
 type FieldStats = {
@@ -46,6 +72,19 @@ type FieldStats = {
   hasString: boolean
   hasStringArray: boolean
 }
+
+type TraceColDef = {
+  key: string
+  title: string
+  width: number
+  mono?: boolean
+  wrap?: boolean
+  render: (qt: AutoTuningQueryTrace) => ReactNode
+  titleFn?: (qt: AutoTuningQueryTrace) => string | undefined
+}
+
+const TRACE_MIN_COL_WIDTH = 40
+const TRACE_MAX_COL_WIDTH = 800
 
 type JsonlParseError =
   | { kind: 'invalidObject'; line: number }
@@ -314,6 +353,11 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
   const [objective, setObjective] = useState<Objective>('recall@k')
   const [evalK, setEvalK] = useState<number>(10)
 
+  // HyDE evaluation settings (Phase A: dataset-only)
+  const [enableHydeEval, setEnableHydeEval] = useState(false)
+  const [hydeField, setHydeField] = useState<string>('hyde_hypothesis')
+  const [hydeApplyTo, setHydeApplyTo] = useState<'vectorTextOnly' | 'replaceQueryAndVectorText'>('vectorTextOnly')
+
   const [optIndexName, setOptIndexName] = useState(true)
   const [indexNameValuesCsv, setIndexNameValuesCsv] = useState<string>(() => indexName.trim())
   const indexDropdownToggleRef = useRef<HTMLButtonElement | null>(null)
@@ -391,6 +435,13 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
   const [vectorThresholdValueStep, setVectorThresholdValueStep] = useState<number>(0.05)
 
   const [isRunning, setIsRunning] = useState(false)
+  const [enableTrace, setEnableTrace] = useState(true)
+  const [expandedLogRow, setExpandedLogRow] = useState<number | null>(null)
+  const [traceColWidths, setTraceColWidths] = useState<Record<string, number>>({})
+  const traceDragState = useRef<{ key: string; startX: number; startWidth: number } | null>(null)
+  const [traceActiveResizer, setTraceActiveResizer] = useState<string | null>(null)
+  const traceTableRef = useRef<HTMLTableElement>(null)
+  const [traceDetailModal, setTraceDetailModal] = useState<AutoTuningQueryTrace | null>(null)
   const [progressText, setProgressText] = useState<string>('')
   const [progressCurrent, setProgressCurrent] = useState<number>(0)
   const [progressTotal, setProgressTotal] = useState<number>(0)
@@ -433,6 +484,12 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
       vectorThresholdValueMin: number
       vectorThresholdValueMax: number
       vectorThresholdValueStep: number
+      // HyDE
+      enableHydeEval?: boolean
+      hydeField?: string
+      hydeApplyTo?: 'vectorTextOnly' | 'replaceQueryAndVectorText'
+      // Trace
+      enableTrace?: boolean
     }
     bestResult?: {
       indexName: string
@@ -500,6 +557,12 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
           if (typeof opt.vectorThresholdValueMin === 'number') setVectorThresholdValueMin(opt.vectorThresholdValueMin)
           if (typeof opt.vectorThresholdValueMax === 'number') setVectorThresholdValueMax(opt.vectorThresholdValueMax)
           if (typeof opt.vectorThresholdValueStep === 'number') setVectorThresholdValueStep(opt.vectorThresholdValueStep)
+          // HyDE
+          if (typeof opt.enableHydeEval === 'boolean') setEnableHydeEval(opt.enableHydeEval)
+          if (typeof opt.hydeField === 'string') setHydeField(opt.hydeField)
+          if (opt.hydeApplyTo === 'vectorTextOnly' || opt.hydeApplyTo === 'replaceQueryAndVectorText') setHydeApplyTo(opt.hydeApplyTo)
+          // Trace
+          if (typeof opt.enableTrace === 'boolean') setEnableTrace(opt.enableTrace)
         }
 
         const restoredBest = parsed.bestResult
@@ -530,6 +593,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
                   evaluatedQueries: typeof rr.evaluatedQueries === 'number' ? rr.evaluatedQueries : 0,
                   params: (rr.params && typeof rr.params === 'object') ? (rr.params as Partial<SearchFormState>) : {},
                   isBest: Boolean(rr.isBest),
+                  queryTraces: Array.isArray(rr.queryTraces) ? (rr.queryTraces as AutoTuningQueryTrace[]) : undefined,
                 }
               }),
           )
@@ -707,10 +771,13 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
     const answerKeys = keys.filter((s) => s.hasStringArray || s.hasString).map((s) => s.key)
 
     const q = (parsed.rows[0]?.query && typeof parsed.rows[0].query === 'string') ? 'query' : (stringKeys[0] ?? '')
+    // Prefer expected_ids (common eval convention), then positive_passages, then first available
     const a =
-      (parsed.rows[0]?.positive_passages && Array.isArray(parsed.rows[0].positive_passages))
-        ? 'positive_passages'
-        : (answerKeys[0] ?? '')
+      answerKeys.includes('expected_ids')
+        ? 'expected_ids'
+        : (parsed.rows[0]?.positive_passages && Array.isArray(parsed.rows[0].positive_passages))
+          ? 'positive_passages'
+          : (answerKeys[0] ?? '')
 
     setQueryField(q)
     setAnswerField(a)
@@ -1004,6 +1071,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
 
         let total = 0
         let count = 0
+        const traces: AutoTuningQueryTrace[] = []
 
         for (let qi = 0; qi < rows.length; qi++) {
           if (stopRef.current) break
@@ -1013,8 +1081,32 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
           const row = rows[qi]
           const query = row[queryField]
           const relevantList = asStringList(row[answerField])
-          if (typeof query !== 'string') continue
-          if (relevantList.length === 0) continue
+          if (typeof query !== 'string') {
+            if (enableTrace) {
+              traces.push({
+                rowIndex: qi + 1,
+                query: String(query ?? ''),
+                expectedIds: [],
+                returnedIds: [],
+                score: 0,
+                warning: 'skipped:query-not-string',
+              })
+            }
+            continue
+          }
+          if (relevantList.length === 0) {
+            if (enableTrace) {
+              traces.push({
+                rowIndex: qi + 1,
+                query,
+                expectedIds: [],
+                returnedIds: [],
+                score: 0,
+                warning: 'skipped:no-expected-ids',
+              })
+            }
+            continue
+          }
           const relevant = new Set(relevantList)
 
           // Decouple AutoTuning from Request Builder defaults: use a stable base.
@@ -1028,6 +1120,18 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
             top,
           }
 
+          const applyVectorText = (text: string) => {
+            if (!(form.vectorKind === 'text' && form.vectorEnabled)) return
+            form.vectorText = text
+            if (Array.isArray(form.vectorQueries) && form.vectorQueries.length > 0) {
+              form.vectorQueries = form.vectorQueries.map((draft) =>
+                draft.vectorKind === 'text'
+                  ? { ...draft, vectorText: text }
+                  : draft,
+              )
+            }
+          }
+
           // Reduce response payload: for scoring we only need the docId field.
           // Always select just that field unless you later add tuning for `select`.
           form.select = resultIdField
@@ -1036,9 +1140,22 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
           const patchHasSearch = Object.prototype.hasOwnProperty.call(patch, 'search')
           form.search = patchHasSearch ? String((patch as Partial<SearchFormState>).search ?? '') : query
 
-          // If vector is enabled with integrated vectorization, default vectorText from query (not from search)
-          if (form.vectorKind === 'text' && form.vectorEnabled) {
-            if (!form.vectorText.trim()) form.vectorText = query
+          // If vector is enabled with integrated vectorization, always set vectorText from the dataset query.
+          // The Request Builder may have a stale vectorText value — never carry it through.
+          applyVectorText(query)
+
+          // HyDE: override vectorText (and optionally search) with hypothesis from dataset
+          if (enableHydeEval) {
+            const hypothesis = typeof row[hydeField] === 'string' ? (row[hydeField] as string).trim() : ''
+            if (hypothesis) {
+              if (hydeApplyTo === 'vectorTextOnly') {
+                applyVectorText(hypothesis)
+              } else {
+                // replaceQueryAndVectorText
+                form.search = hypothesis
+                applyVectorText(hypothesis)
+              }
+            }
           }
 
           // Ensure vector.fields is set for vector/hybrid queries.
@@ -1056,6 +1173,25 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
           })
 
           if (!result.ok) {
+            // Trace the API error per-row instead of aborting the entire run
+            if (enableTrace) {
+              traces.push({
+                rowIndex: qi + 1,
+                query: query,
+                expectedIds: relevantList,
+                returnedIds: [],
+                score: 0,
+                httpStatus: result.status,
+                error: [
+                  `HTTP ${result.status}`,
+                  result.error.message,
+                ].filter(Boolean).join(' — '),
+                apiResponseText: result.error.responseText ?? '',
+                requestBody: body as Record<string, unknown>,
+                resultCount: 0,
+              })
+            }
+            // Still throw to abort the run, as the error likely affects all rows
             const detail = [
               format('atApiErrorHttp', { status: result.status }),
               format('atApiErrorRequestId', { requestId: result.requestId }),
@@ -1080,8 +1216,29 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
             })
             .filter((x): x is string => typeof x === 'string')
 
-          total += scoreObjective(objective, returnedIds, relevant, evalK)
+          const rowScore = scoreObjective(objective, returnedIds, relevant, evalK)
+          total += rowScore
           count++
+
+          if (enableTrace) {
+            const warning =
+              items.length === 0 ? 'empty-results' :
+              returnedIds.length === 0 ? `no-ids-in-field:${resultIdField}` :
+              rowScore === 0 ? 'score-zero' :
+              undefined
+            traces.push({
+              rowIndex: qi + 1,
+              query: query,
+              expectedIds: relevantList,
+              returnedIds,
+              score: rowScore,
+              httpStatus: result.status,
+              warning,
+              requestBody: body as Record<string, unknown>,
+              resultCount: items.length,
+              searchResponse: result.response,
+            })
+          }
         }
 
         const avg = count === 0 ? 0 : total / count
@@ -1104,6 +1261,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
           evaluatedQueries: count,
           params: patch,
           isBest: isNewBest,
+          queryTraces: enableTrace ? traces : undefined,
         })
         setLogRows([...logRowsLocal])
       }
@@ -1182,6 +1340,12 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
             vectorThresholdValueMin,
             vectorThresholdValueMax,
             vectorThresholdValueStep,
+            // HyDE
+            enableHydeEval,
+            hydeField,
+            hydeApplyTo,
+            // Trace
+            enableTrace,
           },
           bestResult: bestParams && bestIndexName ? {
             indexName: bestIndexName,
@@ -1254,6 +1418,166 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
         return format('atObjectiveFormulaMrr', { k: evalK })
     }
   }, [evalK, format, objective])
+
+  /** Build dynamic trace columns based on available data in the expanded row. */
+  const buildTraceColumns = useCallback(
+    (traces: AutoTuningQueryTrace[]): TraceColDef[] => {
+      const cols: TraceColDef[] = [
+        { key: 'idx', title: '#', width: 36, mono: true, render: (qt) => qt.rowIndex },
+        {
+          key: 'query', title: String(t('atTraceColQuery')), width: 200, wrap: true,
+          render: (qt) => qt.query,
+          titleFn: (qt) => qt.query,
+        },
+        {
+          key: 'expected', title: String(t('atTraceColExpected')), width: 140, mono: true,
+          render: (qt) => qt.expectedIds.length > 2 ? `${qt.expectedIds.slice(0, 2).join(', ')}…(${qt.expectedIds.length})` : qt.expectedIds.join(', '),
+          titleFn: (qt) => qt.expectedIds.join(', '),
+        },
+        {
+          key: 'returned', title: String(t('atTraceColReturned')), width: 140, mono: true,
+          render: (qt) => qt.returnedIds.length > 2 ? `${qt.returnedIds.slice(0, 2).join(', ')}…(${qt.returnedIds.length})` : qt.returnedIds.join(', '),
+          titleFn: (qt) => qt.returnedIds.join(', '),
+        },
+        { key: 'score', title: String(t('atLogColScore')), width: 80, mono: true, render: (qt) => qt.score.toFixed(4) },
+      ]
+
+      // httpStatus — show if any row had a non-200 status or explicit status captured
+      const hasHttpStatus = traces.some((qt) => typeof qt.httpStatus === 'number')
+      if (hasHttpStatus) {
+        cols.push({
+          key: 'httpStatus', title: 'HTTP', width: 60, mono: true,
+          render: (qt) => typeof qt.httpStatus === 'number' ? qt.httpStatus : '',
+        })
+      }
+
+      // resultCount — show if captured
+      const hasResultCount = traces.some((qt) => typeof qt.resultCount === 'number')
+      if (hasResultCount) {
+        cols.push({
+          key: 'resultCount', title: String(t('atTraceColResultCount')), width: 60, mono: true,
+          render: (qt) => typeof qt.resultCount === 'number' ? qt.resultCount : '',
+        })
+      }
+
+      // status column — always last, shows error/warning/success
+      cols.push({
+        key: 'status', title: String(t('atTraceColStatus')), width: 180, wrap: true,
+        render: (qt) => {
+          if (qt.error) {
+            return (
+              <span style={{ color: 'var(--danger, #d32f2f)' }}>
+                ❌ {qt.error}
+              </span>
+            )
+          }
+          if (qt.warning) {
+            return (
+              <span style={{ color: 'var(--warning, #f57c00)' }}>
+                ⚠ {qt.warning}
+              </span>
+            )
+          }
+          return <span style={{ color: 'var(--success, #388e3c)' }}>✓</span>
+        },
+      })
+
+      // apiResponseText — show a dedicated column when any row has it (LLM / vectorizer error details)
+      const hasApiResponse = traces.some((qt) => qt.apiResponseText && qt.apiResponseText.trim())
+      if (hasApiResponse) {
+        cols.push({
+          key: 'apiResponse', title: String(t('atTraceColApiResponse')), width: 300, wrap: true,
+          render: (qt) => {
+            const txt = qt.apiResponseText?.trim() ?? ''
+            if (!txt) return ''
+            return txt.length > 200 ? txt.slice(0, 200) + '…' : txt
+          },
+        })
+      }
+
+      // searchResponse — show the full API response for debugging score-0 rows
+      const hasSearchResponse = traces.some((qt) => qt.searchResponse != null)
+      if (hasSearchResponse) {
+        cols.push({
+          key: 'searchResponse', title: String(t('atTraceColSearchResponse')), width: 320, wrap: true,
+          render: (qt) => {
+            if (qt.searchResponse == null) return ''
+            const s = JSON.stringify(qt.searchResponse)
+            return s.length > 200 ? s.slice(0, 200) + '…' : s
+          },
+        })
+      }
+
+      // requestBody — show when available (for debugging vector queries etc.)
+      const hasRequestBody = traces.some((qt) => qt.requestBody)
+      if (hasRequestBody) {
+        cols.push({
+          key: 'requestBody', title: String(t('atTraceColRequestBody')), width: 220, wrap: true,
+          render: (qt) => {
+            if (!qt.requestBody) return ''
+            const s = JSON.stringify(qt.requestBody)
+            return s.length > 120 ? s.slice(0, 120) + '…' : s
+          },
+        })
+      }
+
+      // Detail button — always shown when trace is enabled, opens the req/res modal
+      cols.push({
+        key: 'detail', title: '', width: 56,
+        render: (qt) => (
+          <button
+            type="button"
+            className="btn btn--xs"
+            style={{ fontSize: 10, padding: '1px 6px', whiteSpace: 'nowrap' }}
+            onClick={() => setTraceDetailModal(qt)}
+          >
+            {t('atTraceViewDetail')}
+          </button>
+        ),
+      })
+
+      return cols
+    },
+    [t],
+  )
+
+  const traceEffectiveWidths = useCallback(
+    (cols: TraceColDef[]) => {
+      const out: Record<string, number> = {}
+      for (const c of cols) out[c.key] = traceColWidths[c.key] ?? c.width
+      return out
+    },
+    [traceColWidths],
+  )
+
+  const onTraceResizerPointerDown = useCallback(
+    (key: string, currentWidth: number) => (e: ReactPointerEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      traceDragState.current = { key, startX: e.clientX, startWidth: currentWidth }
+      setTraceActiveResizer(key)
+      const target = e.currentTarget
+      target.setPointerCapture(e.pointerId)
+
+      const onMove = (ev: PointerEvent) => {
+        const s = traceDragState.current
+        if (!s) return
+        const delta = ev.clientX - s.startX
+        const next = Math.max(TRACE_MIN_COL_WIDTH, Math.min(TRACE_MAX_COL_WIDTH, s.startWidth + delta))
+        setTraceColWidths((prev) => (prev[s.key] === next ? prev : { ...prev, [s.key]: next }))
+      }
+      const onUp = () => {
+        traceDragState.current = null
+        setTraceActiveResizer(null)
+        target.removeEventListener('pointermove', onMove)
+        target.removeEventListener('pointerup', onUp)
+        target.removeEventListener('pointercancel', onUp)
+      }
+      target.addEventListener('pointermove', onMove)
+      target.addEventListener('pointerup', onUp)
+      target.addEventListener('pointercancel', onUp)
+    },
+    [],
+  )
 
   return (
     <div className="pane__centerContent">
@@ -1398,6 +1722,55 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
               onChange={(e) => setEvalK(parseInt(e.target.value || '0', 10))}
             />
           </label>
+
+          {/* HyDE — Query Strategy ---------------------------------- */}
+          <div style={{ gridColumn: '1 / -1', borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 4 }}>
+            <label className="field" style={{ marginBottom: 8 }}>
+              <span className="field__label" style={{ fontWeight: 600 }}>
+                <i className="bi bi-lightbulb-fill icon--mr6" />{t('atHydeTitle')}
+              </span>
+            </label>
+            <label className="field" style={{ marginBottom: 4 }}>
+              <span className="field__label">
+                <input
+                  type="checkbox"
+                  checked={enableHydeEval}
+                  onChange={(e) => setEnableHydeEval(e.target.checked)}
+                />{' '}
+                {t('atHydeEnableLabel')}
+              </span>
+              <div className="field__hint">{t('atHydeEnableHint')}</div>
+            </label>
+            {enableHydeEval && (
+              <>
+                <label className="field" style={{ marginBottom: 4 }}>
+                  <span className="field__label">{t('atHydeFieldLabel')}</span>
+                  <input
+                    className="field__input"
+                    type="text"
+                    value={hydeField}
+                    onChange={(e) => setHydeField(e.target.value)}
+                    style={{ maxWidth: 260 }}
+                  />
+                </label>
+                <label className="field" style={{ marginBottom: 4 }}>
+                  <span className="field__label">{t('atHydeApplyToLabel')}</span>
+                  <select
+                    className="field__input"
+                    value={hydeApplyTo}
+                    onChange={(e) => setHydeApplyTo(e.target.value as 'vectorTextOnly' | 'replaceQueryAndVectorText')}
+                    style={{ maxWidth: 300 }}
+                  >
+                    <option value="vectorTextOnly">{t('atHydeApplyVectorOnly')}</option>
+                    <option value="replaceQueryAndVectorText">{t('atHydeApplyBoth')}</option>
+                  </select>
+                </label>
+                {!searchForm.vectorEnabled && (
+                  <div className="field__hint">{t('atHydeNoVectorWarning')}</div>
+                )}
+              </>
+            )}
+          </div>
 
           <div className="kv" style={{ gridColumn: '1 / -1' }}>
             <div className="kv__row">
@@ -1643,6 +2016,15 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
             >
               {t('atStop')}
             </button>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>
+              <input
+                type="checkbox"
+                checked={enableTrace}
+                onChange={(e) => setEnableTrace(e.target.checked)}
+                disabled={isRunning}
+              />
+              {t('atEnableTrace')}
+            </label>
             <div className="pane__meta">{progressText}</div>
           </div>
 
@@ -1728,30 +2110,101 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
                     </tr>
                   </thead>
                   <tbody>
-                    {logRows.map((r) => (
-                      <tr key={r.i}>
-                        <td className="spvCell--ellipsis">
-                          {(() => {
-                            const eps = 1e-12
-                            const isTop = bestLogScore !== null && Math.abs(r.score - bestLogScore) <= eps
-                            return isTop ? `★${r.i}` : r.i
+                    {logRows.map((r) => {
+                      const isExpanded = expandedLogRow === r.i
+                      const hasTraces = Array.isArray(r.queryTraces) && r.queryTraces.length > 0
+                      return (
+                        <React.Fragment key={r.i}>
+                          <tr
+                            style={hasTraces ? { cursor: 'pointer' } : undefined}
+                            onClick={() => {
+                              if (!hasTraces) return
+                              setExpandedLogRow(isExpanded ? null : r.i)
+                            }}
+                          >
+                            <td className="spvCell--ellipsis">
+                              {(() => {
+                                const eps = 1e-12
+                                const isTop = bestLogScore !== null && Math.abs(r.score - bestLogScore) <= eps
+                                const prefix = hasTraces ? (isExpanded ? '▼' : '▶') + ' ' : ''
+                                return isTop ? `${prefix}★${r.i}` : `${prefix}${r.i}`
+                              })()}
+                            </td>
+                            <td className="spvCell--ellipsis" title={r.indexName}><span className="mono">{r.indexName}</span></td>
+                            <td className="spvCell--ellipsis" title={String(r.score)}>
+                              {(() => {
+                                const eps = 1e-12
+                                const isTop = bestLogScore !== null && Math.abs(r.score - bestLogScore) <= eps
+                                const s = r.score.toFixed(6)
+                                return isTop ? `★${s}` : s
+                              })()}
+                            </td>
+                            <td className="spvCell--ellipsis">{r.evaluatedQueries}</td>
+                            <td style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                              <span className="mono">{JSON.stringify(r.params, null, 2)}</span>
+                            </td>
+                          </tr>
+
+                          {isExpanded && hasTraces && (() => {
+                            const traceCols = buildTraceColumns(r.queryTraces!)
+                            const widths = traceEffectiveWidths(traceCols)
+                            return (
+                            <tr>
+                              <td colSpan={5} style={{ padding: 0 }}>
+                                <div style={{ background: 'var(--bg-secondary, #f8f8f8)', padding: '8px 12px', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+                                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6 }}>{t('atTraceDetailTitle')}</div>
+                                  <div style={{ overflowX: 'auto' }}>
+                                    <table className="spvTable edgResults__table" style={{ fontSize: 11 }} ref={traceTableRef}>
+                                      <colgroup>
+                                        {traceCols.map((c) => (
+                                          <col key={c.key} style={{ width: `${widths[c.key]}px` }} />
+                                        ))}
+                                      </colgroup>
+                                      <thead>
+                                        <tr>
+                                          {traceCols.map((c) => (
+                                            <th key={c.key} className={c.mono ? 'edgMono' : undefined} title={c.title}>
+                                              {c.title}
+                                              <div
+                                                className={`edgColResizer${traceActiveResizer === c.key ? ' edgColResizer--active' : ''}`}
+                                                onPointerDown={onTraceResizerPointerDown(c.key, widths[c.key])}
+                                              />
+                                            </th>
+                                          ))}
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {r.queryTraces!.map((qt) => {
+                                          const hasIssue = Boolean(qt.error || qt.warning)
+                                          return (
+                                            <tr key={qt.rowIndex} style={hasIssue ? { background: qt.error ? 'var(--bg-danger, #fff5f5)' : 'var(--bg-warning, #fffbf0)' } : undefined}>
+                                              {traceCols.map((c) => {
+                                                const content = c.render(qt)
+                                                const titleStr = c.titleFn ? c.titleFn(qt) : (typeof content === 'string' ? content : undefined)
+                                                return (
+                                                  <td
+                                                    key={c.key}
+                                                    className={[c.mono ? 'edgMono' : '', c.wrap ? 'edgCell--wrap' : ''].filter(Boolean).join(' ') || undefined}
+                                                    title={titleStr}
+                                                  >
+                                                    {content}
+                                                  </td>
+                                                )
+                                              })}
+                                            </tr>
+                                          )
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                            )
                           })()}
-                        </td>
-                        <td className="spvCell--ellipsis" title={r.indexName}><span className="mono">{r.indexName}</span></td>
-                        <td className="spvCell--ellipsis" title={String(r.score)}>
-                          {(() => {
-                            const eps = 1e-12
-                            const isTop = bestLogScore !== null && Math.abs(r.score - bestLogScore) <= eps
-                            const s = r.score.toFixed(6)
-                            return isTop ? `★${s}` : s
-                          })()}
-                        </td>
-                        <td className="spvCell--ellipsis">{r.evaluatedQueries}</td>
-                        <td style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                          <span className="mono">{JSON.stringify(r.params, null, 2)}</span>
-                        </td>
-                      </tr>
-                    ))}
+                        </React.Fragment>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1759,6 +2212,69 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
           )}
         </div>
       </div>
+
+      {/* Trace detail modal — shows full request / response JSON */}
+      {traceDetailModal && (
+        <div className="modal-overlay" onClick={() => setTraceDetailModal(null)}>
+          <div className="modal-content" style={{ maxWidth: 900, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{t('atTraceDetailModalTitle')} — #{traceDetailModal.rowIndex}</h2>
+              <button type="button" className="btn" onClick={() => setTraceDetailModal(null)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ overflow: 'auto', flex: 1 }}>
+              {/* Summary */}
+              <div className="kv kv--mb16" style={{ fontSize: 12 }}>
+                <div className="kv__row"><div className="kv__k">query</div><div className="kv__v mono">{traceDetailModal.query}</div></div>
+                <div className="kv__row"><div className="kv__k">score</div><div className="kv__v mono">{traceDetailModal.score.toFixed(4)}</div></div>
+                {typeof traceDetailModal.httpStatus === 'number' && (
+                  <div className="kv__row"><div className="kv__k">HTTP</div><div className="kv__v mono">{traceDetailModal.httpStatus}</div></div>
+                )}
+                {typeof traceDetailModal.resultCount === 'number' && (
+                  <div className="kv__row"><div className="kv__k">{t('atTraceColResultCount')}</div><div className="kv__v mono">{traceDetailModal.resultCount}</div></div>
+                )}
+                {traceDetailModal.error && (
+                  <div className="kv__row"><div className="kv__k">error</div><div className="kv__v mono" style={{ color: 'var(--danger, #d32f2f)' }}>{traceDetailModal.error}</div></div>
+                )}
+                {traceDetailModal.warning && (
+                  <div className="kv__row"><div className="kv__k">warning</div><div className="kv__v mono" style={{ color: 'var(--warning, #f57c00)' }}>{traceDetailModal.warning}</div></div>
+                )}
+                <div className="kv__row"><div className="kv__k">{t('atTraceColExpected')}</div><div className="kv__v mono">{traceDetailModal.expectedIds.join(', ') || '—'}</div></div>
+                <div className="kv__row"><div className="kv__k">{t('atTraceColReturned')}</div><div className="kv__v mono">{traceDetailModal.returnedIds.join(', ') || '—'}</div></div>
+              </div>
+
+              {/* Request Body */}
+              {traceDetailModal.requestBody && (
+                <div className="field" style={{ marginBottom: 12 }}>
+                  <span className="field__label">{t('atTraceColRequestBody')}</span>
+                  <div className="mono jsonViewer__body">
+                    <JsonViewer data={traceDetailModal.requestBody as JsonValue} t={t} />
+                  </div>
+                </div>
+              )}
+
+              {/* Search Response */}
+              {traceDetailModal.searchResponse != null && (
+                <div className="field" style={{ marginBottom: 12 }}>
+                  <span className="field__label">{t('atTraceColSearchResponse')}</span>
+                  <div className="mono jsonViewer__body">
+                    <JsonViewer data={traceDetailModal.searchResponse} t={t} />
+                  </div>
+                </div>
+              )}
+
+              {/* API Error Response */}
+              {traceDetailModal.apiResponseText && (
+                <div className="field" style={{ marginBottom: 12 }}>
+                  <span className="field__label">{t('atTraceColApiResponse')}</span>
+                  <pre className="mono" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: 11, background: 'var(--bg-secondary, #f8f8f8)', padding: 8, borderRadius: 4, maxHeight: 300, overflow: 'auto' }}>
+                    {traceDetailModal.apiResponseText}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

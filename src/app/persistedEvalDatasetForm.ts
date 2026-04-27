@@ -88,6 +88,9 @@ export type PersistedEvalDatasetForm = {
   enableRaftMode?: boolean
   raftDistractorCount?: number
 
+  // HyDE
+  enableHydeMode?: boolean
+
   // Persistence panel
   persistTitle?: string
   selectedPersistId?: string

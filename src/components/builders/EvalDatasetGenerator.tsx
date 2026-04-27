@@ -186,6 +186,9 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
   const [enableRaftMode, setEnableRaftMode] = useState<boolean>(false)
   const [raftDistractorCount, setRaftDistractorCount] = useState<number>(4)
 
+  // HyDE (Hypothetical Document Embeddings)
+  const [enableHydeMode, setEnableHydeMode] = useState<boolean>(false)
+
   // Phase 3: persistence
   const [persistTitle, setPersistTitle] = useState<string>('')
   const [persistList, setPersistList] = useState<PersistedEvalDatasetItem[]>(() => listEvalDatasets())
@@ -269,6 +272,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         // RAFT
         if (form.enableRaftMode !== undefined) setEnableRaftMode(form.enableRaftMode)
         if (form.raftDistractorCount !== undefined) setRaftDistractorCount(form.raftDistractorCount)
+        // HyDE
+        if (form.enableHydeMode !== undefined) setEnableHydeMode(form.enableHydeMode)
         if (form.persistTitle !== undefined) setPersistTitle(form.persistTitle)
         if (form.selectedPersistId !== undefined) setSelectedPersistId(form.selectedPersistId)
       }
@@ -337,6 +342,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         enableTrace,
         enableRaftMode,
         raftDistractorCount,
+        enableHydeMode,
         persistTitle,
         selectedPersistId,
       })
@@ -394,6 +400,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     enableTrace,
     enableRaftMode,
     raftDistractorCount,
+    enableHydeMode,
     persistTitle,
     selectedPersistId,
   ])
@@ -544,6 +551,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
       // RAFT
       enableRaftMode,
       raftDistractorCount: enableRaftMode ? raftDistractorCount : undefined,
+      // HyDE
+      enableHydeMode,
     }
     await start(config)
   }
@@ -1396,6 +1405,36 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         </div>
       </div>
 
+      {/* HyDE — Hypothetical Document Embeddings -------------------- */}
+      <div className="section" data-guide-target="edg-hyde">
+        <h4 className="section__title"><i className="bi bi-lightbulb-fill icon--mr6" />{t('edgHydeTitle')}</h4>
+        <div className="formGrid">
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span className="field__label edgCheckboxLabel">
+              <input
+                type="checkbox"
+                checked={enableHydeMode}
+                onChange={(e) => setEnableHydeMode(e.target.checked)}
+              />{' '}
+              {t('edgHydeEnableLabel')}
+            </span>
+            <div className="field__hint">{t('edgHydeEnableHint')}</div>
+          </label>
+          {enableHydeMode && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <div className="edgScienceInfo">
+                <div className="edgScienceInfo__header">
+                  <i className="bi bi-mortarboard-fill"></i>
+                  <span>{t('edgSciInfoHydeTitle')}</span>
+                </div>
+                <div className="edgScienceInfo__body">{t('edgSciInfoHydeBody')}</div>
+                <div className="edgScienceInfo__refs">{t('edgSciInfoHydeRefs')}</div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Phase 3: persistence (Save / Load / Send to AutoTuning) ---- */}
       <div className="section">
         <h4 className="section__title"><i className="bi bi-save icon--mr6" />{t('edgPersistTitle')}</h4>
@@ -1559,6 +1598,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
                       return t('edgPhaseHardneg')
                     case 'raft':
                       return t('edgPhaseRaft')
+                    case 'hyde':
+                      return t('edgPhaseHyde')
                     default:
                       return t('edgProgressLabel')
                   }
@@ -1610,6 +1651,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
             enableStyleEvolution={enableStyleEvolution}
             enableTrace={enableTrace}
             enableRaftMode={enableRaftMode}
+            enableHydeMode={enableHydeMode}
           />
         )}
       </div>

@@ -17,7 +17,7 @@ import { useCallback, useRef, useState } from 'react'
 
 import type { ConnectionProfile, SearchApiVersion } from '../lib/model'
 import type { Language } from '../lib/translations'
-import { computeRelevanceGrades, dedupBySurface, generateForDoc, generateForScenario, generateRaftAnswer, hardenQuery } from '../lib/evalDatasetGenerator'
+import { computeRelevanceGrades, dedupBySurface, generateForDoc, generateForScenario, generateHydeHypothesis, generateRaftAnswer, hardenQuery } from '../lib/evalDatasetGenerator'
 import { fetchDistractorDocs } from '../lib/evalDatasetGrounding'
 import { LlmAuthError, formatLlmAuthErrorMessage } from '../lib/llmAuth'
 import { sampleDocsFromIndex } from '../lib/evalDatasetSampling'
@@ -49,6 +49,7 @@ export type EdgPhase =
   | 'difficulty'
   | 'hardneg'
   | 'raft'
+  | 'hyde'
   | 'done'
 
 export interface UseEvalDatasetGenerationResult {
@@ -128,6 +129,7 @@ export function useEvalDatasetGeneration(
       if (config.enableHardNegativeMining) totalPhases++
       if (config.enableRelevanceGrades) totalPhases++
       if (config.enableRaftMode) totalPhases++
+      if (config.enableHydeMode) totalPhases++
       let currentPhase = 0
 
       setProgress({ done: 0, total: 0, phase: 'sampling', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
@@ -731,6 +733,54 @@ export function useEvalDatasetGeneration(
             const rw = Math.min(CONCURRENCY, survivors.length)
             for (let i = 0; i < rw; i++) raftWorkers.push(raftWorker())
             await Promise.all(raftWorkers)
+            setItems([...pipeline])
+          }
+        }
+
+        // 10) HyDE: generate hypothetical document passages for vector search.
+        //     For each kept item, generate a hypothetical answer passage via LLM
+        //     that can be used as vectorText input in AutoTuning evaluation.
+        if (config.enableHydeMode) {
+          const survivors: number[] = []
+          for (let i = 0; i < pipeline.length; i++) {
+            if (!pipeline[i].rejected) survivors.push(i)
+          }
+          if (survivors.length > 0) {
+            setProgress({ done: 0, total: survivors.length, phase: 'hyde', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
+            const hydeLlm = judgeLlm // HyDE uses judge LLM (or generation LLM as fallback)
+            const hydeGeneratedAt = new Date().toISOString()
+
+            let hydeCursor = 0
+            const hydeWorker = async () => {
+              while (!controller.signal.aborted) {
+                const localIdx = hydeCursor++
+                if (localIdx >= survivors.length) return
+                const globalIdx = survivors[localIdx]
+                const item = pipeline[globalIdx]
+                try {
+                  const hypothesis = await generateHydeHypothesis({
+                    language: config.language,
+                    query: item.query,
+                    llm: hydeLlm,
+                    signal: controller.signal,
+                  })
+                  if (hypothesis) {
+                    item.hyde_hypothesis = hypothesis
+                    item.hyde_model = hydeLlm.deployment
+                    item.hyde_generated_at = hydeGeneratedAt
+                  }
+                } catch (e) {
+                  if (controller.signal.aborted) return
+                  recordWorkerError(e)
+                } finally {
+                  setProgress((p) => ({ ...p, done: p.done + 1 }))
+                }
+              }
+            }
+            const hydeWorkers: Promise<void>[] = []
+            const hw = Math.min(CONCURRENCY, survivors.length)
+            for (let i = 0; i < hw; i++) hydeWorkers.push(hydeWorker())
+            await Promise.all(hydeWorkers)
             setItems([...pipeline])
           }
         }

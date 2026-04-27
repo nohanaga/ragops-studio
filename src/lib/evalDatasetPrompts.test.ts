@@ -10,6 +10,8 @@ import {
   buildHardenUserPrompt,
   buildRaftAnswerSystemPrompt,
   buildRaftAnswerUserPrompt,
+  buildHydeSystemPrompt,
+  buildHydeUserPrompt,
 } from './evalDatasetPrompts'
 
 /**
@@ -169,5 +171,28 @@ describe('buildRaftAnswerPrompts (RAFT)', () => {
     })
     expect(out).toContain('テスト質問？')
     expect(out).toContain('オラクルテキスト')
+  })
+})
+
+describe('buildHydePrompts (HyDE)', () => {
+  it('buildHydeSystemPrompt ja snapshot', () => {
+    expect(buildHydeSystemPrompt('ja')).toMatchSnapshot()
+  })
+  it('buildHydeSystemPrompt en snapshot', () => {
+    expect(buildHydeSystemPrompt('en')).toMatchSnapshot()
+  })
+  it('buildHydeUserPrompt contains query', () => {
+    const out = buildHydeUserPrompt({
+      language: 'en',
+      query: 'What is HyDE?',
+    })
+    expect(out).toContain('What is HyDE?')
+  })
+  it('buildHydeUserPrompt ja contains query', () => {
+    const out = buildHydeUserPrompt({
+      language: 'ja',
+      query: 'HyDEとは何ですか？',
+    })
+    expect(out).toContain('HyDEとは何ですか？')
   })
 })

@@ -166,6 +166,14 @@ export interface GeneratedQAItem {
   raft_cot_answer?: string
   /** Context array of oracle + distractor documents for RAFT training. */
   raft_context?: RaftContextDoc[]
+
+  // HyDE (Hypothetical Document Embeddings) fields.
+  /** LLM-generated hypothetical answer passage used as vector search input. */
+  hyde_hypothesis?: string
+  /** Model deployment used to generate the hypothesis. */
+  hyde_model?: string
+  /** ISO-8601 timestamp when the hypothesis was generated. */
+  hyde_generated_at?: string
 }
 
 /**
@@ -251,4 +259,8 @@ export interface EvalDatasetGenerationConfig {
   enableRaftMode?: boolean
   /** Number of distractor documents to include per item. Defaults to 4. */
   raftDistractorCount?: number
+
+  // HyDE (Hypothetical Document Embeddings).
+  /** Generate a hypothetical answer passage per query for vector search evaluation. */
+  enableHydeMode?: boolean
 }

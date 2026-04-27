@@ -387,6 +387,9 @@ export function toJsonl(items: GeneratedQAItem[]): string {
         out['relevance_grades'] = i.relevance_grades
       if (i.style_evolution_kind) out['style_evolution_kind'] = i.style_evolution_kind
       if (i.trace && i.trace.length > 0) out['trace'] = i.trace
+      if (i.hyde_hypothesis) out['hyde_hypothesis'] = i.hyde_hypothesis
+      if (i.hyde_model) out['hyde_model'] = i.hyde_model
+      if (i.hyde_generated_at) out['hyde_generated_at'] = i.hyde_generated_at
       return JSON.stringify(out)
     })
     .join('\n')
@@ -594,4 +597,55 @@ export function toRaftJsonl(items: GeneratedQAItem[]): string {
       return JSON.stringify(out)
     })
     .join('\n')
+}
+
+/* ------------------------------------------------------------------ */
+/* HyDE: Hypothetical Document Embeddings generation                   */
+/* ------------------------------------------------------------------ */
+
+import {
+  buildHydeSystemPrompt,
+  buildHydeUserPrompt,
+} from './evalDatasetPrompts'
+
+export interface GenerateHydeHypothesisParams {
+  language: EvalLanguage
+  query: string
+  llm: Omit<CallAoaiParams, 'systemPrompt' | 'userPrompt' | 'signal'>
+  signal?: AbortSignal
+}
+
+/**
+ * Parse the `{ "hypothesis": "..." }` response from the HyDE LLM.
+ * Exported for unit testing.
+ */
+export function parseHydeHypothesis(rawJson: string): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawJson)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const h = (parsed as Record<string, unknown>)['hypothesis']
+  if (typeof h !== 'string') return null
+  const trimmed = h.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+/**
+ * Generate a hypothetical document passage (HyDE) for a given query.
+ * The hypothesis is used as vector search input instead of the raw query,
+ * enabling embedding-space alignment with actual document passages.
+ *
+ * Returns `null` on parse error (caller keeps item without hypothesis).
+ */
+export async function generateHydeHypothesis(
+  params: GenerateHydeHypothesisParams,
+): Promise<string | null> {
+  const { language, query, llm, signal } = params
+  const systemPrompt = buildHydeSystemPrompt(language)
+  const userPrompt = buildHydeUserPrompt({ language, query })
+  const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal })
+  return parseHydeHypothesis(raw)
 }

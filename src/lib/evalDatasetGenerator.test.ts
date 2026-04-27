@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { callAzureOpenAIChat, parseGeneratedQueries, dedupBySurface, toJsonl, parseHardenedQuery, computeRelevanceGrades, parseRaftAnswer, toRaftJsonl } from './evalDatasetGenerator'
+import { callAzureOpenAIChat, parseGeneratedQueries, dedupBySurface, toJsonl, parseHardenedQuery, computeRelevanceGrades, parseRaftAnswer, toRaftJsonl, parseHydeHypothesis } from './evalDatasetGenerator'
 import { LlmAuthError } from './llmAuth'
 import type { GeneratedQAItem } from '../types'
 
@@ -445,5 +445,41 @@ describe('toRaftJsonl', () => {
     expect(lines).toHaveLength(2)
     expect(JSON.parse(lines[0]).question).toBe('Q1')
     expect(JSON.parse(lines[1]).question).toBe('Q2')
+  })
+})
+
+// ── HyDE tests ──────────────────────────────────────────────────────
+
+describe('parseHydeHypothesis', () => {
+  it('parses a valid hypothesis', () => {
+    const raw = JSON.stringify({ hypothesis: 'The document discusses the impact of climate change on coastal regions.' })
+    expect(parseHydeHypothesis(raw)).toBe('The document discusses the impact of climate change on coastal regions.')
+  })
+
+  it('returns null for invalid JSON', () => {
+    expect(parseHydeHypothesis('not-json')).toBeNull()
+  })
+
+  it('returns null when hypothesis is missing', () => {
+    expect(parseHydeHypothesis(JSON.stringify({ foo: 'bar' }))).toBeNull()
+  })
+
+  it('returns null when hypothesis is not a string', () => {
+    expect(parseHydeHypothesis(JSON.stringify({ hypothesis: 123 }))).toBeNull()
+  })
+
+  it('returns null for empty or whitespace hypothesis', () => {
+    expect(parseHydeHypothesis(JSON.stringify({ hypothesis: '' }))).toBeNull()
+    expect(parseHydeHypothesis(JSON.stringify({ hypothesis: '   ' }))).toBeNull()
+  })
+
+  it('trims whitespace from hypothesis', () => {
+    const raw = JSON.stringify({ hypothesis: '  A trimmed hypothesis  ' })
+    expect(parseHydeHypothesis(raw)).toBe('A trimmed hypothesis')
+  })
+
+  it('returns null for null/array JSON', () => {
+    expect(parseHydeHypothesis('null')).toBeNull()
+    expect(parseHydeHypothesis('[]')).toBeNull()
   })
 })
