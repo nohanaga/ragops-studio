@@ -1469,8 +1469,10 @@
 
 .section__title {
   font-weight: 650;
-  font-size: 12px;
+  font-size: 13px;
   margin-bottom: 8px;
+  padding-left: 8px;
+  border-left: 3px solid var(--accent);
   color: var(--fg);
   white-space: nowrap;
   overflow: hidden;

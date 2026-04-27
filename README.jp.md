@@ -30,7 +30,7 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 - 🛠️ **ビルダーツール**: インデックス、ナレッジソース、ナレッジベース、シノニムマップ、スキルセット（ビジュアルパイプラインビルダー）の作成・管理
 - 🧩 **スキルパイプラインビルダー**: ビルトインスキルテンプレート、エンリッチメントツリープレビュー、デバッグランナー付きのビジュアル DAG エディター
 - 📝 **Custom Skill LiveEditor**: Custom Skill のブラウザ統合 Python IDE—ローカル実行（Pyodide/WASM）、クラウドデプロイ（Azure Container Apps）、Blob Storage 同期対応
-- 🧬 **Eval Dataset Generator**: Azure OpenAI を使用してインデックス内の実ドキュメントから AutoTuning 互換 JSONL 評価データセットを自動生成。多段階品質フィルター（Round-trip Consistency、意味的重複排除、Difficulty Evolution、Hard Negative Mining）対応
+- 🧬 **Eval Dataset Generator**: Azure OpenAI を使用してインデックス内の実ドキュメントから AutoTuning 互換 JSONL 評価データセットを自動生成。多段階品質フィルター（Round-trip Consistency、意味的重複排除、Difficulty Evolution、Hard Negative Mining）および RAFT Fine-Tuning データセット生成（Zhang et al., 2024）対応
 - 🎯 **検索パラメータ自動チューニング**: 評価データセットを使用して検索パラメータを自動最適化
 - 🧪 **実験管理**: クエリ履歴の保存、結果の比較、エクスポート/インポート
 - 🎨 **多機能UI**: 6つのテーマ、日英対応、3ペインレイアウト、リサイズ可能なパネル

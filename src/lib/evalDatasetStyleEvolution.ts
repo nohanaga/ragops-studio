@@ -34,7 +34,7 @@ function buildStyleDevolSystemPrompt(kind: StyleEvolutionKind, language: string)
     keyword:
       'Rewrite the query as a keyword-only search query — remove all particles, connectives, and verbs. Output only nouns/noun-phrases separated by spaces.',
     colloquial:
-      'Rewrite the query in casual spoken style, as if a user were asking a coworker in a chat app. Use contractions, colloquial fillers, and informal grammar.',
+      'Rewrite the query as if it were a casual tweet or social media post (Twitter/X style). Use slang, sentence fragments, emoji-free raw text, dropped particles, trailing "…" or "w" (Japanese) / "lol" (English), casual abbreviations, and messy grammar. It should feel like a real person typed it quickly on their phone — NOT like a polished chatbot message. Examples of Japanese colloquial: 「〜ってなに」「〜わからんのだけど」「〜教えて」「まじで〜」.',
     typo:
       'Introduce 1–2 realistic typos into the query (adjacent key substitution, missing character, or duplicated character). Keep the query otherwise unchanged and understandable.',
     abbreviated:

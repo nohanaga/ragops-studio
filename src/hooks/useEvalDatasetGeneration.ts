@@ -17,10 +17,12 @@ import { useCallback, useRef, useState } from 'react'
 
 import type { ConnectionProfile, SearchApiVersion } from '../lib/model'
 import type { Language } from '../lib/translations'
-import { computeRelevanceGrades, dedupBySurface, generateForDoc, generateForScenario, hardenQuery } from '../lib/evalDatasetGenerator'
+import { computeRelevanceGrades, dedupBySurface, generateForDoc, generateForScenario, generateRaftAnswer, hardenQuery } from '../lib/evalDatasetGenerator'
+import { fetchDistractorDocs } from '../lib/evalDatasetGrounding'
 import { LlmAuthError, formatLlmAuthErrorMessage } from '../lib/llmAuth'
 import { sampleDocsFromIndex } from '../lib/evalDatasetSampling'
 import { checkGrounding, mineHardNegatives } from '../lib/evalDatasetGrounding'
+// fetchDistractorDocs is imported above alongside generateRaftAnswer
 import { embedTexts, findSemanticDuplicates } from '../lib/evalDatasetEmbeddings'
 import { planScenarios } from '../lib/evalDatasetRagas'
 import { extractEntities } from '../lib/evalDatasetEntities'
@@ -46,13 +48,14 @@ export type EdgPhase =
   | 'styleevol'
   | 'difficulty'
   | 'hardneg'
+  | 'raft'
   | 'done'
 
 export interface UseEvalDatasetGenerationResult {
   items: GeneratedQAItem[]
   isRunning: boolean
   error: string | null
-  progress: { done: number; total: number; phase: EdgPhase }
+  progress: { done: number; total: number; phase: EdgPhase; phaseIndex: number; phaseTotal: number }
   /** Map of doc id → original content text (only populated for the latest run's sample). */
   docTextById: Record<string, string>
   start: (config: EvalDatasetGenerationConfig) => Promise<void>
@@ -82,10 +85,12 @@ export function useEvalDatasetGeneration(
   const [docTextById, setDocTextById] = useState<Record<string, string>>({})
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [progress, setProgress] = useState<{ done: number; total: number; phase: EdgPhase }>({
+  const [progress, setProgress] = useState<{ done: number; total: number; phase: EdgPhase; phaseIndex: number; phaseTotal: number }>({
     done: 0,
     total: 0,
     phase: 'idle',
+    phaseIndex: 0,
+    phaseTotal: 0,
   })
   const abortRef = useRef<AbortController | null>(null)
 
@@ -99,7 +104,7 @@ export function useEvalDatasetGeneration(
     setItems([])
     setDocTextById({})
     setError(null)
-    setProgress({ done: 0, total: 0, phase: 'idle' })
+    setProgress({ done: 0, total: 0, phase: 'idle', phaseIndex: 0, phaseTotal: 0 })
   }, [])
 
   const start = useCallback(
@@ -113,7 +118,19 @@ export function useEvalDatasetGeneration(
       setIsRunning(true)
       setError(null)
       setItems([])
-      setProgress({ done: 0, total: 0, phase: 'sampling' })
+
+      // Calculate total pipeline phases for the outer progress bar.
+      let totalPhases = 2 // sampling + generating (always run)
+      if (config.enableGroundingCheck) totalPhases++
+      if (config.enableSemanticDedup && config.embeddingDeployment?.trim()) totalPhases++
+      if (config.enableDifficultyEvolution) totalPhases++
+      if (config.enableStyleEvolution) totalPhases++
+      if (config.enableHardNegativeMining) totalPhases++
+      if (config.enableRelevanceGrades) totalPhases++
+      if (config.enableRaftMode) totalPhases++
+      let currentPhase = 0
+
+      setProgress({ done: 0, total: 0, phase: 'sampling', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
 
       const runId = newRunId()
       const generatedAt = new Date().toISOString()
@@ -150,7 +167,7 @@ export function useEvalDatasetGeneration(
           setDocTextById(map)
         }
 
-        setProgress({ done: 0, total: docs.length, phase: 'generating' })
+        setProgress({ done: 0, total: docs.length, phase: 'generating', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
 
         // 2) Generate queries with bounded concurrency.
         //    Ragas mode plans scenarios across the 4-quadrant taxonomy
@@ -201,7 +218,7 @@ export function useEvalDatasetGeneration(
           // for that doc, so the pipeline never blocks on extraction errors.
           let entitySetsById: Record<string, Set<string>> | undefined
           if (config.enableEntityKG) {
-            setProgress({ done: 0, total: docs.length, phase: 'generating' })
+            setProgress((p) => ({ ...p, done: 0, total: docs.length }))
             entitySetsById = {}
             let eCursor = 0
             const eWorker = async () => {
@@ -223,7 +240,7 @@ export function useEvalDatasetGeneration(
                   if (controller.signal.aborted) return
                   recordWorkerError(e)
                 } finally {
-                  setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
+                  setProgress((p) => ({ ...p, done: p.done + 1 }))
                 }
               }
             }
@@ -243,7 +260,7 @@ export function useEvalDatasetGeneration(
             multiHopPairingThreshold: config.multiHopPairingThreshold,
             entitySetsById,
           })
-          setProgress({ done: 0, total: slots.length, phase: 'generating' })
+          setProgress((p) => ({ ...p, done: 0, total: slots.length }))
 
           let sCursor = 0
           const sWorker = async () => {
@@ -268,7 +285,7 @@ export function useEvalDatasetGeneration(
                 if (controller.signal.aborted) return
                 recordWorkerError(e)
               } finally {
-                setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
+                setProgress((p) => ({ ...p, done: p.done + 1 }))
               }
             }
           }
@@ -297,7 +314,7 @@ export function useEvalDatasetGeneration(
                 if (controller.signal.aborted) return
                 recordWorkerError(e)
               } finally {
-                setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
+                setProgress((p) => ({ ...p, done: p.done + 1 }))
               }
             }
           }
@@ -332,7 +349,7 @@ export function useEvalDatasetGeneration(
 
         // 4) Round-trip consistency filter (Phase 2.1).
         if (config.enableGroundingCheck) {
-          setProgress({ done: 0, total: pipeline.length, phase: 'grounding' })
+          setProgress({ done: 0, total: pipeline.length, phase: 'grounding', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
           const topK = Math.max(1, Math.min(50, Math.floor(config.groundingTopK || 10)))
 
           let gCursor = 0
@@ -355,7 +372,7 @@ export function useEvalDatasetGeneration(
                 item.rejected = true
                 item.rejection_reason = 'grounding'
                 if (tracing) pushTrace(item, { step: 3, phase: 'grounding', action: 'rejected', detail: { reason: 'no-candidate-ids' } })
-                setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
+                setProgress((p) => ({ ...p, done: p.done + 1 }))
                 continue
               }
               try {
@@ -389,7 +406,7 @@ export function useEvalDatasetGeneration(
                 if (controller.signal.aborted) return
                 recordWorkerError(e)
               } finally {
-                setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
+                setProgress((p) => ({ ...p, done: p.done + 1 }))
               }
             }
           }
@@ -410,7 +427,7 @@ export function useEvalDatasetGeneration(
             if (!pipeline[i].rejected) survivorIdx.push(i)
           }
           if (survivorIdx.length >= 2) {
-            setProgress({ done: 0, total: survivorIdx.length, phase: 'embedding' })
+            setProgress({ done: 0, total: survivorIdx.length, phase: 'embedding', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
             try {
               const queries = survivorIdx.map((i) => pipeline[i].query)
               const vectors = await embedTexts({
@@ -421,7 +438,7 @@ export function useEvalDatasetGeneration(
                 inputs: queries,
                 signal: controller.signal,
               })
-              setProgress({ done: survivorIdx.length, total: survivorIdx.length, phase: 'embedding' })
+              setProgress((p) => ({ ...p, done: survivorIdx.length, total: survivorIdx.length }))
               const dropped = findSemanticDuplicates(vectors, config.semanticDedupThreshold)
               for (const localIdx of dropped) {
                 const globalIdx = survivorIdx[localIdx]
@@ -446,15 +463,75 @@ export function useEvalDatasetGeneration(
         const docTextById = new Map<string, string>()
         for (const d of docs) docTextById.set(d.id, d.text)
 
-        // 5.5) Style Evolution / SNS mode (Phase 7b).
-        //      Degrades clean LLM queries into real-traffic surface forms.
+        // 5) Difficulty Evolution (Phase 4.2, Evol-Instruct).
+        //    Sequentially rewrites each kept query into a HARDER variant.
+        //    On parse error the original query is kept verbatim.
+        if (config.enableDifficultyEvolution) {
+          const survivors: number[] = []
+          for (let i = 0; i < pipeline.length; i++) {
+            if (!pipeline[i].rejected) survivors.push(i)
+          }
+          if (survivors.length > 0) {
+            setProgress({ done: 0, total: survivors.length, phase: 'difficulty', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
+            // Mark every kept item as `easy` baseline first.
+            for (const idx of survivors) {
+              if (!pipeline[idx].difficulty) pipeline[idx].difficulty = 'easy'
+            }
+
+            let dCursor = 0
+            const dWorker = async () => {
+              while (!controller.signal.aborted) {
+                const localIdx = dCursor++
+                if (localIdx >= survivors.length) return
+                const globalIdx = survivors[localIdx]
+                const item = pipeline[globalIdx]
+                const ctxId = item.source_doc_id || item.expected_ids[0] || ''
+                const ctx = docTextById.get(ctxId) ?? ''
+                if (!ctx) {
+                  setProgress((p) => ({ ...p, done: p.done + 1 }))
+                  continue
+                }
+                try {
+                  const harder = await hardenQuery({
+                    language: config.language,
+                    query: item.query,
+                    contextText: ctx,
+                    llm: judgeLlm,
+                    signal: controller.signal,
+                  })
+                  if (harder) {
+                    const before = item.query
+                    item.query = harder
+                    item.difficulty = 'hard'
+                    if (tracing) pushTrace(item, { step: 5, phase: 'difficulty', action: 'modified', detail: { before, after: harder } })
+                  } else {
+                    if (tracing) pushTrace(item, { step: 5, phase: 'difficulty', action: 'kept' })
+                  }
+                } catch (e) {
+                  if (controller.signal.aborted) return
+                  recordWorkerError(e)
+                } finally {
+                  setProgress((p) => ({ ...p, done: p.done + 1 }))
+                }
+              }
+            }
+            const dWorkers: Promise<void>[] = []
+            const dw = Math.min(CONCURRENCY, survivors.length)
+            for (let i = 0; i < dw; i++) dWorkers.push(dWorker())
+            await Promise.all(dWorkers)
+            setItems([...pipeline])
+          }
+        }
+
+        // 6) Style Evolution / SNS mode (Phase 7b).
+        //    Degrades clean LLM queries into real-traffic surface forms.
         if (config.enableStyleEvolution) {
           const survivors: number[] = []
           for (let i = 0; i < pipeline.length; i++) {
             if (!pipeline[i].rejected) survivors.push(i)
           }
           if (survivors.length > 0) {
-            setProgress({ done: 0, total: survivors.length, phase: 'styleevol' })
+            setProgress({ done: 0, total: survivors.length, phase: 'styleevol', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
             const seLlm = judgeLlm // style evolution uses judge LLM (or generation LLM as fallback)
             const allowedKinds = config.styleEvolutionKinds ?? []
 
@@ -483,7 +560,7 @@ export function useEvalDatasetGeneration(
                     item.style_evolution_kind = result.kind
                   }
                   if (tracing) pushTrace(item, {
-                    step: 5, phase: 'style-evolution',
+                    step: 6, phase: 'style-evolution',
                     action: changed ? 'modified' : 'kept',
                     detail: changed
                       ? { before, after: result.degraded, styleKind: result.kind }
@@ -492,9 +569,9 @@ export function useEvalDatasetGeneration(
                 } catch (e) {
                   if (controller.signal.aborted) return
                   recordWorkerError(e)
-                  if (tracing) pushTrace(item, { step: 5, phase: 'style-evolution', action: 'kept', detail: { reason: 'error' } })
+                  if (tracing) pushTrace(item, { step: 6, phase: 'style-evolution', action: 'kept', detail: { reason: 'error' } })
                 } finally {
-                  setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
+                  setProgress((p) => ({ ...p, done: p.done + 1 }))
                 }
               }
             }
@@ -502,66 +579,6 @@ export function useEvalDatasetGeneration(
             const sew = Math.min(CONCURRENCY, survivors.length)
             for (let i = 0; i < sew; i++) seWorkers.push(seWorker())
             await Promise.all(seWorkers)
-            setItems([...pipeline])
-          }
-        }
-
-        // 6) Difficulty Evolution (Phase 4.2, Evol-Instruct).
-        //    Sequentially rewrites each kept query into a HARDER variant.
-        //    On parse error the original query is kept verbatim.
-        if (config.enableDifficultyEvolution) {
-          const survivors: number[] = []
-          for (let i = 0; i < pipeline.length; i++) {
-            if (!pipeline[i].rejected) survivors.push(i)
-          }
-          if (survivors.length > 0) {
-            setProgress({ done: 0, total: survivors.length, phase: 'difficulty' })
-            // Mark every kept item as `easy` baseline first.
-            for (const idx of survivors) {
-              if (!pipeline[idx].difficulty) pipeline[idx].difficulty = 'easy'
-            }
-
-            let dCursor = 0
-            const dWorker = async () => {
-              while (!controller.signal.aborted) {
-                const localIdx = dCursor++
-                if (localIdx >= survivors.length) return
-                const globalIdx = survivors[localIdx]
-                const item = pipeline[globalIdx]
-                const ctxId = item.source_doc_id || item.expected_ids[0] || ''
-                const ctx = docTextById.get(ctxId) ?? ''
-                if (!ctx) {
-                  setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
-                  continue
-                }
-                try {
-                  const harder = await hardenQuery({
-                    language: config.language,
-                    query: item.query,
-                    contextText: ctx,
-                    llm: judgeLlm,
-                    signal: controller.signal,
-                  })
-                  if (harder) {
-                    const before = item.query
-                    item.query = harder
-                    item.difficulty = 'hard'
-                    if (tracing) pushTrace(item, { step: 6, phase: 'difficulty', action: 'modified', detail: { before, after: harder } })
-                  } else {
-                    if (tracing) pushTrace(item, { step: 6, phase: 'difficulty', action: 'kept' })
-                  }
-                } catch (e) {
-                  if (controller.signal.aborted) return
-                  recordWorkerError(e)
-                } finally {
-                  setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
-                }
-              }
-            }
-            const dWorkers: Promise<void>[] = []
-            const dw = Math.min(CONCURRENCY, survivors.length)
-            for (let i = 0; i < dw; i++) dWorkers.push(dWorker())
-            await Promise.all(dWorkers)
             setItems([...pipeline])
           }
         }
@@ -575,7 +592,7 @@ export function useEvalDatasetGeneration(
             if (!pipeline[i].rejected) survivors.push(i)
           }
           if (survivors.length > 0) {
-            setProgress({ done: 0, total: survivors.length, phase: 'hardneg' })
+            setProgress({ done: 0, total: survivors.length, phase: 'hardneg', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
             const topK = Math.max(
               1,
               Math.min(50, Math.floor(config.hardNegativeTopK || 10)),
@@ -612,7 +629,7 @@ export function useEvalDatasetGeneration(
                   if (controller.signal.aborted) return
                   recordWorkerError(e)
                 } finally {
-                  setProgress((p) => ({ done: p.done + 1, total: p.total, phase: p.phase }))
+                  setProgress((p) => ({ ...p, done: p.done + 1 }))
                 }
               }
             }
@@ -628,6 +645,7 @@ export function useEvalDatasetGeneration(
         //    Stamps each kept item with `relevance_grades`. Runs locally
         //    (no LLM/search), so it is cheap to leave on by default.
         if (config.enableRelevanceGrades) {
+          currentPhase++
           for (const it of pipeline) {
             if (it.rejected) continue
             const grades = computeRelevanceGrades(it)
@@ -639,7 +657,85 @@ export function useEvalDatasetGeneration(
           setItems([...pipeline])
         }
 
-        setProgress((p) => ({ ...p, phase: 'done' }))
+        // 9) RAFT: generate CoT answers with oracle + distractor context.
+        //    For each kept item, fetch distractor docs from the index via
+        //    similarity search, then call LLM to generate a Chain-of-Thought
+        //    answer citing the oracle document.
+        if (config.enableRaftMode) {
+          const survivors: number[] = []
+          for (let i = 0; i < pipeline.length; i++) {
+            if (!pipeline[i].rejected) survivors.push(i)
+          }
+          if (survivors.length > 0) {
+            setProgress({ done: 0, total: survivors.length, phase: 'raft', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
+            const distractorCount = Math.max(1, Math.min(10, Math.floor(config.raftDistractorCount || 4)))
+            const raftLlm = judgeLlm // RAFT answer generation uses judge LLM (or generation LLM)
+
+            let raftCursor = 0
+            const raftWorker = async () => {
+              while (!controller.signal.aborted) {
+                const localIdx = raftCursor++
+                if (localIdx >= survivors.length) return
+                const globalIdx = survivors[localIdx]
+                const item = pipeline[globalIdx]
+                try {
+                  // Get oracle doc text from the sampled docs map.
+                  const oracleId = item.source_doc_id || item.expected_ids[0] || ''
+                  const oracleText = docTextById.get(oracleId) ?? ''
+                  if (!oracleText) {
+                    setProgress((p) => ({ ...p, done: p.done + 1 }))
+                    continue
+                  }
+
+                  // Fetch distractor documents from the index.
+                  const distractors = await fetchDistractorDocs({
+                    profile,
+                    indexName: config.indexName,
+                    apiVersion,
+                    keyField: config.keyField,
+                    contentFields: config.contentFields,
+                    query: item.query,
+                    expectedIds: item.expected_ids,
+                    count: distractorCount,
+                    language,
+                    signal: controller.signal,
+                  })
+
+                  // Generate CoT answer.
+                  const cotAnswer = await generateRaftAnswer({
+                    language: config.language,
+                    question: item.query,
+                    oracleDoc: { id: oracleId, text: oracleText },
+                    distractorDocs: distractors,
+                    llm: raftLlm,
+                    signal: controller.signal,
+                  })
+
+                  if (cotAnswer) {
+                    item.raft_cot_answer = cotAnswer
+                    // Build the full context array for RAFT JSONL export.
+                    item.raft_context = [
+                      { doc_id: oracleId, text: oracleText, oracle: true },
+                      ...distractors.map((d) => ({ doc_id: d.id, text: d.text, oracle: false })),
+                    ]
+                  }
+                } catch (e) {
+                  if (controller.signal.aborted) return
+                  recordWorkerError(e)
+                } finally {
+                  setProgress((p) => ({ ...p, done: p.done + 1 }))
+                }
+              }
+            }
+            const raftWorkers: Promise<void>[] = []
+            const rw = Math.min(CONCURRENCY, survivors.length)
+            for (let i = 0; i < rw; i++) raftWorkers.push(raftWorker())
+            await Promise.all(raftWorkers)
+            setItems([...pipeline])
+          }
+        }
+
+        setProgress((p) => ({ ...p, phase: 'done', phaseIndex: totalPhases, phaseTotal: totalPhases }))
         if (firstError) {
           // Surface non-fatal errors so users notice partial failures.
           // (fatalAuthMsg is handled in `finally` so it wins even when the

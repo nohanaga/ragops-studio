@@ -39,7 +39,17 @@ export interface AoaiChatResponse {
  * Call Azure OpenAI Chat Completions.
  * When `jsonMode` is true (default), sends `response_format: json_object`.
  * Returns the raw assistant content string.
+ *
+ * Retries up to `MAX_CONTENT_FILTER_RETRIES` times on 400 content-filter
+ * responses with increasing temperature to nudge the model past the filter.
  */
+const MAX_CONTENT_FILTER_RETRIES = 3
+const CONTENT_FILTER_RETRY_DELAY_MS = 1000
+
+function isContentFilterError(status: number, body: string): boolean {
+  return status === 400 && (body.includes('content_filter') || body.includes('content management policy') || body.includes('content filtering'))
+}
+
 export async function callAzureOpenAIChat(params: CallAoaiParams): Promise<string> {
   const { endpoint, auth, deployment, apiVersion, systemPrompt, userPrompt, signal, jsonMode = true } = params
   if (!endpoint.trim()) throw new Error('LLM endpoint is required')
@@ -49,37 +59,51 @@ export async function callAzureOpenAIChat(params: CallAoaiParams): Promise<strin
   const base = endpoint.replace(/\/+$/, '')
   const url = `${base}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...buildLlmAuthHeaders(auth),
-    },
-    signal,
-    body: JSON.stringify({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.3,
-      ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
-    }),
-  })
+  let lastErrorText = ''
+  for (let attempt = 0; attempt <= MAX_CONTENT_FILTER_RETRIES; attempt++) {
+    const temperature = 0.3 + attempt * 0.15 // slightly raise temperature on retries
 
-  if (!res.ok) {
-    const errorText = await res.text().catch(() => '')
-    if (isLlmAuthStatus(res.status)) {
-      throw new LlmAuthError(res.status, auth.mode, errorText.slice(0, 500))
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...buildLlmAuthHeaders(auth),
+      },
+      signal,
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature,
+        ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+      }),
+    })
+
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => '')
+      if (isLlmAuthStatus(res.status)) {
+        throw new LlmAuthError(res.status, auth.mode, errorText.slice(0, 500))
+      }
+      // Retry on content filter 400 errors
+      if (isContentFilterError(res.status, errorText) && attempt < MAX_CONTENT_FILTER_RETRIES) {
+        lastErrorText = errorText
+        await new Promise((r) => setTimeout(r, CONTENT_FILTER_RETRY_DELAY_MS * (attempt + 1)))
+        continue
+      }
+      throw new Error(`Azure OpenAI request failed (${res.status}): ${errorText.slice(0, 300)}`)
     }
-    throw new Error(`Azure OpenAI request failed (${res.status}): ${errorText.slice(0, 300)}`)
+
+    const data = (await res.json()) as AoaiChatResponse
+    const content = data?.choices?.[0]?.message?.content ?? ''
+    if (!content) {
+      throw new Error('Azure OpenAI returned an empty completion')
+    }
+    return content
   }
 
-  const data = (await res.json()) as AoaiChatResponse
-  const content = data?.choices?.[0]?.message?.content ?? ''
-  if (!content) {
-    throw new Error('Azure OpenAI returned an empty completion')
-  }
-  return content
+  // Should not reach here, but safety fallback
+  throw new Error(`Azure OpenAI content filter triggered after ${MAX_CONTENT_FILTER_RETRIES} retries: ${lastErrorText.slice(0, 300)}`)
 }
 
 /**
@@ -452,4 +476,122 @@ export async function hardenQuery(params: HardenQueryParams): Promise<string | n
   const userPrompt = buildHardenUserPrompt({ language, query, contextText: ctx })
   const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal })
   return parseHardenedQuery(raw)
+}
+
+/* ------------------------------------------------------------------ */
+/* RAFT: Chain-of-Thought answer generation                            */
+/* ------------------------------------------------------------------ */
+
+import {
+  buildRaftAnswerSystemPrompt,
+  buildRaftAnswerUserPrompt,
+} from './evalDatasetPrompts'
+
+export interface GenerateRaftAnswerParams {
+  language: EvalLanguage
+  question: string
+  oracleDoc: { id: string; text: string }
+  distractorDocs: Array<{ id: string; text: string }>
+  llm: Omit<CallAoaiParams, 'systemPrompt' | 'userPrompt' | 'signal'>
+  signal?: AbortSignal
+}
+
+/**
+ * Parse the `{ "cot_answer": "..." }` response from the RAFT answer LLM.
+ * Exported for unit testing.
+ */
+export function parseRaftAnswer(rawJson: string): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawJson)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const a = (parsed as Record<string, unknown>)['cot_answer']
+  if (typeof a !== 'string') return null
+  const trimmed = a.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+/**
+ * Generate a Chain-of-Thought answer for a RAFT training item.
+ * The oracle doc is shuffled among distractors inside the prompt builder
+ * so the model learns to identify the relevant document.
+ *
+ * Returns `null` on parse error (caller keeps item without CoT answer).
+ */
+export async function generateRaftAnswer(
+  params: GenerateRaftAnswerParams,
+): Promise<string | null> {
+  const { language, question, oracleDoc, distractorDocs, llm, signal } = params
+
+  // Truncate excerpts to fit within budget
+  const perDocBudget = Math.max(
+    300,
+    Math.floor(MAX_CHUNK_CHARS / Math.max(1, 1 + distractorDocs.length)),
+  )
+  const truncOracle = {
+    id: oracleDoc.id,
+    text: oracleDoc.text.length > perDocBudget ? oracleDoc.text.slice(0, perDocBudget) : oracleDoc.text,
+  }
+  const truncDistractors = distractorDocs.map((d) => ({
+    id: d.id,
+    text: d.text.length > perDocBudget ? d.text.slice(0, perDocBudget) : d.text,
+  }))
+
+  const systemPrompt = buildRaftAnswerSystemPrompt(language)
+  const userPrompt = buildRaftAnswerUserPrompt({
+    language,
+    question,
+    oracleDoc: truncOracle,
+    distractorDocs: truncDistractors,
+  })
+
+  const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal })
+  return parseRaftAnswer(raw)
+}
+
+/**
+ * Convert items to RAFT-format JSONL (for fine-tuning).
+ * Only non-rejected items that have `raft_cot_answer` are included.
+ *
+ * RAFT JSONL schema per line:
+ * ```json
+ * {
+ *   "question": "...",
+ *   "context": [{ "doc_id": "...", "text": "...", "oracle": true/false }, ...],
+ *   "cot_answer": "##Reason: ... ##Answer: ...",
+ *   "expected_ids": ["..."],
+ *   "provenance": "synthetic",
+ *   ...metadata
+ * }
+ * ```
+ */
+export function toRaftJsonl(items: GeneratedQAItem[]): string {
+  return items
+    .filter((i) => !i.rejected && i.raft_cot_answer)
+    .map((i) => {
+      const out: Record<string, unknown> = {
+        question: i.query,
+        context: (i.raft_context ?? []).map((c) => ({
+          doc_id: c.doc_id,
+          text: c.text,
+          oracle: c.oracle,
+        })),
+        cot_answer: i.raft_cot_answer,
+        expected_ids: i.expected_ids,
+      }
+      if (i.query_type) out['query_type'] = i.query_type
+      if (i.language) out['language'] = i.language
+      if (i.source_doc_id) out['source_doc_id'] = i.source_doc_id
+      if (i.generation_model) out['generation_model'] = i.generation_model
+      if (i.provenance) out['provenance'] = i.provenance
+      if (i.generated_at) out['generated_at'] = i.generated_at
+      if (i.generated_against_index) out['generated_against_index'] = i.generated_against_index
+      if (i.generation_run_id) out['generation_run_id'] = i.generation_run_id
+      if (i.difficulty) out['difficulty'] = i.difficulty
+      return JSON.stringify(out)
+    })
+    .join('\n')
 }

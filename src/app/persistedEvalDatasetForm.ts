@@ -84,6 +84,10 @@ export type PersistedEvalDatasetForm = {
   // Phase 7c: Trace
   enableTrace?: boolean
 
+  // RAFT
+  enableRaftMode?: boolean
+  raftDistractorCount?: number
+
   // Persistence panel
   persistTitle?: string
   selectedPersistId?: string

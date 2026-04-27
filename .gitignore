@@ -27,3 +27,5 @@ coverage
 .env
 .zip
 .fake
+
+copilot-instructions.md

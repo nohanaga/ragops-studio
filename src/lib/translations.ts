@@ -83,6 +83,8 @@ export const translations = {
     edgPhaseDifficulty: '難易度進化中 (Evol-Instruct)',
     edgPhaseHardneg: 'Hard Negative 採掘中',
     edgPhaseStyleEvol: 'スタイル変換中 (SNS モード)',
+    edgPhaseRaft: 'RAFT 生成中',
+    edgProgressOverall: 'パイプライン: {current} / {total}',
     edgKeptCount: 'keep',
     edgRejectedCount: 'rejected',
 
@@ -125,8 +127,8 @@ export const translations = {
     edgTracePhaseSurfaceDedupLabel: '② 表層重複排除',
     edgTracePhaseGroundingLabel: '③ Grounding',
     edgTracePhaseSemanticDedupLabel: '④ 意味重複排除',
-    edgTracePhaseStyleEvolutionLabel: '⑤ Style Evolution',
-    edgTracePhaseDifficultyLabel: '⑥ 難化',
+    edgTracePhaseDifficultyLabel: '⑤ 難化',
+    edgTracePhaseStyleEvolutionLabel: '⑥ Style Evolution',
     edgTracePhaseHardnegLabel: '⑦ Hard Negative',
     edgTracePhaseRelevanceLabel: '⑧ Relevance',
     edgTracePhaseGenerationDesc: 'LLM がドキュメントをもとに初期クエリを生成します。',
@@ -160,7 +162,20 @@ export const translations = {
       '出力フォーマットと多様性軸の研究的整合を強化します。\n・relevance_grades (NDCG/XDCG 互換): expected_ids[0] (主たるアンカー) を 3、その他 expected_ids (multi-hop 副次文書) を 2、hard_negative_ids を 0 として grading map を JSONL に出力。Foundry / TREC 系評価器が直接消費可能。\n・Entity-KG 多様性 (Ragas モード時のみ): 各サンプル文書につき LLM で固有名詞/技術用語を抽出し、entity Jaccard で multi-hop ペアを検出。token Jaccard より「意味的に関連する文書ペア」を捉えやすくなります。抽出失敗時は token Jaccard へ自動フォールバック。',
     edgSciInfoPhase6Refs: '参考: Microsoft Foundry Evaluators / TREC NDCG / Ragas KG Diversity',
 
-    // EDAG: Ragas-style scenario generation
+    // EDAG: RAFT (Retrieval Augmented Fine-Tuning)
+    edgRaftTitle: 'RAFT — Fine-Tuning データセット生成',
+    edgRaftEnableLabel: 'RAFT モードを有効化 (CoT Fine-Tuning データセットを生成)',
+    edgRaftEnableHint: 'パイプライン完了後に、各クエリに対してオラクル文書 + ディストラクター文書を組み合わせた Chain-of-Thought 回答を LLM で生成します。出力は RAFT JSONL 形式でエクスポートできます。',
+    edgRaftDistractorCountLabel: 'ディストラクター数 (1–10)',
+    edgRaftDistractorCountHint: '各クエリに混入するノイズ文書の数。論文推奨は 4 (D*=oracle+4 distractor)。多いほどノイズ耐性が強い Fine-Tuning になりますが、トークンコストが増加します。',
+    edgRaftExportBtn: 'RAFT JSONL をダウンロード',
+    edgRaftCotCount: '{count} 件の CoT 回答を生成しました',
+    edgColRaftCot: 'RAFT CoT',
+    edgColRaftContext: 'RAFT Context',
+    edgSciInfoRaftTitle: '技術的背景: RAFT (Retrieval Augmented Fine-Tuning)',
+    edgSciInfoRaftBody: 'RAFT (Zhang et al., 2024) は、RAG パイプラインの検索結果にノイズ (ディストラクター文書) が含まれる現実を前提とした Fine-Tuning 手法です。学習時にオラクル文書とランダムなディストラクター文書をコンテキストとして与え、Chain-of-Thought 形式で回答させることで、推論時に検索ノイズを無視して正しい文書から情報を抽出する能力を学習させます。出力形式は自由記述の推論 + `<ANSWER>:` タグで最終回答を示す形式 (論文準拠) です。',
+    edgSciInfoRaftRefs: '参考: RAFT: Adapting Language Model to Domain Specific RAG (Zhang et al., 2024)',
+
     edgRagasTitle: 'Ragas モード — 4 象限シナリオ生成',
     edgRagasEnableLabel: 'Ragas モードを有効化 (single/multi × specific/abstract)',
     edgRagasEnableHint: 'Ragas (vibrantlabsai/ragas) 流に 4 象限の比率を指定してクエリを生成します。multi-* は文書ペアを横断する質問になります。有効化すると「ドキュメント当たり生成数」は「総合計クエリ数 = sampleSize × queriesPerDoc」として扱われ、4 象限へ按分されます。',
@@ -209,6 +224,8 @@ export const translations = {
     edgSchemaEntities: 'エンティティ (例: サービス名, チケット状態)',
     edgSchemaRelations: '関係 (例: 「サービス → 依存されるサービス」)',
     edgSchemaConstraints: '制約 (例: 「認可済みステータスのみ検索対象」)',
+    edgSchemaExampleTitle: '入力例を見る',
+    edgSchemaExampleBody: '**エンティティ**: サービス名, チケット状態, 優先度, 担当チーム, SLA レベル\n**関係**: 「チケット → 担当チーム」「サービス → 依存されるサービス」「SLA レベル → 優先度」\n**制約**: 「クローズ済みチケットは検索対象外」「SLA 違反は優先度 High 以上のみ対象」\n\n上記のように、インデックス内の文書が扱うドメイン固有の概念・関連・ルールを記述します。記述があると LLM がそのドメインの文脈を把握し、より実践的なクエリを生成します。',
     edgColDifficulty: 'Difficulty',
     edgColHardNegatives: 'Hard negatives',
 
@@ -241,13 +258,13 @@ export const translations = {
     edgFlowS7Desc: '`query` / `expected_ids` / `query_type` / `language` / `difficulty` / `hard_negative_ids` / `relevance_grades` / `provenance` を含む JSONL を生成します。Save したデータは localStorage (`ragops.evalDatasets.v1`) に永続化され、AutoTuning からドロップダウンで再利用できます。',
     edgTipsWhatItDoes: '(1) 指定インデックスから `sampleSize` 件のドキュメントを横断サンプリング → (2) 各ドキュメント本文を上限 4000 文字で切り出し LLM コンテキスト長を保護 → (3) Azure OpenAI Chat Completions を JSON mode で呼び、`queriesPerDoc` 件のクエリを生成（Ragas モード ON のときは 4 象限 × Persona/Style/Length のシナリオ単位で生成）→ (4) 品質フィルタ (Round-trip Consistency / 表層 + 意味重複排除) → (5) 増強 (Evol-Instruct 難化 / Hard Negative 採掘) → (6) `relevance_grades` を付与し、必要に応じて Entity-KG で multi-hop ペアを再計算 → (7) AutoTuning 互換 JSONL を出力。保存した結果は localStorage (`ragops.evalDatasets.v1`) に永続化され、AutoTuning からドロップダウンで再利用できます。',
     edgTipsTechH: '採用している技術',
-    edgTipsTech: '・Azure OpenAI Chat Completions (JSON mode, `response_format=json_object`) による構造化出力の強制\n・query_type ごと (factoid / how-to / comparative / yes-no) に system prompt を分岐し質問タイプの偏りを抑制\n・チャンク横断サンプリングによりインデックス全体の Recall を評価可能に\n・Judge LLM は生成 LLM と同じ endpoint / auth を共有しつつ deployment だけ差し替える設計で、比較実験時の設定差分を最小化\n・Style Evolution はクエリ表層変換を `style_evolution_kind` と trace イベントに明示記録し、生成後の監査を可能に\n・Query Transformation Trace はパイプライン各段階の before / after / reason / score を保持し、モーダル上で可視化できる\n・既存 SearchParameterAutoTuning と同一スキーマで出力し、評価指標 (nDCG / Recall@k 等) の計算側を再利用\n・JSONL に provenance メタデータ (`provenance: synthetic` / `generated_at` / `generated_against_index` / `generation_run_id`) を付与し、合成データであることを下流で識別可能に\n・フォーム入力は IndexedDB (`AppSettings.evalDatasetFormJson`) に永続化、生成済みデータセットは `ragops.evalDatasets.v1` に保存\n・PPI (Prediction-Powered Inference) ライブラリ ([ppi.ts](../src/lib/ppi.ts)) を同梱: 少数の人手ラベル + 大量の合成ラベルから bias-corrected な信頼区間付き平均を推定可能',
+    edgTipsTech: '・Azure OpenAI Chat Completions (JSON mode, `response_format=json_object`) による構造化出力の強制\n・query_type ごと (factoid / how-to / comparative / yes-no) に system prompt を分岐し質問タイプの偏りを抑制\n・チャンク横断サンプリングによりインデックス全体の Recall を評価可能に\n・Judge LLM は生成 LLM と同じ endpoint / auth を共有しつつ deployment だけ差し替える設計で、比較実験時の設定差分を最小化\n・Style Evolution はクエリ表層変換を `style_evolution_kind` と trace イベントに明示記録し、生成後の監査を可能に\n・Query Transformation Trace はパイプライン各段階の before / after / reason / score を保持し、モーダル上で可視化できる\n・既存 SearchParameterAutoTuning と同一スキーマで出力し、評価指標 (nDCG / Recall@k 等) の計算側を再利用\n・JSONL に provenance メタデータ (`provenance: synthetic` / `generated_at` / `generated_against_index` / `generation_run_id`) を付与し、合成データであることを下流で識別可能に\n・フォーム入力は IndexedDB (`AppSettings.evalDatasetFormJson`) に永続化、生成済みデータセットは `ragops.evalDatasets.v1` に保存\n・PPI (Prediction-Powered Inference) ライブラリ ([ppi.ts](../src/lib/ppi.ts)) を同梱: 少数の人手ラベル + 大量の合成ラベルから bias-corrected な信頼区間付き平均を推定可能\n・RAFT (Retrieval Augmented Fine-Tuning): パイプライン完了後にオラクル文書 + ディストラクター文書を組み合わせたコンテキストを構成し、Chain-of-Thought (CoT) 回答を LLM で生成。出力は `<ANSWER>:` タグ形式 (Zhang+ 2024 準拠) で RAFT JSONL にエクスポート可能',
     edgTipsTheoryH: '評価理論上の位置づけ',
-    edgTipsTheory: '本機能は学術的に「synthetic evaluation set (合成評価データセット)」と呼ばれる手法群です。新規 RAG システム構築時のコールドスタート問題の解消、構成変更 (インデックス・チャンク戦略・検索パラメータ) の相対比較、回帰検知に有効です。Judge LLM は「生成器と評価器の分離」による評価バイアス低減、SNS モードは「実ユーザ分布とのギャップ縮小」、Trace は「生成過程の可観測性向上」を担います。各手法の詳細はセクション冒頭の技術的背景吹き出しを参照してください。',
+    edgTipsTheory: '本機能は学術的に「synthetic evaluation set (合成評価データセット)」と呼ばれる手法群です。新規 RAG システム構築時のコールドスタート問題の解消、構成変更 (インデックス・チャンク戦略・検索パラメータ) の相対比較、回帰検知に有効です。Judge LLM は「生成器と評価器の分離」による評価バイアス低減、SNS モードは「実ユーザ分布とのギャップ縮小」、Trace は「生成過程の可観測性向上」を担います。RAFT (Zhang+ 2024) は評価にとどまらず「合成データで RAG 特化 LLM を Fine-Tuning する」手法であり、oracle 文書にランダムなディストラクター文書を混入し Chain-of-Thought で回答させることで、推論時のノイズ耐性を学習させます。各手法の詳細はセクション冒頭の技術的背景吹き出しを参照してください。',
     edgTipsLimitsH: '限界と注意 (必読)',
-    edgTipsLimits: '・**Distribution shift**: LLM が生成するクエリは整いすぎており、実ユーザの曖昧・口語・短キーワード型クエリの分布を完全には再現しません。SNS モードで緩和はできますが、実ログの完全代替にはなりません。\n・**LLM-as-a-Judge bias**: Judge LLM に生成 LLM と同系列モデルを使うと self-preference bias で評価が甘くなりえます。Judge / Embedding は生成 LLM と別系列を推奨します。\n・**Trace は診断用であり品質保証ではない**: keep / reject / modified の履歴が見えても、その判断自体が常に正しいとは限りません。Trace は監査とデバッグの補助であって正解ラベルではありません。\n・**False Negative**: 同じ質問に他チャンクでも回答可能なケースを不正解と誤判定しうる構造的限界 (multi-hop の `expected_ids` 配列と grounding rank の最善採用、`relevance_grades` での grading 化で部分緩和)。\n・**Style Evolution / Entity-KG / Difficulty Evolution / Hard Negative / Trace は追加コストを生みます** — LLM 呼び出し数、保持メタデータ、JSONL サイズが増えるため、サンプル文書数と通過クエリ数にほぼ比例して負荷が増加します。\n・**コーパスドリフト**: インデックス内容が変化した後の合成データセットは陳腐化します。`generated_against_index` と `generated_at` を必ず確認し、必要に応じて再生成してください。',
+    edgTipsLimits: '・**Distribution shift**: LLM が生成するクエリは整いすぎており、実ユーザの曖昧・口語・短キーワード型クエリの分布を完全には再現しません。SNS モードで緩和はできますが、実ログの完全代替にはなりません。\n・**LLM-as-a-Judge bias**: Judge LLM に生成 LLM と同系列モデルを使うと self-preference bias で評価が甘くなりえます。Judge / Embedding は生成 LLM と別系列を推奨します。\n・**Trace は診断用であり品質保証ではない**: keep / reject / modified の履歴が見えても、その判断自体が常に正しいとは限りません。Trace は監査とデバッグの補助であって正解ラベルではありません。\n・**False Negative**: 同じ質問に他チャンクでも回答可能なケースを不正解と誤判定しうる構造的限界 (multi-hop の `expected_ids` 配列と grounding rank の最善採用、`relevance_grades` での grading 化で部分緩和)。\n・**Style Evolution / Entity-KG / Difficulty Evolution / Hard Negative / Trace は追加コストを生みます** — LLM 呼び出し数、保持メタデータ、JSONL サイズが増えるため、サンプル文書数と通過クエリ数にほぼ比例して負荷が増加します。\n・**コーパスドリフト**: インデックス内容が変化した後の合成データセットは陳腐化します。`generated_against_index` と `generated_at` を必ず確認し、必要に応じて再生成してください。\n・**RAFT CoT の品質は生成 LLM の能力に依存**: Chain-of-Thought の推論品質は LLM の推論能力に左右されます。小規模モデルでは CoT が浅くなる傾向があり、Fine-Tuning 後のモデル品質に直結します。\n・**RAFT はトークンコストが高い**: 各クエリに対してオラクル + ディストラクター文書全文をプロンプトに含めるため、1 クエリあたりの入力トークン数が大幅に増加します。ディストラクター数を減らすとコストは下がりますがノイズ耐性の学習効果も減少します。',
     edgTipsRecH: '推奨される使い方',
-    edgTipsRec: '(1) 出力は「構成変更の相対比較・回帰検知用」と位置づけ、本番品質スコアの代理指標として扱わないでください。 (2) 初回は少量生成し、Trace を見ながら Grounding / Style Evolution / Difficulty の挙動を確認してください。 (3) Judge LLM を使う場合は、生成 LLM と別モデル系列を優先してください。 (4) SNS モードは実ログ不足を補う用途に限定し、必ず人手レビュー・編集を挟んでください。 (5) 可能であれば本番ログ由来の実クエリと混在させて評価してください。 (6) 大規模生成時は Round-trip Consistency / Semantic dedup / Hard Negative を ON にして品質を担保してください。 (7) Foundry / TREC 系評価器を利用する場合は `relevance_grades` を ON のままにしてください。 (8) 信頼区間付きの推定が必要な場合は `ppiMean` を利用し、少数の人手ラベルと合成ラベルを bias-corrected で結合してください。 (9) 保存したデータセットは AutoTuning からドロップダウンで再利用できます。',
+    edgTipsRec: '(1) 出力は「構成変更の相対比較・回帰検知用」と位置づけ、本番品質スコアの代理指標として扱わないでください。 (2) 初回は少量生成し、Trace を見ながら Grounding / Style Evolution / Difficulty の挙動を確認してください。 (3) Judge LLM を使う場合は、生成 LLM と別モデル系列を優先してください。 (4) SNS モードは実ログ不足を補う用途に限定し、必ず人手レビュー・編集を挟んでください。 (5) 可能であれば本番ログ由来の実クエリと混在させて評価してください。 (6) 大規模生成時は Round-trip Consistency / Semantic dedup / Hard Negative を ON にして品質を担保してください。 (7) Foundry / TREC 系評価器を利用する場合は `relevance_grades` を ON のままにしてください。 (8) 信頼区間付きの推定が必要な場合は `ppiMean` を利用し、少数の人手ラベルと合成ラベルを bias-corrected で結合してください。 (9) 保存したデータセットは AutoTuning からドロップダウンで再利用できます。 (10) RAFT モードを使う場合は、まず RAFT OFF の状態で評価データセットの品質を確認してから有効化してください。ディストラクター数は論文推奨の 4 (D*=oracle+4 distractor) から始めて、Fine-Tuning 結果を見て調整してください。',
 
     // Common LLM auth (apiKey / bearer / Entra ID)
     llmAuthModeLabel: '認証方式',
@@ -1493,6 +1510,8 @@ export const translations = {
     edgPhaseDifficulty: 'Difficulty evolution (Evol-Instruct)',
     edgPhaseHardneg: 'Mining hard negatives',
     edgPhaseStyleEvol: 'Style evolution (SNS mode)',
+    edgPhaseRaft: 'Generating RAFT data',
+    edgProgressOverall: 'Pipeline: {current} / {total}',
     edgKeptCount: 'keep',
     edgRejectedCount: 'rejected',
 
@@ -1535,8 +1554,8 @@ export const translations = {
     edgTracePhaseSurfaceDedupLabel: '② Surface Dedup',
     edgTracePhaseGroundingLabel: '③ Grounding',
     edgTracePhaseSemanticDedupLabel: '④ Semantic Dedup',
-    edgTracePhaseStyleEvolutionLabel: '⑤ Style Evolution',
-    edgTracePhaseDifficultyLabel: '⑥ Difficulty',
+    edgTracePhaseDifficultyLabel: '⑤ Difficulty',
+    edgTracePhaseStyleEvolutionLabel: '⑥ Style Evolution',
     edgTracePhaseHardnegLabel: '⑦ Hard Negative',
     edgTracePhaseRelevanceLabel: '⑧ Relevance',
     edgTracePhaseGenerationDesc: 'The LLM generates the initial query from the source document.',
@@ -1569,6 +1588,20 @@ export const translations = {
     edgSciInfoPhase6Body:
       'Aligns the output format and diversity axis with mainstream IR research:\n- relevance_grades (NDCG/XDCG-compatible): expected_ids[0] (the primary anchor) is graded 3, remaining expected_ids (multi-hop secondary docs) 2, hard_negative_ids 0. Foundry / TREC-style evaluators consume the grading map directly from the JSONL.\n- Entity-KG diversity (Ragas mode only): per sampled doc the LLM extracts proper nouns / technical terms; multi-hop pairs are then found by entity Jaccard, which catches "semantically related" document pairs that token Jaccard misses. Falls back to token Jaccard automatically if extraction fails.',
     edgSciInfoPhase6Refs: 'See: Microsoft Foundry Evaluators / TREC NDCG / Ragas KG Diversity',
+
+    // EDAG: RAFT (Retrieval Augmented Fine-Tuning)
+    edgRaftTitle: 'RAFT — Fine-Tuning Dataset Generation',
+    edgRaftEnableLabel: 'Enable RAFT mode (generate CoT fine-tuning dataset)',
+    edgRaftEnableHint: 'After the pipeline completes, generates Chain-of-Thought answers for each query using oracle + distractor documents as context. Output can be exported as RAFT JSONL.',
+    edgRaftDistractorCountLabel: 'Distractor count (1–10)',
+    edgRaftDistractorCountHint: 'Number of noise documents mixed in with each query. The paper recommends 4 (D*=oracle+4 distractors). More distractors = stronger noise resistance in fine-tuning, but higher token cost.',
+    edgRaftExportBtn: 'Download RAFT JSONL',
+    edgRaftCotCount: 'Generated {count} CoT answers',
+    edgColRaftCot: 'RAFT CoT',
+    edgColRaftContext: 'RAFT Context',
+    edgSciInfoRaftTitle: 'Technical background: RAFT (Retrieval Augmented Fine-Tuning)',
+    edgSciInfoRaftBody: 'RAFT (Zhang et al., 2024) is a fine-tuning method that embraces the reality that RAG retrieval results contain noise (distractor documents). During training, the model is given oracle documents mixed with random distractor documents as context and trained to answer in Chain-of-Thought format. This teaches the model to ignore retrieval noise and extract information from the correct documents at inference time. The output format follows the paper: free-form reasoning followed by an `<ANSWER>:` tag with the final answer.',
+    edgSciInfoRaftRefs: 'See: RAFT: Adapting Language Model to Domain Specific RAG (Zhang et al., 2024)',
 
     // EDAG: Ragas-style scenario generation
     edgRagasTitle: 'Ragas mode — 4-quadrant scenario generation',
@@ -1619,6 +1652,8 @@ export const translations = {
     edgSchemaEntities: 'Entities (e.g. "service name, ticket status")',
     edgSchemaRelations: 'Relations (e.g. "service → dependent service")',
     edgSchemaConstraints: 'Constraints (e.g. "only approved status pages are indexed")',
+    edgSchemaExampleTitle: 'Show input examples',
+    edgSchemaExampleBody: '**Entities**: service name, ticket status, priority, assigned team, SLA level\n**Relations**: "ticket → assigned team", "service → dependent service", "SLA level → priority"\n**Constraints**: "closed tickets are excluded from search", "SLA violations only target priority High or above"\n\nDescribe domain-specific concepts, associations, and rules found in the indexed documents. When provided, the LLM uses this context to generate more practical queries.',
     edgColDifficulty: 'Difficulty',
     edgColHardNegatives: 'Hard negatives',
 
@@ -1651,13 +1686,13 @@ export const translations = {
     edgFlowS7Desc: 'Produces JSONL containing `query` / `expected_ids` / `query_type` / `language` / `difficulty` / `hard_negative_ids` / `relevance_grades` / `provenance`. Saved datasets are persisted to localStorage (`ragops.evalDatasets.v1`) and reloadable from AutoTuning.',
     edgTipsWhatItDoes: '(1) Sample `sampleSize` documents across the index → (2) Truncate each document body to 4000 chars to protect the LLM context window → (3) Call Azure OpenAI Chat Completions in JSON mode and generate `queriesPerDoc` queries per document (with Ragas mode ON, generation is per-scenario across the 4 quadrants × Persona / Style / Length) → (4) Quality filters (Round-trip Consistency / surface + semantic dedup) → (5) Augmentation (Evol-Instruct hardening / Hard Negative mining) → (6) Attach `relevance_grades` and optionally recompute multi-hop pairs via Entity-KG → (7) Emit JSONL compatible with SearchParameterAutoTuning. Saved results are persisted to localStorage (`ragops.evalDatasets.v1`) and reloadable from AutoTuning via the dropdown.',
     edgTipsTechH: 'Technologies in use (only what is NOT in the per-section callouts)',
-    edgTipsTech: '- Azure OpenAI Chat Completions (JSON mode, `response_format=json_object`) for enforced structured output\n- Per-query-type system prompts (factoid / how-to / comparative / yes-no) to reduce question-type bias\n- Cross-chunk sampling so Recall is evaluated against the whole index, not per-chunk\n- Judge LLM shares endpoint and auth with the generator and swaps only the deployment, which keeps comparative experiments easy to configure\n- Style Evolution writes the selected transformation kind into both `style_evolution_kind` and trace events so post-run auditing is possible\n- Query Transformation Trace preserves per-stage before / after / reason / score data and renders it in the modal timeline\n- Output schema is identical to SearchParameterAutoTuning input, so evaluation metrics (nDCG, Recall@k, etc.) are reused as-is\n- JSONL carries provenance metadata (`provenance: synthetic` / `generated_at` / `generated_against_index` / `generation_run_id`) so downstream consumers can identify synthetic data\n- Form state is persisted to IndexedDB (`AppSettings.evalDatasetFormJson`); generated datasets to `ragops.evalDatasets.v1`\n- Bundled PPI (Prediction-Powered Inference) library ([ppi.ts](../src/lib/ppi.ts)): combine a small human-labeled set with a large synthetic set to obtain a bias-corrected mean and confidence interval',
+    edgTipsTech: '- Azure OpenAI Chat Completions (JSON mode, `response_format=json_object`) for enforced structured output\n- Per-query-type system prompts (factoid / how-to / comparative / yes-no) to reduce question-type bias\n- Cross-chunk sampling so Recall is evaluated against the whole index, not per-chunk\n- Judge LLM shares endpoint and auth with the generator and swaps only the deployment, which keeps comparative experiments easy to configure\n- Style Evolution writes the selected transformation kind into both `style_evolution_kind` and trace events so post-run auditing is possible\n- Query Transformation Trace preserves per-stage before / after / reason / score data and renders it in the modal timeline\n- Output schema is identical to SearchParameterAutoTuning input, so evaluation metrics (nDCG, Recall@k, etc.) are reused as-is\n- JSONL carries provenance metadata (`provenance: synthetic` / `generated_at` / `generated_against_index` / `generation_run_id`) so downstream consumers can identify synthetic data\n- Form state is persisted to IndexedDB (`AppSettings.evalDatasetFormJson`); generated datasets to `ragops.evalDatasets.v1`\n- Bundled PPI (Prediction-Powered Inference) library ([ppi.ts](../src/lib/ppi.ts)): combine a small human-labeled set with a large synthetic set to obtain a bias-corrected mean and confidence interval\n- RAFT (Retrieval Augmented Fine-Tuning): after the pipeline completes, combines oracle + distractor documents as context and generates Chain-of-Thought (CoT) answers via LLM. Output uses the `<ANSWER>:` tag format (Zhang+ 2024) and can be exported as RAFT JSONL',
     edgTipsTheoryH: 'Where this sits in evaluation theory',
     edgTipsTheory: 'This is the academic "synthetic evaluation set" pattern. It solves the cold-start problem for new RAG systems and is well-suited for relative comparison of configurations (index, chunking, search parameters) and for regression detection. Judge LLM helps separate generator and evaluator roles, SNS mode narrows the gap to real-user surface forms, and Trace improves observability of the generation pipeline. See each section\u2019s "Technical background" callout for the technique-by-technique details.',
     edgTipsLimitsH: 'Limitations & caveats (must read)',
-    edgTipsLimits: '- **Distribution shift**: LLM-written queries are well-formed and do not fully reflect real users\u2019 ambiguous, colloquial, short-keyword queries. SNS mode helps, but it is not a substitute for real logs.\n- **LLM-as-a-Judge bias**: using the same model family for Judge and generator can make scores artificially lenient because of self-preference bias. Prefer a different family for Judge / Embedding.\n- **Trace is diagnostic, not truth**: seeing keep / reject / modified events does not guarantee the decisions were correct. Trace is for inspection and debugging, not a gold label.\n- **False negatives**: another chunk may also answer the question but be scored as incorrect (partially mitigated by the multi-hop `expected_ids` array, best-rank grounding, and `relevance_grades`).\n- **Style Evolution / Entity-KG / Difficulty Evolution / Hard Negative / Trace all add cost** \u2014 extra LLM calls, metadata retention, and larger JSONL output increase resource usage roughly in proportion to sampled-document and surviving-query counts.\n- **Corpus drift**: a synthetic dataset becomes stale once the index changes. Always check `generated_against_index` and `generated_at`, and regenerate when needed.',
+    edgTipsLimits: '- **Distribution shift**: LLM-written queries are well-formed and do not fully reflect real users\u2019 ambiguous, colloquial, short-keyword queries. SNS mode helps, but it is not a substitute for real logs.\n- **LLM-as-a-Judge bias**: using the same model family for Judge and generator can make scores artificially lenient because of self-preference bias. Prefer a different family for Judge / Embedding.\n- **Trace is diagnostic, not truth**: seeing keep / reject / modified events does not guarantee the decisions were correct. Trace is for inspection and debugging, not a gold label.\n- **False negatives**: another chunk may also answer the question but be scored as incorrect (partially mitigated by the multi-hop `expected_ids` array, best-rank grounding, and `relevance_grades`).\n- **Style Evolution / Entity-KG / Difficulty Evolution / Hard Negative / Trace all add cost** \u2014 extra LLM calls, metadata retention, and larger JSONL output increase resource usage roughly in proportion to sampled-document and surviving-query counts.\n- **Corpus drift**: a synthetic dataset becomes stale once the index changes. Always check `generated_against_index` and `generated_at`, and regenerate when needed.\n- **RAFT CoT quality depends on the generation LLM**: Chain-of-Thought reasoning quality is limited by the LLM\u2019s reasoning capabilities. Smaller models tend to produce shallow CoT, which directly affects the fine-tuned model\u2019s quality.\n- **RAFT is token-intensive**: each query prompt includes full text of oracle + distractor documents, so input token count per query increases significantly. Reducing the distractor count lowers cost but also weakens the noise-resistance training effect.',
     edgTipsRecH: 'Recommended usage',
-    edgTipsRec: '(1) Treat the output as a tool for relative comparison and regression detection, NOT as a proxy for production quality. (2) On the first run, keep Trace ON and generate a small sample so you can inspect Grounding / Style Evolution / Difficulty behaviour. (3) If you use Judge LLM, prefer a different model family from the generator. (4) Use SNS mode to compensate for sparse logs, but always human-review the transformed queries. (5) Mix in real user queries from production logs whenever possible. (6) For large-scale runs, keep Round-trip Consistency / Semantic dedup / Hard Negative ON to keep quality in check. (7) When using Foundry / TREC-style evaluators, leave `relevance_grades` ON. (8) For confidence-interval estimates, use `ppiMean` to combine a small human-labeled set with a large synthetic set under bias correction. (9) Saved datasets are reloadable from AutoTuning via the dropdown.',
+    edgTipsRec: '(1) Treat the output as a tool for relative comparison and regression detection, NOT as a proxy for production quality. (2) On the first run, keep Trace ON and generate a small sample so you can inspect Grounding / Style Evolution / Difficulty behaviour. (3) If you use Judge LLM, prefer a different model family from the generator. (4) Use SNS mode to compensate for sparse logs, but always human-review the transformed queries. (5) Mix in real user queries from production logs whenever possible. (6) For large-scale runs, keep Round-trip Consistency / Semantic dedup / Hard Negative ON to keep quality in check. (7) When using Foundry / TREC-style evaluators, leave `relevance_grades` ON. (8) For confidence-interval estimates, use `ppiMean` to combine a small human-labeled set with a large synthetic set under bias correction. (9) Saved datasets are reloadable from AutoTuning via the dropdown. (10) When using RAFT mode, first verify dataset quality with RAFT OFF, then enable it. Start with the paper-recommended distractor count of 4 (D*=oracle+4 distractors) and adjust based on fine-tuning results.',
 
     // Common LLM auth (apiKey / bearer / Entra ID)
     llmAuthModeLabel: 'Auth mode',

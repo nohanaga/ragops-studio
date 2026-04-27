@@ -30,7 +30,7 @@ A web-based development tool for learning and experimenting with advanced featur
 - 🛠️ **Builder Tools**: Create and manage indexes, knowledge sources, knowledge bases, synonym maps, and skillsets (visual pipeline builder)
 - 🧩 **Skill Pipeline Builder**: Visual DAG editor for skillset authoring with built-in skill templates, enrichment tree preview, and debug runner
 - 📝 **Custom Skill LiveEditor**: Browser-integrated Python IDE for Custom Skills with local execution (Pyodide/WASM), cloud deployment (Azure Container Apps), and Blob Storage sync
-- 🧬 **Eval Dataset Generator**: Automatically generate AutoTuning-compatible JSONL evaluation datasets from index documents using Azure OpenAI, with multi-stage quality filters (round-trip consistency, semantic dedup, difficulty evolution, hard negative mining)
+- 🧬 **Eval Dataset Generator**: Automatically generate AutoTuning-compatible JSONL evaluation datasets from index documents using Azure OpenAI, with multi-stage quality filters (round-trip consistency, semantic dedup, difficulty evolution, hard negative mining), and RAFT fine-tuning dataset generation (Zhang et al., 2024)
 - 📊 **Performance Testing**: QPS tester, search pipeline visualizer
 - 🎯 **Search Parameter AutoTuning**: Automatically optimize search parameters using evaluation datasets
 - 🧪 **Experiment Management**: Save query history, compare results, export/import

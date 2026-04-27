@@ -455,6 +455,7 @@ Manually creating evaluation datasets for search quality benchmarking is one of 
 | Difficulty control | Subjective assessment | Evol-Instruct rewrites with hard negative mining |
 | Scale | Dozens of queries after hours of work | Hundreds of queries in minutes |
 | AutoTuning integration | Manually format JSONL | One-click export or direct send to AutoTuning |
+| Fine-tuning data | Separate manual pipeline | RAFT mode generates CoT training data alongside evaluation data |
 
 **Two Generation Modes**
 - **Classic mode**: Sample N documents, generate M queries per document — simple and fast
@@ -471,6 +472,7 @@ Manually creating evaluation datasets for search quality benchmarking is one of 
 - **Domain Schema injection (RAGEval)**: Inject domain entities, relations, and constraints for improved factuality
 - **NDCG-compatible relevance grades**: Auto-assign graded relevance scores for use with NDCG/XDCG evaluators
 - **Entity-KG**: LLM entity extraction per document for refined multi-hop pairing
+- **RAFT (Retrieval Augmented Fine-Tuning)**: Generate Chain-of-Thought fine-tuning datasets with oracle + distractor documents; export as RAFT JSONL (Zhang et al., 2024)
 - **Dataset persistence**: Save/load/delete generated datasets in browser localStorage; export as JSONL. Note that saved datasets may be lost if browser/site storage is cleared.
 
 ### Feature Portal

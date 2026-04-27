@@ -98,6 +98,21 @@ export type EvalProvenance = 'synthetic'
 /** Reason an item was soft-rejected by a quality filter. */
 export type EvalRejectionReason = 'grounding' | 'semantic-dup' | 'surface-dup'
 
+/* ------------------------------------------------------------------ */
+/* RAFT (Retrieval Augmented Fine-Tuning)                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A single document in the RAFT training context array.
+ * Exactly one document in the array is the oracle (ground-truth source);
+ * the rest are distractors selected via similarity search.
+ */
+export interface RaftContextDoc {
+  doc_id: string
+  text: string
+  oracle: boolean
+}
+
 /**
  * One generated query/answer item.
  * Maps to a single JSONL line in the AutoTuning-compatible export.
@@ -145,6 +160,12 @@ export interface GeneratedQAItem {
   style_evolution_kind?: StyleEvolutionKind
   // Phase 7: Query Transformation Trace — full lifecycle of this item.
   trace?: TraceEvent[]
+
+  // RAFT (Retrieval Augmented Fine-Tuning) fields.
+  /** Chain-of-Thought answer citing the oracle document. */
+  raft_cot_answer?: string
+  /** Context array of oracle + distractor documents for RAFT training. */
+  raft_context?: RaftContextDoc[]
 }
 
 /**
@@ -224,4 +245,10 @@ export interface EvalDatasetGenerationConfig {
   // Phase 7c: Query Transformation Trace.
   /** Record trace events on each item through every pipeline step. */
   enableTrace?: boolean
+
+  // RAFT (Retrieval Augmented Fine-Tuning).
+  /** Enable RAFT dataset generation: generate CoT answers with oracle + distractor context. */
+  enableRaftMode?: boolean
+  /** Number of distractor documents to include per item. Defaults to 4. */
+  raftDistractorCount?: number
 }

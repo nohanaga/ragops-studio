@@ -26,6 +26,7 @@ export interface EdgResultsTableProps {
   enableHardNegativeMining: boolean
   enableStyleEvolution?: boolean
   enableTrace?: boolean
+  enableRaftMode?: boolean
 }
 
 type ColDef = {
@@ -68,6 +69,7 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
     enableHardNegativeMining,
     enableStyleEvolution,
     enableTrace,
+    enableRaftMode,
   } = props
 
   const columns = useMemo<ColDef[]>(() => {
@@ -184,6 +186,42 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
         render: (it) => (it.trace?.length ?? 0) > 0 ? `${it.trace!.length} steps` : '',
       })
     }
+    if (enableRaftMode) {
+      cols.push(
+        {
+          key: 'raft_cot_answer',
+          title: String(t('edgColRaftCot')),
+          width: 300,
+          wrap: true,
+          render: (it) => {
+            const cot = it.raft_cot_answer
+            if (!cot) return ''
+            return cot.length > CONTENT_PREVIEW_MAX_CHARS
+              ? cot.slice(0, CONTENT_PREVIEW_MAX_CHARS) + '…'
+              : cot
+          },
+          titleFn: (it) => it.raft_cot_answer ?? undefined,
+        },
+        {
+          key: 'raft_context',
+          title: String(t('edgColRaftContext')),
+          width: 180,
+          mono: true,
+          render: (it) => {
+            const ctx = it.raft_context
+            if (!ctx || ctx.length === 0) return ''
+            const oracle = ctx.filter((c) => c.oracle).length
+            const dist = ctx.filter((c) => !c.oracle).length
+            return `oracle:${oracle} / dist:${dist}`
+          },
+          titleFn: (it) => {
+            const ctx = it.raft_context
+            if (!ctx || ctx.length === 0) return undefined
+            return ctx.map((c) => `[${c.oracle ? 'ORACLE' : 'DIST'}] ${c.doc_id}: ${c.text.slice(0, 80)}`).join('\n')
+          },
+        },
+      )
+    }
     cols.push(
       {
         key: 'grounding_rank',
@@ -205,7 +243,7 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
     )
     return cols
     // docTextById is intentionally a dependency because preview cells depend on it.
-  }, [t, docTextById, enableRagasMode, enableDifficultyEvolution, enableHardNegativeMining, enableStyleEvolution, enableTrace])
+  }, [t, docTextById, enableRagasMode, enableDifficultyEvolution, enableHardNegativeMining, enableStyleEvolution, enableTrace, enableRaftMode])
 
   // Store user-resized widths. Columns without overrides use their default width.
   const [widths, setWidths] = useState<Record<string, number>>({})

@@ -380,3 +380,89 @@ export function buildScenarioUserPrompt(params: BuildScenarioPromptParams): stri
 
   return sections.join('\n')
 }
+
+/* --------------------------------------------------------------------- */
+/* RAFT: Chain-of-Thought answer generation prompts                       */
+/* --------------------------------------------------------------------- */
+
+export interface BuildRaftAnswerPromptParams {
+  language: EvalLanguage
+  question: string
+  oracleDoc: { id: string; text: string }
+  distractorDocs: Array<{ id: string; text: string }>
+}
+
+export function buildRaftAnswerSystemPrompt(language: EvalLanguage): string {
+  if (language === 'ja') {
+    return [
+      'あなたは RAG（Retrieval Augmented Generation）システムの Chain-of-Thought 回答を生成する専門家です。',
+      '複数のドキュメント抜粋が与えられます。1 つだけがオラクル（正解の情報源）で、残りはディストラクター（不正解の文書）です。',
+      '制約:',
+      '- まず質問への回答方法についてステップバイステップの推論を提示してください。',
+      '- 推論中にコンテキストからの文を引用する場合は "##begin_quote##" と "##end_quote##" で囲んでください。',
+      '- 最終回答は必ず "<ANSWER>: " に続けて簡潔に書いてください。',
+      '- ディストラクター文書の情報を回答の根拠にしてはいけません。',
+      '- 抜粋に書かれていない事実を加えてはいけません。',
+      '- 出力は必ず指定された JSON スキーマに従うこと（追加のテキスト・コードフェンス禁止）。',
+    ].join('\n')
+  }
+  return [
+    'You are an expert at generating Chain-of-Thought answers for RAG (Retrieval Augmented Generation) training.',
+    'You will receive several document excerpts. Exactly one is the oracle (correct source); the rest are distractors.',
+    'Constraints:',
+    '- First provide step-by-step reasoning on how to answer the question.',
+    '- In the reasoning, if you need to copy paste some sentences from the context, include them in "##begin_quote##" and "##end_quote##".',
+    '- End your response with the final answer in the form "<ANSWER>: $answer". The answer should be succinct.',
+    '- You MUST begin your final answer with the tag "<ANSWER>:".',
+    '- NEVER use information from distractor documents as evidence.',
+    '- NEVER invent facts that are not in the oracle excerpt.',
+    '- Output MUST strictly follow the specified JSON schema (no prose, no code fences).',
+  ].join('\n')
+}
+
+export function buildRaftAnswerUserPrompt(params: BuildRaftAnswerPromptParams): string {
+  const { language, question, oracleDoc, distractorDocs } = params
+
+  // Shuffle oracle into a random position among distractors so the
+  // model learns to identify the relevant document, not the position.
+  const allDocs: Array<{ id: string; text: string; isOracle: boolean }> = [
+    { ...oracleDoc, isOracle: true },
+    ...distractorDocs.map((d) => ({ ...d, isOracle: false })),
+  ]
+  // Fisher-Yates shuffle (in-place)
+  for (let i = allDocs.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[allDocs[i], allDocs[j]] = [allDocs[j], allDocs[i]]
+  }
+
+  const sections: string[] = []
+  if (language === 'ja') {
+    sections.push(
+      `[language=ja] [question]`,
+      `質問: ${question}`,
+      '',
+      `以下の ${allDocs.length} 件のドキュメント抜粋を参考に、Chain-of-Thought 形式で回答してください。`,
+      `正しい情報源は 1 つだけです。残りは無関係な文書です。`,
+      'JSON スキーマ: { "cot_answer": string }',
+    )
+  } else {
+    sections.push(
+      `[language=en] [question]`,
+      `Question: ${question}`,
+      '',
+      `Answer the question using Chain-of-Thought reasoning based on the ${allDocs.length} document excerpts below.`,
+      `Only ONE excerpt contains the correct information. The rest are distractors.`,
+      'JSON schema: { "cot_answer": string }',
+    )
+  }
+
+  for (let i = 0; i < allDocs.length; i++) {
+    const d = allDocs[i]
+    const headJa = `---ドキュメント ${i + 1} (id=${d.id})---`
+    const headEn = `---Document ${i + 1} (id=${d.id})---`
+    const tail = language === 'ja' ? '---ここまで---' : '---END---'
+    sections.push(language === 'ja' ? headJa : headEn, d.text, tail)
+  }
+
+  return sections.join('\n')
+}

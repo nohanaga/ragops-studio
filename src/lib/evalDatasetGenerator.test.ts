@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { callAzureOpenAIChat, parseGeneratedQueries, dedupBySurface, toJsonl, parseHardenedQuery, computeRelevanceGrades } from './evalDatasetGenerator'
+import { callAzureOpenAIChat, parseGeneratedQueries, dedupBySurface, toJsonl, parseHardenedQuery, computeRelevanceGrades, parseRaftAnswer, toRaftJsonl } from './evalDatasetGenerator'
 import { LlmAuthError } from './llmAuth'
 import type { GeneratedQAItem } from '../types'
 
@@ -332,5 +332,118 @@ describe('toJsonl emits relevance_grades', () => {
     ]
     const obj = JSON.parse(toJsonl(items))
     expect('relevance_grades' in obj).toBe(false)
+  })
+})
+
+// ── RAFT tests ──────────────────────────────────────────────────────
+
+describe('parseRaftAnswer', () => {
+  it('parses a valid cot_answer', () => {
+    const raw = JSON.stringify({ cot_answer: '##Reason: because ... ##Answer: 42' })
+    expect(parseRaftAnswer(raw)).toBe('##Reason: because ... ##Answer: 42')
+  })
+
+  it('returns null for invalid JSON', () => {
+    expect(parseRaftAnswer('not-json')).toBeNull()
+  })
+
+  it('returns null when cot_answer is missing', () => {
+    expect(parseRaftAnswer(JSON.stringify({ foo: 'bar' }))).toBeNull()
+  })
+
+  it('returns null when cot_answer is not a string', () => {
+    expect(parseRaftAnswer(JSON.stringify({ cot_answer: 123 }))).toBeNull()
+  })
+
+  it('returns null for empty or whitespace cot_answer', () => {
+    expect(parseRaftAnswer(JSON.stringify({ cot_answer: '' }))).toBeNull()
+    expect(parseRaftAnswer(JSON.stringify({ cot_answer: '   ' }))).toBeNull()
+  })
+
+  it('trims whitespace from cot_answer', () => {
+    const raw = JSON.stringify({ cot_answer: '  ##Reason: trimmed  ' })
+    expect(parseRaftAnswer(raw)).toBe('##Reason: trimmed')
+  })
+
+  it('returns null for null/array JSON', () => {
+    expect(parseRaftAnswer('null')).toBeNull()
+    expect(parseRaftAnswer('[]')).toBeNull()
+  })
+})
+
+describe('toRaftJsonl', () => {
+  it('exports RAFT items with context and cot_answer', () => {
+    const items: GeneratedQAItem[] = [
+      {
+        query: 'What is X?',
+        expected_ids: ['doc1'],
+        raft_cot_answer: '##Reason: ... ##Answer: X is ...',
+        raft_context: [
+          { doc_id: 'doc1', text: 'Oracle text', oracle: true },
+          { doc_id: 'doc2', text: 'Distractor text', oracle: false },
+        ],
+      },
+    ]
+    const line = toRaftJsonl(items)
+    const obj = JSON.parse(line)
+    expect(obj.question).toBe('What is X?')
+    expect(obj.cot_answer).toBe('##Reason: ... ##Answer: X is ...')
+    expect(obj.context).toHaveLength(2)
+    expect(obj.context[0].oracle).toBe(true)
+    expect(obj.context[1].oracle).toBe(false)
+    expect(obj.expected_ids).toEqual(['doc1'])
+  })
+
+  it('filters out rejected items', () => {
+    const items: GeneratedQAItem[] = [
+      {
+        query: 'Q1',
+        expected_ids: ['a'],
+        rejected: true,
+        raft_cot_answer: 'answer',
+        raft_context: [],
+      },
+    ]
+    expect(toRaftJsonl(items)).toBe('')
+  })
+
+  it('filters out items without raft_cot_answer', () => {
+    const items: GeneratedQAItem[] = [
+      { query: 'Q1', expected_ids: ['a'] },
+    ]
+    expect(toRaftJsonl(items)).toBe('')
+  })
+
+  it('includes metadata fields when present', () => {
+    const items: GeneratedQAItem[] = [
+      {
+        query: 'Q?',
+        expected_ids: ['a'],
+        query_type: 'factoid',
+        language: 'en',
+        source_doc_id: 'src1',
+        generation_model: 'gpt-4o',
+        difficulty: 'hard',
+        raft_cot_answer: 'answer',
+        raft_context: [],
+      },
+    ]
+    const obj = JSON.parse(toRaftJsonl(items))
+    expect(obj.query_type).toBe('factoid')
+    expect(obj.language).toBe('en')
+    expect(obj.source_doc_id).toBe('src1')
+    expect(obj.generation_model).toBe('gpt-4o')
+    expect(obj.difficulty).toBe('hard')
+  })
+
+  it('emits multiple lines for multiple items', () => {
+    const items: GeneratedQAItem[] = [
+      { query: 'Q1', expected_ids: ['a'], raft_cot_answer: 'a1', raft_context: [] },
+      { query: 'Q2', expected_ids: ['b'], raft_cot_answer: 'a2', raft_context: [] },
+    ]
+    const lines = toRaftJsonl(items).split('\n')
+    expect(lines).toHaveLength(2)
+    expect(JSON.parse(lines[0]).question).toBe('Q1')
+    expect(JSON.parse(lines[1]).question).toBe('Q2')
   })
 })

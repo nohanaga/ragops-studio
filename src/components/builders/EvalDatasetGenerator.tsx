@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import type { ConnectionProfile, SearchApiVersion } from '../../lib/model'
 import type { Language } from '../../lib/translations'
 import { translations } from '../../lib/translations'
-import { toJsonl } from '../../lib/evalDatasetGenerator'
+import { toJsonl, toRaftJsonl } from '../../lib/evalDatasetGenerator'
 import { buildAadCliCommand, type LlmAuthMode } from '../../lib/llmAuth'
 import { useEvalDatasetGeneration } from '../../hooks/useEvalDatasetGeneration'
 import {
@@ -182,6 +182,10 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
   // Phase 7c: Query Transformation Trace.
   const [enableTrace, setEnableTrace] = useState<boolean>(true)
 
+  // RAFT (Retrieval Augmented Fine-Tuning)
+  const [enableRaftMode, setEnableRaftMode] = useState<boolean>(false)
+  const [raftDistractorCount, setRaftDistractorCount] = useState<number>(4)
+
   // Phase 3: persistence
   const [persistTitle, setPersistTitle] = useState<string>('')
   const [persistList, setPersistList] = useState<PersistedEvalDatasetItem[]>(() => listEvalDatasets())
@@ -262,6 +266,9 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         if (form.seCodeSwitch !== undefined) setSeCodeSwitch(form.seCodeSwitch)
         // Phase 7c: Trace
         if (form.enableTrace !== undefined) setEnableTrace(form.enableTrace)
+        // RAFT
+        if (form.enableRaftMode !== undefined) setEnableRaftMode(form.enableRaftMode)
+        if (form.raftDistractorCount !== undefined) setRaftDistractorCount(form.raftDistractorCount)
         if (form.persistTitle !== undefined) setPersistTitle(form.persistTitle)
         if (form.selectedPersistId !== undefined) setSelectedPersistId(form.selectedPersistId)
       }
@@ -328,6 +335,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         seAbbreviated,
         seCodeSwitch,
         enableTrace,
+        enableRaftMode,
+        raftDistractorCount,
         persistTitle,
         selectedPersistId,
       })
@@ -383,6 +392,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     seAbbreviated,
     seCodeSwitch,
     enableTrace,
+    enableRaftMode,
+    raftDistractorCount,
     persistTitle,
     selectedPersistId,
   ])
@@ -530,6 +541,9 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         : undefined,
       // Phase 7c: Trace.
       enableTrace,
+      // RAFT
+      enableRaftMode,
+      raftDistractorCount: enableRaftMode ? raftDistractorCount : undefined,
     }
     await start(config)
   }
@@ -551,6 +565,14 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     const ts = new Date().toISOString().replace(/[:.]/g, '-')
     const safeIndex = indexName.replace(/[^a-z0-9_-]/gi, '_') || 'index'
     downloadTextFile(`eval-dataset-${safeIndex}-${ts}.jsonl`, jsonl)
+  }
+
+  function onExportRaft() {
+    const jsonl = toRaftJsonl(items)
+    if (!jsonl) return
+    const ts = new Date().toISOString().replace(/[:.]/g, '-')
+    const safeIndex = indexName.replace(/[^a-z0-9_-]/gi, '_') || 'index'
+    downloadTextFile(`raft-dataset-${safeIndex}-${ts}.jsonl`, jsonl)
   }
 
   // ---- Phase 3: persistence + AutoTuning handoff -----------------
@@ -616,12 +638,11 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
       <div className="section">
         <div className="section__title">{t('evalDatasetGenerator')}</div>
         <div className="app__hint">{t('edgIntro')}</div>
-        <div className="notice notice--warning" role="status" aria-live="polite">{t('edgSyntheticBanner')}</div>
       </div>
 
       {/* Source ------------------------------------------------------ */}
       <div className="section">
-        <div className="section__title">{t('edgSourceTitle')}</div>
+        <div className="section__title"><i className="bi bi-database icon--mr6" />{t('edgSourceTitle')}</div>
         <div className="formGrid">
           <label className="field" data-guide-target="edg-index">
             <span className="field__label">{t('edgIndexNameLabel')}</span>
@@ -709,7 +730,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
 
       {/* Generation -------------------------------------------------- */}
       <div className="section">
-        <div className="section__title">{t('edgGenerationTitle')}</div>
+        <div className="section__title"><i className="bi bi-sliders icon--mr6" />{t('edgGenerationTitle')}</div>
         <div className="formGrid">
           <label className="field">
             <span className="field__label">{t('edgLanguageLabel')}</span>
@@ -755,7 +776,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
 
       {/* LLM --------------------------------------------------------- */}
       <div className="section">
-        <div className="section__title">{t('edgLlmTitle')}</div>
+        <div className="section__title"><i className="bi bi-robot icon--mr6" />{t('edgLlmTitle')}</div>
         <div className="formGrid">
           <label className="field">
             <span className="field__label">{t('edgLlmEndpointLabel')}</span>
@@ -840,7 +861,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
 
       {/* Quality filters (Phase 2) ----------------------------------- */}
       <div className="section">
-        <div className="section__title" data-guide-target="edg-quality">{t('edgQualityTitle')}</div>
+        <div className="section__title" data-guide-target="edg-quality"><i className="bi bi-funnel icon--mr6" />{t('edgQualityTitle')}</div>
         <div className="edgScienceInfo">
           <div className="edgScienceInfo__header">
             <i className="bi bi-mortarboard-fill"></i>
@@ -917,7 +938,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
 
       {/* Phase 3: Ragas-style scenario generation -------------------- */}
       <div className="section" data-guide-target="edg-ragas">
-        <h4 className="section__title">{t('edgRagasTitle')}</h4>
+        <h4 className="section__title"><i className="bi bi-grid-3x3-gap icon--mr6" />{t('edgRagasTitle')}</h4>
         <div className="edgScienceInfo">
           <div className="edgScienceInfo__header">
             <i className="bi bi-mortarboard-fill"></i>
@@ -1139,7 +1160,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
 
       {/* Phase 4: difficulty / hard negative / schema --------------- */}
       <div className="section" data-guide-target="edg-evol-hardneg">
-        <h4 className="section__title">{t('edgPhase4Title')}</h4>
+        <h4 className="section__title"><i className="bi bi-bar-chart-steps icon--mr6" />{t('edgPhase4Title')}</h4>
         <div className="edgScienceInfo">
           <div className="edgScienceInfo__header">
             <i className="bi bi-mortarboard-fill"></i>
@@ -1191,6 +1212,14 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         <div style={{ marginTop: 12 }} data-guide-target="edg-domain-schema">
           <div className="field__label">{t('edgSchemaTitle')}</div>
           <div className="field__hint" style={{ marginBottom: 6 }}>{t('edgSchemaHint')}</div>
+          <details style={{ marginBottom: 8 }}>
+            <summary className="field__hint" style={{ cursor: 'pointer', userSelect: 'none' }}>
+              <i className="bi bi-lightbulb icon--mr6" />{t('edgSchemaExampleTitle')}
+            </summary>
+            <div className="field__hint" style={{ marginTop: 4, paddingLeft: 8 }}>
+              <TipsBlock text={String(t('edgSchemaExampleBody'))} />
+            </div>
+          </details>
           <div className="formGrid">
             <label className="field" style={{ gridColumn: '1 / -1' }}>
               <span className="field__label">{t('edgSchemaEntities')}</span>
@@ -1225,7 +1254,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
 
       {/* Phase 6: NDCG/XDCG-compatible relevance grades + entity-KG -- */}
       <div className="section" data-guide-target="edg-relevance-entity">
-        <h4 className="section__title">{t('edgPhase6Title')}</h4>
+        <h4 className="section__title"><i className="bi bi-graph-up icon--mr6" />{t('edgPhase6Title')}</h4>
         <div className="edgScienceInfo">
           <div className="edgScienceInfo__header">
             <i className="bi bi-mortarboard-fill"></i>
@@ -1263,7 +1292,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
 
       {/* Phase 7: Judge LLM / Style Evolution / Trace --------------- */}
       <div className="section" data-guide-target="edg-phase7">
-        <h4 className="section__title">{t('edgPhase7Title')}</h4>
+        <h4 className="section__title"><i className="bi bi-clipboard-check icon--mr6" />{t('edgPhase7Title')}</h4>
 
         {/* 7a: Judge LLM ------------------------------------------- */}
         <div className="formGrid">
@@ -1323,9 +1352,53 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         </div>
       </div>
 
+      {/* RAFT — Fine-Tuning Dataset Generation ---------------------- */}
+      <div className="section" data-guide-target="edg-raft">
+        <h4 className="section__title"><i className="bi bi-layers-fill icon--mr6" />{t('edgRaftTitle')}</h4>
+        <div className="formGrid">
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span className="field__label edgCheckboxLabel">
+              <input
+                type="checkbox"
+                checked={enableRaftMode}
+                onChange={(e) => setEnableRaftMode(e.target.checked)}
+              />{' '}
+              {t('edgRaftEnableLabel')}
+            </span>
+            <div className="field__hint">{t('edgRaftEnableHint')}</div>
+          </label>
+          {enableRaftMode && (
+            <>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <div className="edgScienceInfo">
+                  <div className="edgScienceInfo__header">
+                    <i className="bi bi-mortarboard-fill"></i>
+                    <span>{t('edgSciInfoRaftTitle')}</span>
+                  </div>
+                  <div className="edgScienceInfo__body">{t('edgSciInfoRaftBody')}</div>
+                  <div className="edgScienceInfo__refs">{t('edgSciInfoRaftRefs')}</div>
+                </div>
+              </div>
+              <label className="field">
+                <span className="field__label">{t('edgRaftDistractorCountLabel')}</span>
+                <input
+                  className="field__input"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={raftDistractorCount}
+                  onChange={(e) => setRaftDistractorCount(Math.max(1, Math.min(10, Number(e.target.value))))}
+                />
+                <div className="field__hint">{t('edgRaftDistractorCountHint')}</div>
+              </label>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* Phase 3: persistence (Save / Load / Send to AutoTuning) ---- */}
       <div className="section">
-        <h4 className="section__title">{t('edgPersistTitle')}</h4>
+        <h4 className="section__title"><i className="bi bi-save icon--mr6" />{t('edgPersistTitle')}</h4>
         <div className="formGrid">
           <label className="field" style={{ gridColumn: '1 / -1' }}>
             <span className="field__label">{t('edgPersistTitleField')}</span>
@@ -1441,32 +1514,64 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
             <i className="bi bi-download icon--mr6"></i>
             {t('edgExportJsonl')}
           </button>
-
-          {progress.total > 0 && (
-            <span style={{ marginLeft: 8 }}>
-              {(() => {
-                switch (progress.phase) {
-                  case 'sampling':
-                    return t('edgPhaseSampling')
-                  case 'generating':
-                    return t('edgPhaseGenerating')
-                  case 'grounding':
-                    return t('edgPhaseGrounding')
-                  case 'embedding':
-                    return t('edgPhaseEmbedding')
-                  case 'styleevol':
-                    return t('edgPhaseStyleEvol')
-                  case 'difficulty':
-                    return t('edgPhaseDifficulty')
-                  case 'hardneg':
-                    return t('edgPhaseHardneg')
-                  default:
-                    return t('edgProgressLabel')
-                }
-              })()}
-              : {progress.done} / {progress.total}
-            </span>
+          {enableRaftMode && progress.phase === 'done' && items.some((it) => it.raft_cot_answer) && (
+            <button
+              type="button"
+              className="btn"
+              onClick={onExportRaft}
+            >
+              <i className="bi bi-download icon--mr6"></i>
+              {t('edgRaftExportBtn')}
+            </button>
           )}
+
+          <div
+            style={{
+              gridColumn: '1 / -1',
+              display: (isRunning || progress.phase === 'done') && progress.phaseTotal > 0 ? 'flex' : 'none',
+              gap: 12,
+              alignItems: 'center',
+            }}
+          >
+            <div style={{ flex: '0 0 auto' }}>
+              <span className="mono mono--ellipsesSm">
+                {t('edgProgressOverall').replace('{current}', String(progress.phaseIndex)).replace('{total}', String(progress.phaseTotal))}
+              </span>
+              <progress value={progress.phaseIndex} max={progress.phaseTotal} style={{ width: '100%', display: 'block', marginTop: 2 }} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0, visibility: isRunning ? 'visible' : 'hidden' }}>
+              <span className="mono mono--ellipsesSm">
+                {(() => {
+                  switch (progress.phase) {
+                    case 'sampling':
+                      return t('edgPhaseSampling')
+                    case 'generating':
+                      return t('edgPhaseGenerating')
+                    case 'grounding':
+                      return t('edgPhaseGrounding')
+                    case 'embedding':
+                      return t('edgPhaseEmbedding')
+                    case 'difficulty':
+                      return t('edgPhaseDifficulty')
+                    case 'styleevol':
+                      return t('edgPhaseStyleEvol')
+                    case 'hardneg':
+                      return t('edgPhaseHardneg')
+                    case 'raft':
+                      return t('edgPhaseRaft')
+                    default:
+                      return t('edgProgressLabel')
+                  }
+                })()}
+                {progress.total > 0 ? `: ${progress.done} / ${progress.total}` : '…'}
+              </span>
+              <progress
+                value={progress.total > 0 ? progress.done : undefined}
+                max={progress.total > 0 ? progress.total : undefined}
+                style={{ width: '100%', display: 'block', marginTop: 2 }}
+              />
+            </div>
+          </div>
         </div>
         {validationError && (
           <div className="notice notice--error" role="alert">{validationError}</div>
@@ -1504,6 +1609,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
             enableHardNegativeMining={enableHardNegativeMining}
             enableStyleEvolution={enableStyleEvolution}
             enableTrace={enableTrace}
+            enableRaftMode={enableRaftMode}
           />
         )}
       </div>
