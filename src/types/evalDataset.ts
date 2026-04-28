@@ -10,6 +10,34 @@ import type { LlmAuth } from '../lib/llmAuth'
 export type EvalLanguage = 'ja' | 'en'
 export type EvalQueryType = 'factoid' | 'how-to' | 'comparative' | 'yes-no'
 
+/* ------------------------------------------------------------------ */
+/* Index Structure Detection (Phase 0)                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Detected index structure type.
+ * - `chunked`:     Documents are chunks of larger source documents (parent-child).
+ * - `independent`: Each document is a standalone unit (no parent relationship).
+ * - `unknown`:     Could not determine automatically; falls back to simple sampling.
+ */
+export type IndexStructureType = 'chunked' | 'independent' | 'unknown'
+
+/**
+ * Result of automatic index structure detection.
+ * Returned by `detectIndexStructure()` and used to drive adaptive sampling.
+ */
+export interface IndexStructureInfo {
+  type: IndexStructureType
+  /** Field name used to group chunks by source (only set for `chunked`). */
+  parentField?: string
+  /** Number of distinct parent/source values (only set for `chunked`). */
+  parentCount?: number
+  /** Total document count in the index. */
+  documentCount: number
+  /** Human-readable detection reason for the UI tooltip. */
+  reason: string
+}
+
 /**
  * Ragas-style scenario taxonomy (4 quadrants).
  *
@@ -186,6 +214,15 @@ export interface EvalDatasetGenerationConfig {
   contentFields: string[]
   sampleSize: number
   queriesPerDoc: number
+
+  // Phase 0: Adaptive Sampling (Index Structure Detection).
+  /** Enable auto-detection of index structure + adaptive sampling strategy. */
+  enableAdaptiveSampling?: boolean
+  /**
+   * Parent/source field name for chunked indexes. When set, overrides auto-detection.
+   * Examples: `parent_id`, `metadata_storage_path`, `title`.
+   */
+  parentField?: string
 
   // Generation
   language: EvalLanguage

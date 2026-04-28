@@ -20,14 +20,14 @@ import type { Language } from '../lib/translations'
 import { computeRelevanceGrades, dedupBySurface, generateForDoc, generateForScenario, generateHydeHypothesis, generateRaftAnswer, hardenQuery } from '../lib/evalDatasetGenerator'
 import { fetchDistractorDocs } from '../lib/evalDatasetGrounding'
 import { LlmAuthError, formatLlmAuthErrorMessage } from '../lib/llmAuth'
-import { sampleDocsFromIndex } from '../lib/evalDatasetSampling'
+import { sampleDocsFromIndex, detectIndexStructure, sampleDocsAdaptive } from '../lib/evalDatasetSampling'
 import { checkGrounding, mineHardNegatives } from '../lib/evalDatasetGrounding'
 // fetchDistractorDocs is imported above alongside generateRaftAnswer
 import { embedTexts, findSemanticDuplicates } from '../lib/evalDatasetEmbeddings'
 import { planScenarios } from '../lib/evalDatasetRagas'
 import { extractEntities } from '../lib/evalDatasetEntities'
 import { degradeQuery } from '../lib/evalDatasetStyleEvolution'
-import type { EvalDatasetGenerationConfig, GeneratedQAItem, TraceEvent } from '../types'
+import type { EvalDatasetGenerationConfig, GeneratedQAItem, IndexStructureInfo, TraceEvent } from '../types'
 
 const CONCURRENCY = 3
 const SURFACE_DEDUP_THRESHOLD = 0.85
@@ -41,6 +41,7 @@ export interface UseEvalDatasetGenerationParams {
 
 export type EdgPhase =
   | 'idle'
+  | 'detecting'
   | 'sampling'
   | 'generating'
   | 'grounding'
@@ -59,6 +60,8 @@ export interface UseEvalDatasetGenerationResult {
   progress: { done: number; total: number; phase: EdgPhase; phaseIndex: number; phaseTotal: number }
   /** Map of doc id → original content text (only populated for the latest run's sample). */
   docTextById: Record<string, string>
+  /** Detected index structure info (populated after Phase 0). */
+  indexStructure: IndexStructureInfo | null
   start: (config: EvalDatasetGenerationConfig) => Promise<void>
   cancel: () => void
   reset: () => void
@@ -84,6 +87,7 @@ export function useEvalDatasetGeneration(
 
   const [items, setItems] = useState<GeneratedQAItem[]>([])
   const [docTextById, setDocTextById] = useState<Record<string, string>>({})
+  const [indexStructure, setIndexStructure] = useState<IndexStructureInfo | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<{ done: number; total: number; phase: EdgPhase; phaseIndex: number; phaseTotal: number }>({
@@ -104,6 +108,7 @@ export function useEvalDatasetGeneration(
   const reset = useCallback(() => {
     setItems([])
     setDocTextById({})
+    setIndexStructure(null)
     setError(null)
     setProgress({ done: 0, total: 0, phase: 'idle', phaseIndex: 0, phaseTotal: 0 })
   }, [])
@@ -119,9 +124,12 @@ export function useEvalDatasetGeneration(
       setIsRunning(true)
       setError(null)
       setItems([])
+      setIndexStructure(null)
 
       // Calculate total pipeline phases for the outer progress bar.
+      const useAdaptive = config.enableAdaptiveSampling ?? false
       let totalPhases = 2 // sampling + generating (always run)
+      if (useAdaptive) totalPhases++ // detection phase
       if (config.enableGroundingCheck) totalPhases++
       if (config.enableSemanticDedup && config.embeddingDeployment?.trim()) totalPhases++
       if (config.enableDifficultyEvolution) totalPhases++
@@ -131,8 +139,6 @@ export function useEvalDatasetGeneration(
       if (config.enableRaftMode) totalPhases++
       if (config.enableHydeMode) totalPhases++
       let currentPhase = 0
-
-      setProgress({ done: 0, total: 0, phase: 'sampling', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
 
       const runId = newRunId()
       const generatedAt = new Date().toISOString()
@@ -145,21 +151,59 @@ export function useEvalDatasetGeneration(
       const edgLang: 'ja' | 'en' = language === 'ja' ? 'ja' : 'en'
 
       try {
+        // Phase 0) Index Structure Detection (opt-in via enableAdaptiveSampling).
+        let detectedStructure: IndexStructureInfo | null = null
+        if (useAdaptive) {
+          setProgress({ done: 0, total: 0, phase: 'detecting', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
+          detectedStructure = await detectIndexStructure({
+            profile,
+            indexName: config.indexName,
+            apiVersion,
+            keyField: config.keyField,
+            parentFieldOverride: config.parentField,
+            language,
+            signal: controller.signal,
+          })
+          setIndexStructure(detectedStructure)
+          if (controller.signal.aborted) return
+        }
+
         // 1) Sample docs.
-        const docs = await sampleDocsFromIndex({
-          profile,
-          indexName: config.indexName,
-          apiVersion,
-          keyField: config.keyField,
-          contentFields: config.contentFields,
-          sampleSize: config.sampleSize,
-          language,
-          signal: controller.signal,
-        })
+        setProgress({ done: 0, total: 0, phase: 'sampling', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
+        const docs = detectedStructure
+          ? await sampleDocsAdaptive({
+              profile,
+              indexName: config.indexName,
+              apiVersion,
+              keyField: config.keyField,
+              contentFields: config.contentFields,
+              sampleSize: config.sampleSize,
+              language,
+              signal: controller.signal,
+              indexStructure: detectedStructure,
+            })
+          : await sampleDocsFromIndex({
+              profile,
+              indexName: config.indexName,
+              apiVersion,
+              keyField: config.keyField,
+              contentFields: config.contentFields,
+              sampleSize: config.sampleSize,
+              language,
+              signal: controller.signal,
+            })
 
         if (docs.length === 0) {
           setError('No documents were sampled from the index')
           return
+        }
+
+        // Build sibling lookup for sibling-aware grounding.
+        const siblingMap: Record<string, string[]> = {}
+        for (const d of docs) {
+          if (d.siblingIds && d.siblingIds.length > 0) {
+            siblingMap[d.id] = d.siblingIds
+          }
         }
 
         // Publish sampled doc texts so the UI can preview content per expected_id.
@@ -362,12 +406,22 @@ export function useEvalDatasetGeneration(
               const item = pipeline[idx]
               // For multi-hop items, accept the query as grounded if ANY of the
               // expected docs is retrieved within top-k (best rank wins).
-              const candidateIds =
+              // For chunked indexes, also accept sibling chunks from the same source.
+              let candidateIds =
                 item.expected_ids.length > 0
-                  ? item.expected_ids
+                  ? [...item.expected_ids]
                   : item.source_doc_id
                     ? [item.source_doc_id]
                     : []
+              // Expand candidates with sibling IDs for sibling-aware grounding
+              for (const eid of [...candidateIds]) {
+                const siblings = siblingMap[eid]
+                if (siblings) {
+                  for (const sid of siblings) {
+                    if (!candidateIds.includes(sid)) candidateIds.push(sid)
+                  }
+                }
+              }
               if (candidateIds.length === 0) {
                 item.grounding_rank = 0
                 item.grounding_top_k = topK
@@ -409,6 +463,7 @@ export function useEvalDatasetGeneration(
                 recordWorkerError(e)
               } finally {
                 setProgress((p) => ({ ...p, done: p.done + 1 }))
+                setItems([...pipeline])
               }
             }
           }
@@ -417,7 +472,6 @@ export function useEvalDatasetGeneration(
           const gw = Math.min(GROUNDING_CONCURRENCY, pipeline.length)
           for (let i = 0; i < gw; i++) gWorkers.push(gWorker())
           await Promise.all(gWorkers)
-          setItems([...pipeline])
 
           if (controller.signal.aborted) return
         }
@@ -514,6 +568,7 @@ export function useEvalDatasetGeneration(
                   recordWorkerError(e)
                 } finally {
                   setProgress((p) => ({ ...p, done: p.done + 1 }))
+                  setItems([...pipeline])
                 }
               }
             }
@@ -521,7 +576,6 @@ export function useEvalDatasetGeneration(
             const dw = Math.min(CONCURRENCY, survivors.length)
             for (let i = 0; i < dw; i++) dWorkers.push(dWorker())
             await Promise.all(dWorkers)
-            setItems([...pipeline])
           }
         }
 
@@ -574,6 +628,7 @@ export function useEvalDatasetGeneration(
                   if (tracing) pushTrace(item, { step: 6, phase: 'style-evolution', action: 'kept', detail: { reason: 'error' } })
                 } finally {
                   setProgress((p) => ({ ...p, done: p.done + 1 }))
+                  setItems([...pipeline])
                 }
               }
             }
@@ -581,7 +636,6 @@ export function useEvalDatasetGeneration(
             const sew = Math.min(CONCURRENCY, survivors.length)
             for (let i = 0; i < sew; i++) seWorkers.push(seWorker())
             await Promise.all(seWorkers)
-            setItems([...pipeline])
           }
         }
 
@@ -632,6 +686,7 @@ export function useEvalDatasetGeneration(
                   recordWorkerError(e)
                 } finally {
                   setProgress((p) => ({ ...p, done: p.done + 1 }))
+                  setItems([...pipeline])
                 }
               }
             }
@@ -639,7 +694,6 @@ export function useEvalDatasetGeneration(
             const hw = Math.min(GROUNDING_CONCURRENCY, survivors.length)
             for (let i = 0; i < hw; i++) hnWorkers.push(hnWorker())
             await Promise.all(hnWorkers)
-            setItems([...pipeline])
           }
         }
 
@@ -726,6 +780,7 @@ export function useEvalDatasetGeneration(
                   recordWorkerError(e)
                 } finally {
                   setProgress((p) => ({ ...p, done: p.done + 1 }))
+                  setItems([...pipeline])
                 }
               }
             }
@@ -733,7 +788,6 @@ export function useEvalDatasetGeneration(
             const rw = Math.min(CONCURRENCY, survivors.length)
             for (let i = 0; i < rw; i++) raftWorkers.push(raftWorker())
             await Promise.all(raftWorkers)
-            setItems([...pipeline])
           }
         }
 
@@ -774,6 +828,7 @@ export function useEvalDatasetGeneration(
                   recordWorkerError(e)
                 } finally {
                   setProgress((p) => ({ ...p, done: p.done + 1 }))
+                  setItems([...pipeline])
                 }
               }
             }
@@ -781,7 +836,6 @@ export function useEvalDatasetGeneration(
             const hw = Math.min(CONCURRENCY, survivors.length)
             for (let i = 0; i < hw; i++) hydeWorkers.push(hydeWorker())
             await Promise.all(hydeWorkers)
-            setItems([...pipeline])
           }
         }
 
@@ -810,5 +864,5 @@ export function useEvalDatasetGeneration(
     [profile, apiVersion, language],
   )
 
-  return { items, isRunning, error, progress, docTextById, start, cancel, reset }
+  return { items, isRunning, error, progress, docTextById, indexStructure, start, cancel, reset }
 }

@@ -162,12 +162,24 @@ export interface DocPair {
 }
 
 /**
+ * Check whether two docs share the same parent/source (for chunked indexes).
+ * If neither doc has a parentId, they are considered from different sources.
+ */
+function isSameSource(a: SampledDoc, b: SampledDoc): boolean {
+  if (!a.parentId || !b.parentId) return false
+  return a.parentId === b.parentId
+}
+
+/**
  * Find candidate doc pairs whose surface (token Jaccard) similarity is
  * above `threshold`. Returns pairs sorted by descending similarity.
  *
  * For multi-hop generation we want pairs that share *some* vocabulary
  * (so the LLM has a hope of formulating a question that requires both)
  * but are not literally duplicates.
+ *
+ * When docs carry `parentId` (chunked index), pairs from the same source
+ * are automatically excluded to prevent fake cross-document questions.
  */
 export function findDocPairs(docs: SampledDoc[], threshold: number): DocPair[] {
   const t = Math.max(0, Math.min(1, threshold))
@@ -175,6 +187,8 @@ export function findDocPairs(docs: SampledDoc[], threshold: number): DocPair[] {
   const pairs: DocPair[] = []
   for (let i = 0; i < docs.length; i++) {
     for (let j = i + 1; j < docs.length; j++) {
+      // Skip same-source pairs for chunked indexes
+      if (isSameSource(docs[i], docs[j])) continue
       const sim = jaccard(tokSets[i], tokSets[j])
       if (sim >= t && sim < 0.95) {
         pairs.push({ a: docs[i], b: docs[j], similarity: sim })
@@ -208,6 +222,8 @@ export function findDocPairsByEntities(
   const pairs: DocPair[] = []
   for (let i = 0; i < docs.length; i++) {
     for (let j = i + 1; j < docs.length; j++) {
+      // Skip same-source pairs for chunked indexes
+      if (isSameSource(docs[i], docs[j])) continue
       const sim = jaccard(sets[i], sets[j])
       if (sim >= t && sim < 0.95) {
         pairs.push({ a: docs[i], b: docs[j], similarity: sim })

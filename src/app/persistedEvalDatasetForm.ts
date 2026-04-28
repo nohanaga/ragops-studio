@@ -20,6 +20,10 @@ export type PersistedEvalDatasetForm = {
   sampleSize?: number
   queriesPerDoc?: number
 
+  // Phase 0: Adaptive Sampling
+  enableAdaptiveSampling?: boolean
+  parentField?: string
+
   // Generation
   edgLanguage?: EvalLanguage
   queryTypes?: EvalQueryType[]
@@ -138,6 +142,9 @@ function normalize(parsed: unknown): PersistedEvalDatasetForm | null {
     contentFieldsText: pickString(parsed.contentFieldsText),
     sampleSize: pickNumber(parsed.sampleSize),
     queriesPerDoc: pickNumber(parsed.queriesPerDoc),
+
+    enableAdaptiveSampling: pickBoolean(parsed.enableAdaptiveSampling),
+    parentField: pickString(parsed.parentField),
 
     edgLanguage:
       lang && (VALID_LANGUAGES as string[]).includes(lang) ? (lang as EvalLanguage) : undefined,

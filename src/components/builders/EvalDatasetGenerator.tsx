@@ -116,6 +116,10 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
   const [sampleSize, setSampleSize] = useState<number>(20)
   const [queriesPerDoc, setQueriesPerDoc] = useState<number>(3)
 
+  // Phase 0: Adaptive Sampling
+  const [enableAdaptiveSampling, setEnableAdaptiveSampling] = useState<boolean>(true)
+  const [parentField, setParentField] = useState<string>('')
+
   // Generation state
   const [edgLanguage, setEdgLanguage] = useState<EvalLanguage>(language === 'en' ? 'en' : 'ja')
   const [queryTypes, setQueryTypes] = useState<EvalQueryType[]>(['factoid', 'how-to'])
@@ -199,7 +203,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
 
   const [validationError, setValidationError] = useState<string | null>(null)
 
-  const { items, isRunning, error, progress, docTextById, start, cancel, reset } = useEvalDatasetGeneration({
+  const { items, isRunning, error, progress, docTextById, indexStructure, start, cancel, reset } = useEvalDatasetGeneration({
     profile: activeProfile,
     apiVersion,
     language,
@@ -218,6 +222,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         if (form.contentFieldsText !== undefined) setContentFieldsText(form.contentFieldsText)
         if (form.sampleSize !== undefined) setSampleSize(form.sampleSize)
         if (form.queriesPerDoc !== undefined) setQueriesPerDoc(form.queriesPerDoc)
+        if (form.enableAdaptiveSampling !== undefined) setEnableAdaptiveSampling(form.enableAdaptiveSampling)
+        if (form.parentField !== undefined) setParentField(form.parentField)
         if (form.edgLanguage !== undefined) setEdgLanguage(form.edgLanguage)
         if (form.queryTypes !== undefined) setQueryTypes(form.queryTypes)
         if (form.domainDescription !== undefined) setDomainDescription(form.domainDescription)
@@ -295,6 +301,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         contentFieldsText,
         sampleSize,
         queriesPerDoc,
+        enableAdaptiveSampling,
+        parentField,
         edgLanguage,
         queryTypes,
         domainDescription,
@@ -353,6 +361,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     contentFieldsText,
     sampleSize,
     queriesPerDoc,
+    enableAdaptiveSampling,
+    parentField,
     edgLanguage,
     queryTypes,
     domainDescription,
@@ -469,6 +479,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
       contentFields,
       sampleSize,
       queriesPerDoc,
+      enableAdaptiveSampling,
+      parentField: parentField.trim() || undefined,
       language: edgLanguage,
       queryTypes: queryTypes.length > 0 ? queryTypes : ['factoid'],
       domainDescription: domainDescription.trim() || undefined,
@@ -734,6 +746,48 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
               }
             />
           </label>
+
+          {/* Phase 0: Adaptive Sampling */}
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span className="field__label edgCheckboxLabel">
+              <input
+                type="checkbox"
+                checked={enableAdaptiveSampling}
+                onChange={(e) => setEnableAdaptiveSampling(e.target.checked)}
+              />{' '}
+              {t('edgAdaptiveSamplingLabel')}
+            </span>
+            <div className="field__hint">{t('edgAdaptiveSamplingHint')}</div>
+          </label>
+
+          {enableAdaptiveSampling && (
+            <label className="field" style={{ gridColumn: '1 / -1' }}>
+              <span className="field__label">{t('edgParentFieldLabel')}</span>
+              <select
+                className="field__input"
+                value={parentField}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setParentField(e.target.value)}
+              >
+                <option value="">{t('edgParentFieldAuto')}</option>
+                {indexFieldNames.map((f) => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+              <div className="field__hint">{t('edgParentFieldHint')}</div>
+            </label>
+          )}
+
+          {indexStructure && (
+            <div className="field" style={{ gridColumn: '1 / -1' }}>
+              <div className="field__hint">
+                <i className="bi bi-info-circle icon--mr6" />
+                {t('edgIndexStructureDetected')}: <strong>{indexStructure.type}</strong>
+                {indexStructure.parentField && <> — {t('edgParentFieldLabel')}: <code>{indexStructure.parentField}</code></>}
+                {indexStructure.parentCount != null && <> ({indexStructure.parentCount} {t('edgSources')})</>}
+                {' '} — {indexStructure.documentCount} docs
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1582,6 +1636,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
               <span className="mono mono--ellipsesSm">
                 {(() => {
                   switch (progress.phase) {
+                    case 'detecting':
+                      return t('edgPhaseDetecting')
                     case 'sampling':
                       return t('edgPhaseSampling')
                     case 'generating':
@@ -1637,6 +1693,16 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
             {t('edgShowRejectedLabel')}
           </label>
         </div>
+        {indexStructure && (
+          <div className="field__hint" style={{ marginBottom: 6 }}>
+            <i className="bi bi-diagram-3 icon--mr6" />
+            {t('edgIndexStructureDetected')}: <strong>{indexStructure.type}</strong>
+            {indexStructure.parentField && <> — {t('edgParentFieldLabel')}: <code>{indexStructure.parentField}</code></>}
+            {indexStructure.parentCount != null && <> ({indexStructure.parentCount} {t('edgSources')})</>}
+            {' — '}{indexStructure.documentCount} {t('edgDocuments')}
+            {indexStructure.reason && <> — {indexStructure.reason}</>}
+          </div>
+        )}
         {items.length === 0 ? (
           <div className="app__hint">{t('edgEmptyResults')}</div>
         ) : (
