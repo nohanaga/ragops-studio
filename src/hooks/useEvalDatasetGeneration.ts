@@ -382,14 +382,10 @@ export function useEvalDatasetGeneration(
 
         // 3) Surface dedup (Jaccard).
         const pipeline: GeneratedQAItem[] = dedupBySurface(collected, SURFACE_DEDUP_THRESHOLD)
-        // Trace: mark surface-dedup outcomes.
+        // Trace: surface dedup returns only kept items, so record kept outcomes for survivors.
         if (tracing) {
           for (const it of pipeline) {
-            if (it.rejected && it.rejection_reason === 'surface-dup') {
-              pushTrace(it, { step: 2, phase: 'surface-dedup', action: 'rejected', detail: { reason: 'surface-dup' } })
-            } else if (!it.rejected) {
-              pushTrace(it, { step: 2, phase: 'surface-dedup', action: 'kept' })
-            }
+            pushTrace(it, { step: 2, phase: 'surface-dedup', action: 'kept' })
           }
         }
         setItems(pipeline)
