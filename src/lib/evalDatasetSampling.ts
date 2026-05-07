@@ -13,7 +13,7 @@ import { searchDocuments, getIndexDefinition } from './aiSearchRest'
 import type { JsonValue } from './aiSearchRest'
 import type { ConnectionProfile, SearchApiVersion } from './model'
 import type { Language } from './translations'
-import type { IndexStructureInfo, IndexStructureType } from '../types/evalDataset'
+import type { IndexStructureInfo } from '../types/evalDataset'
 
 export interface SampledDoc {
   id: string

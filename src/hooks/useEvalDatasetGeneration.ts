@@ -407,7 +407,7 @@ export function useEvalDatasetGeneration(
               // For multi-hop items, accept the query as grounded if ANY of the
               // expected docs is retrieved within top-k (best rank wins).
               // For chunked indexes, also accept sibling chunks from the same source.
-              let candidateIds =
+              const candidateIds =
                 item.expected_ids.length > 0
                   ? [...item.expected_ids]
                   : item.source_doc_id
