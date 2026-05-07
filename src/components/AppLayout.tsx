@@ -58,6 +58,8 @@ export function AppLayout(props: {
   textToVector: {
     showTextToVectorTool: boolean
     setShowTextToVectorTool: (v: boolean) => void
+    textToVectorProvider: import('../lib/llmProvider').LlmProviderType
+    setTextToVectorProvider: (v: import('../lib/llmProvider').LlmProviderType) => void
     textToVectorEndpoint: string
     setTextToVectorEndpoint: (v: string) => void
     textToVectorApiKey: string
@@ -1283,6 +1285,9 @@ export function AppLayout(props: {
         onClose={() => textToVector.setShowTextToVectorTool(false)}
         t={t}
         format={format}
+        language={language}
+        textToVectorProvider={textToVector.textToVectorProvider}
+        setTextToVectorProvider={textToVector.setTextToVectorProvider}
         textToVectorEndpoint={textToVector.textToVectorEndpoint}
         setTextToVectorEndpoint={textToVector.setTextToVectorEndpoint}
         textToVectorApiKey={textToVector.textToVectorApiKey}

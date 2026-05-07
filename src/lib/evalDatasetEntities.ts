@@ -15,6 +15,7 @@
 import type { EvalLanguage } from '../types'
 import type { LlmAuth } from './llmAuth'
 import { callAzureOpenAIChat } from './evalDatasetGenerator'
+import type { LlmProviderType } from './llmProvider'
 
 export interface ExtractEntitiesParams {
   language: EvalLanguage
@@ -24,6 +25,7 @@ export interface ExtractEntitiesParams {
     auth: LlmAuth
     deployment: string
     apiVersion: string
+    provider?: LlmProviderType
   }
   /** Cap for entities per document. Defaults to 12. */
   maxEntities?: number
@@ -105,6 +107,7 @@ export async function extractEntities(
     auth: llm.auth,
     deployment: llm.deployment,
     apiVersion: llm.apiVersion,
+    provider: llm.provider,
     systemPrompt,
     userPrompt: excerpt,
     signal,

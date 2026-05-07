@@ -4,6 +4,8 @@
  * These types are used across UI, persistence (IndexedDB), and REST operations.
  */
 
+import type { LlmProviderType } from './llmProvider'
+
 export type AuthType = 'apiKey' | 'bearer';
 
 export type RunStatus = 'success' | 'error' | 'canceled';
@@ -120,6 +122,7 @@ export interface AppSettings {
   version: 1;
   activeProfileId: string;
   profiles: Record<string, ConnectionProfile>;
+  llmProvider?: LlmProviderType;
   openAiEndpoint?: string;
   openAiApiKey?: string;
   openAiAuthMode?: 'apiKey' | 'bearer';

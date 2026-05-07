@@ -1,5 +1,7 @@
 # RAGOps Studio — for Azure AI Search
 
+[日本語版はこちら](INTRODUCTION.jp.md)
+
 > **📖 [詳しい日本語紹介記事](https://qiita.com/nohanaga/items/f5d6ec340f238c8220be)**
 
 **RAGOps, from query to quality.**
@@ -444,6 +446,8 @@ A **browser-integrated Python development environment** for rapidly building, te
 
 ### Eval Dataset Generator
 
+> **📖 [Eval Dataset Generator — Detailed Documentation](EVAL_DATASET_GENERATOR.md)**
+
 Manually creating evaluation datasets for search quality benchmarking is one of the most time-consuming tasks in RAG system development. The **Eval Dataset Generator** automates this process by leveraging Azure OpenAI to generate realistic queries from real documents in your search index.
 
 **Comparison with Traditional Approach**
@@ -455,6 +459,7 @@ Manually creating evaluation datasets for search quality benchmarking is one of 
 | Difficulty control | Subjective assessment | Evol-Instruct rewrites with hard negative mining |
 | Scale | Dozens of queries after hours of work | Hundreds of queries in minutes |
 | AutoTuning integration | Manually format JSONL | One-click export or direct send to AutoTuning |
+| Fine-tuning data | Separate manual pipeline | RAFT mode generates CoT training data alongside evaluation data |
 
 **Two Generation Modes**
 - **Classic mode**: Sample N documents, generate M queries per document — simple and fast
@@ -471,7 +476,11 @@ Manually creating evaluation datasets for search quality benchmarking is one of 
 - **Domain Schema injection (RAGEval)**: Inject domain entities, relations, and constraints for improved factuality
 - **NDCG-compatible relevance grades**: Auto-assign graded relevance scores for use with NDCG/XDCG evaluators
 - **Entity-KG**: LLM entity extraction per document for refined multi-hop pairing
+- **RAFT (Retrieval Augmented Fine-Tuning)**: Generate Chain-of-Thought fine-tuning datasets with oracle + distractor documents; export as RAFT JSONL (Zhang et al., 2024)
 - **Dataset persistence**: Save/load/delete generated datasets in browser localStorage; export as JSONL. Note that saved datasets may be lost if browser/site storage is cleared.
+
+![image.png](./images/screenshot34_en.png)
+
 
 ### Feature Portal
 
@@ -493,6 +502,9 @@ The **Feature Portal** is an interactive welcome screen that serves as a compreh
 **Startup Control**
 - "Don't show on startup" checkbox to dismiss automatic display (persisted in localStorage)
 - Can always be re-opened from the header
+
+![image.png](./images/screenshot33_en.png)
+
 
 # 🧑‍💻 Maximum Developer Experience (DX)
 

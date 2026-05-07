@@ -242,6 +242,7 @@ A browser-integrated Python development environment for building, testing, and d
 - **Domain Schema injection (RAGEval)**: Inject domain-specific entities, relations, and constraints into prompts for improved factuality
 - **NDCG-compatible relevance grades**: Automatically assign graded relevance scores (`expected_ids[0]` → 3, secondary → 2, hard negatives → 0)
 - **Entity-KG**: Optional LLM entity extraction per document for refined multi-hop pairing via entity Jaccard (with token Jaccard fallback)
+- **RAFT (Retrieval Augmented Fine-Tuning)**: Generate Chain-of-Thought fine-tuning datasets mixing oracle + distractor documents; export as RAFT JSONL (Zhang et al., 2024)
 - **LLM authentication**: API Key, Bearer Token, and Azure AD (Entra ID) authentication for Azure OpenAI
 - **Dataset persistence**: Save/load/delete generated datasets in browser local storage (`localStorage`), with browser-local durability
 - **JSONL export**: Download evaluation datasets in JSONL format, or send directly to Search Parameter AutoTuning

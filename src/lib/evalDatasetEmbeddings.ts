@@ -1,5 +1,5 @@
 /**
- * Azure OpenAI embeddings + cosine-based semantic dedup
+ * LLM embeddings + cosine-based semantic dedup
  * for the Eval Dataset Generator (Phase 2.2).
  *
  * Surface (Jaccard) dedup is too lenient for paraphrases — semantic dedup
@@ -8,7 +8,7 @@
  */
 
 import type { LlmAuth } from './llmAuth'
-import { buildLlmAuthHeaders, LlmAuthError, isLlmAuthStatus } from './llmAuth'
+import { callLlmEmbeddings, type LlmProviderType } from './llmProvider'
 
 export interface EmbedParams {
   endpoint: string
@@ -17,58 +17,21 @@ export interface EmbedParams {
   apiVersion: string
   inputs: string[]
   signal?: AbortSignal
+  /** LLM provider type. Defaults to 'azure-openai' for backward compat. */
+  provider?: LlmProviderType
 }
-
-interface AoaiEmbeddingsResponse {
-  data?: Array<{ embedding?: number[]; index?: number }>
-}
-
-const EMBED_BATCH_SIZE = 16
 
 /**
  * Compute embeddings for an array of strings in batches.
  * Returns vectors in the same order as `inputs`.
  */
 export async function embedTexts(params: EmbedParams): Promise<number[][]> {
-  const { endpoint, auth, deployment, apiVersion, inputs, signal } = params
-  if (!endpoint.trim()) throw new Error('Embedding endpoint is required')
-  if (!deployment.trim()) throw new Error('Embedding deployment is required')
-  if (!apiVersion.trim()) throw new Error('Embedding apiVersion is required')
-
-  if (inputs.length === 0) return []
-
-  const base = endpoint.replace(/\/+$/, '')
-  const url = `${base}/openai/deployments/${encodeURIComponent(deployment)}/embeddings?api-version=${encodeURIComponent(apiVersion)}`
-
-  const out: number[][] = new Array(inputs.length)
-  for (let start = 0; start < inputs.length; start += EMBED_BATCH_SIZE) {
-    if (signal?.aborted) throw new Error('aborted')
-    const batch = inputs.slice(start, start + EMBED_BATCH_SIZE)
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...buildLlmAuthHeaders(auth),
-      },
-      signal,
-      body: JSON.stringify({ input: batch }),
-    })
-    if (!res.ok) {
-      const errorText = await res.text().catch(() => '')
-      if (isLlmAuthStatus(res.status)) {
-        throw new LlmAuthError(res.status, auth.mode, errorText.slice(0, 500))
-      }
-      throw new Error(`Azure OpenAI embeddings failed (${res.status}): ${errorText.slice(0, 300)}`)
-    }
-    const data = (await res.json()) as AoaiEmbeddingsResponse
-    const arr = Array.isArray(data?.data) ? data.data : []
-    for (let i = 0; i < batch.length; i++) {
-      const e = arr.find((x) => x?.index === i) ?? arr[i]
-      const v = Array.isArray(e?.embedding) ? (e!.embedding as number[]) : []
-      out[start + i] = v
-    }
-  }
-  return out
+  const { endpoint, auth, deployment, apiVersion, inputs, signal, provider = 'azure-openai' } = params
+  return callLlmEmbeddings({
+    config: { provider, endpoint, auth, model: deployment, apiVersion },
+    inputs,
+    signal,
+  })
 }
 
 /** Cosine similarity. Returns 0 when either vector is empty or zero-norm. */

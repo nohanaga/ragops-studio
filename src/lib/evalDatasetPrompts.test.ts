@@ -8,6 +8,10 @@ import {
   renderDomainSchema,
   buildHardenSystemPrompt,
   buildHardenUserPrompt,
+  buildRaftAnswerSystemPrompt,
+  buildRaftAnswerUserPrompt,
+  buildHydeSystemPrompt,
+  buildHydeUserPrompt,
 } from './evalDatasetPrompts'
 
 /**
@@ -133,5 +137,62 @@ describe('buildHardenPrompts (Phase 4, Evol-Instruct)', () => {
     })
     expect(out).toContain('What is X?')
     expect(out).toContain('X is the HR portal.')
+  })
+})
+
+describe('buildRaftAnswerPrompts (RAFT)', () => {
+  it('buildRaftAnswerSystemPrompt ja snapshot', () => {
+    expect(buildRaftAnswerSystemPrompt('ja')).toMatchSnapshot()
+  })
+  it('buildRaftAnswerSystemPrompt en snapshot', () => {
+    expect(buildRaftAnswerSystemPrompt('en')).toMatchSnapshot()
+  })
+  it('buildRaftAnswerUserPrompt contains question and docs', () => {
+    const out = buildRaftAnswerUserPrompt({
+      language: 'en',
+      question: 'What is RAFT?',
+      oracleDoc: { id: 'oracle-1', text: 'RAFT is a fine-tuning method.' },
+      distractorDocs: [
+        { id: 'dist-1', text: 'Unrelated distractor text.' },
+        { id: 'dist-2', text: 'Another distractor.' },
+      ],
+    })
+    expect(out).toContain('What is RAFT?')
+    expect(out).toContain('RAFT is a fine-tuning method.')
+    expect(out).toContain('Unrelated distractor text.')
+    expect(out).toContain('Another distractor.')
+  })
+  it('buildRaftAnswerUserPrompt works with zero distractors', () => {
+    const out = buildRaftAnswerUserPrompt({
+      language: 'ja',
+      question: 'テスト質問？',
+      oracleDoc: { id: 'o1', text: 'オラクルテキスト' },
+      distractorDocs: [],
+    })
+    expect(out).toContain('テスト質問？')
+    expect(out).toContain('オラクルテキスト')
+  })
+})
+
+describe('buildHydePrompts (HyDE)', () => {
+  it('buildHydeSystemPrompt ja snapshot', () => {
+    expect(buildHydeSystemPrompt('ja')).toMatchSnapshot()
+  })
+  it('buildHydeSystemPrompt en snapshot', () => {
+    expect(buildHydeSystemPrompt('en')).toMatchSnapshot()
+  })
+  it('buildHydeUserPrompt contains query', () => {
+    const out = buildHydeUserPrompt({
+      language: 'en',
+      query: 'What is HyDE?',
+    })
+    expect(out).toContain('What is HyDE?')
+  })
+  it('buildHydeUserPrompt ja contains query', () => {
+    const out = buildHydeUserPrompt({
+      language: 'ja',
+      query: 'HyDEとは何ですか？',
+    })
+    expect(out).toContain('HyDEとは何ですか？')
   })
 })

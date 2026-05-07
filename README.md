@@ -18,7 +18,7 @@ A web-based development tool for learning and experimenting with advanced featur
 > - RAGOps Studio — for Azure AI Search (this repo): A React/TypeScript workbench for observing, comparing, and improving search index quality (Series #1)
 > - [RAGOps Studio — for Document Intelligence / Content Understanding](https://github.com/nohanaga/ragops-studio-for-di-cu): A workbench for refining the document parsing layer with Azure AI Document Intelligence and Content Understanding (Series #2)
 >
-> - 日本語版: [README.jp.md](README.jp.md) | [FEATURES.jp.md](FEATURES.jp.md)
+> - 日本語版: [README.jp.md](README.jp.md) | [FEATURES.jp.md](FEATURES.jp.md) | [INTRODUCTION.jp.md](docs/INTRODUCTION.jp.md)
 
 ![](./docs/images/screenshot1_en.jpg)
 
@@ -30,7 +30,7 @@ A web-based development tool for learning and experimenting with advanced featur
 - 🛠️ **Builder Tools**: Create and manage indexes, knowledge sources, knowledge bases, synonym maps, and skillsets (visual pipeline builder)
 - 🧩 **Skill Pipeline Builder**: Visual DAG editor for skillset authoring with built-in skill templates, enrichment tree preview, and debug runner
 - 📝 **Custom Skill LiveEditor**: Browser-integrated Python IDE for Custom Skills with local execution (Pyodide/WASM), cloud deployment (Azure Container Apps), and Blob Storage sync
-- 🧬 **Eval Dataset Generator**: Automatically generate AutoTuning-compatible JSONL evaluation datasets from index documents using Azure OpenAI, with multi-stage quality filters (round-trip consistency, semantic dedup, difficulty evolution, hard negative mining)
+- 🧬 **Eval Dataset Generator**: Automatically generate AutoTuning-compatible JSONL evaluation datasets from index documents using Azure OpenAI, with multi-stage quality filters (round-trip consistency, semantic dedup, difficulty evolution, hard negative mining), and RAFT/HyDE dataset generation
 - 📊 **Performance Testing**: QPS tester, search pipeline visualizer
 - 🎯 **Search Parameter AutoTuning**: Automatically optimize search parameters using evaluation datasets
 - 🧪 **Experiment Management**: Save query history, compare results, export/import

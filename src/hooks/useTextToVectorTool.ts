@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import type { TranslationKey } from '../lib/translations'
 import type { AppSettings } from '../lib/model'
 import { updateSettings } from '../lib/db'
-import { buildLlmAuthHeaders, type LlmAuthMode } from '../lib/llmAuth'
+import type { LlmAuthMode } from '../lib/llmAuth'
+import { buildEmbeddingsUrl, buildProviderAuthHeaders, PROVIDER_DEFAULTS, type LlmProviderType } from '../lib/llmProvider'
 
 type Translator = (key: TranslationKey) => unknown
 
@@ -20,6 +21,7 @@ export function useTextToVectorTool(args: { t: Translator; settings: AppSettings
   const [showTextToVectorTool, setShowTextToVectorTool] = useState<boolean>(false)
   const [textToVectorInput, setTextToVectorInput] = useState<string>('')
   const [textToVectorModel, setTextToVectorModel] = useState<string>('text-embedding-3-large')
+  const [textToVectorProvider, setTextToVectorProvider] = useState<LlmProviderType>('azure-openai')
   const [textToVectorEndpoint, setTextToVectorEndpoint] = useState<string>('')
   const [textToVectorApiKey, setTextToVectorApiKey] = useState<string>('')
   const [textToVectorAuthMode, setTextToVectorAuthMode] = useState<LlmAuthMode>('apiKey')
@@ -30,6 +32,7 @@ export function useTextToVectorTool(args: { t: Translator; settings: AppSettings
 
   useEffect(() => {
     if (!settings) return
+    if (settings.llmProvider) setTextToVectorProvider(settings.llmProvider)
     if (settings.openAiEndpoint) setTextToVectorEndpoint(settings.openAiEndpoint)
     if (settings.openAiApiKey) setTextToVectorApiKey(settings.openAiApiKey)
     if (settings.openAiAuthMode) setTextToVectorAuthMode(settings.openAiAuthMode)
@@ -40,28 +43,34 @@ export function useTextToVectorTool(args: { t: Translator; settings: AppSettings
     if (!settings) return
     const updated: AppSettings = {
       ...settings,
+      llmProvider: textToVectorProvider,
       openAiEndpoint: textToVectorEndpoint,
       openAiApiKey: textToVectorApiKey,
       openAiAuthMode: textToVectorAuthMode,
       openAiBearerToken: textToVectorBearerToken,
     }
     void updateSettings(updated)
-  }, [textToVectorEndpoint, textToVectorApiKey, textToVectorAuthMode, textToVectorBearerToken, settings])
+  }, [textToVectorProvider, textToVectorEndpoint, textToVectorApiKey, textToVectorAuthMode, textToVectorBearerToken, settings])
 
   const onGenerateVector = useCallback(async () => {
     if (!textToVectorInput.trim()) {
       alert(String(t('textToVectorAlertEnterText')))
       return
     }
-    if (!textToVectorEndpoint.trim()) {
+    const effectiveEndpoint = textToVectorProvider === 'openai'
+      ? PROVIDER_DEFAULTS.openai.endpoint
+      : textToVectorEndpoint.trim()
+    if (!effectiveEndpoint) {
       alert(String(t('textToVectorAlertEnterEndpoint')))
       return
     }
-    if (textToVectorAuthMode === 'apiKey' && !textToVectorApiKey.trim()) {
+    // OpenAI mode always uses apiKey auth
+    const effectiveAuthMode = textToVectorProvider === 'openai' ? 'apiKey' : textToVectorAuthMode
+    if (effectiveAuthMode === 'apiKey' && !textToVectorApiKey.trim()) {
       alert(String(t('textToVectorAlertEnterApiKey')))
       return
     }
-    if (textToVectorAuthMode === 'bearer' && !textToVectorBearerToken.trim()) {
+    if (effectiveAuthMode === 'bearer' && !textToVectorBearerToken.trim()) {
       alert(String(t('textToVectorAlertEnterBearerToken')))
       return
     }
@@ -70,30 +79,40 @@ export function useTextToVectorTool(args: { t: Translator; settings: AppSettings
     setTextToVectorResult(null)
 
     try {
-      const endpoint = textToVectorEndpoint.replace(/\/+$/, '')
-      const url = `${endpoint}/openai/v1/embeddings`
+      const auth = effectiveAuthMode === 'bearer'
+        ? { mode: 'bearer' as const, bearerToken: textToVectorBearerToken }
+        : { mode: 'apiKey' as const, apiKey: textToVectorApiKey }
 
+      const config = {
+        provider: textToVectorProvider,
+        endpoint: effectiveEndpoint,
+        auth,
+        model: textToVectorModel,
+        apiVersion: textToVectorProvider === 'azure-openai'
+          ? PROVIDER_DEFAULTS['azure-openai'].apiVersion
+          : '',
+      }
+
+      const url = buildEmbeddingsUrl(config)
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        ...buildLlmAuthHeaders(
-          textToVectorAuthMode === 'bearer'
-            ? { mode: 'bearer', bearerToken: textToVectorBearerToken }
-            : { mode: 'apiKey', apiKey: textToVectorApiKey },
-        ),
+        ...buildProviderAuthHeaders(auth, textToVectorProvider),
+      }
+
+      const body: Record<string, unknown> = {
+        input: textToVectorInput,
+        ...(textToVectorProvider !== 'azure-openai' ? { model: textToVectorModel } : {}),
+        ...(typeof textToVectorDimensions === 'number' &&
+        Number.isFinite(textToVectorDimensions) &&
+        textToVectorDimensions > 0
+          ? { dimensions: Math.floor(textToVectorDimensions) }
+          : {}),
       }
 
       const response = await fetch(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          input: textToVectorInput,
-          model: textToVectorModel,
-          ...(typeof textToVectorDimensions === 'number' &&
-          Number.isFinite(textToVectorDimensions) &&
-          textToVectorDimensions > 0
-            ? { dimensions: Math.floor(textToVectorDimensions) }
-            : {}),
-        }),
+        body: JSON.stringify(body),
       })
 
       if (!response.ok) {
@@ -115,7 +134,7 @@ export function useTextToVectorTool(args: { t: Translator; settings: AppSettings
     } finally {
       setTextToVectorLoading(false)
     }
-  }, [t, textToVectorApiKey, textToVectorAuthMode, textToVectorBearerToken, textToVectorDimensions, textToVectorEndpoint, textToVectorInput, textToVectorModel])
+  }, [t, textToVectorApiKey, textToVectorAuthMode, textToVectorBearerToken, textToVectorDimensions, textToVectorEndpoint, textToVectorInput, textToVectorModel, textToVectorProvider])
 
   const onCopyVector = useCallback(async () => {
     if (!textToVectorResult) return
@@ -131,6 +150,8 @@ export function useTextToVectorTool(args: { t: Translator; settings: AppSettings
     setTextToVectorInput,
     textToVectorModel,
     setTextToVectorModel,
+    textToVectorProvider,
+    setTextToVectorProvider,
     textToVectorEndpoint,
     setTextToVectorEndpoint,
     textToVectorApiKey,

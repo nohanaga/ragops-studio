@@ -18,11 +18,11 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 > - RAGOps Studio — for Azure AI Search（this repo）: React/TypeScript ベースで検索インデックスの観測・比較・改善を行うワークベンチ（Series #1）
 > - [RAGOps Studio — for Document Intelligence / Content Understanding](https://github.com/nohanaga/ragops-studio-for-di-cu/blob/main/README.ja.md): Azure AI Document Intelligence / Content Understanding を用いて文書解析レイヤーを改善するワークベンチ（Series #2）
 >
-> - English: [README.md](README.md) | [FEATURES.md](FEATURES.md)
+> - English: [README.md](README.md) | [FEATURES.md](FEATURES.md) | [INTRODUCTION.md](docs/INTRODUCTION.md)
 
 ![](./docs/images/screenshot1_jp.jpg)
 
-> **📖 RAGOps Studio の詳しい紹介は [Qiita](https://qiita.com/nohanaga/items/f5d6ec340f238c8220be) をご覧ください**
+> **📖 RAGOps Studio の詳しい紹介は [INTRODUCTION.jp.md](docs/INTRODUCTION.jp.md) または [Qiita](https://qiita.com/nohanaga/items/f5d6ec340f238c8220be) をご覧ください**
 
 ## 特徴
 
@@ -30,7 +30,7 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 - 🛠️ **ビルダーツール**: インデックス、ナレッジソース、ナレッジベース、シノニムマップ、スキルセット（ビジュアルパイプラインビルダー）の作成・管理
 - 🧩 **スキルパイプラインビルダー**: ビルトインスキルテンプレート、エンリッチメントツリープレビュー、デバッグランナー付きのビジュアル DAG エディター
 - 📝 **Custom Skill LiveEditor**: Custom Skill のブラウザ統合 Python IDE—ローカル実行（Pyodide/WASM）、クラウドデプロイ（Azure Container Apps）、Blob Storage 同期対応
-- 🧬 **Eval Dataset Generator**: Azure OpenAI を使用してインデックス内の実ドキュメントから AutoTuning 互換 JSONL 評価データセットを自動生成。多段階品質フィルター（Round-trip Consistency、意味的重複排除、Difficulty Evolution、Hard Negative Mining）対応
+- 🧬 **Eval Dataset Generator**: Azure OpenAI を使用してインデックス内の実ドキュメントから AutoTuning 互換 JSONL 評価データセットを自動生成。多段階品質フィルター（Round-trip Consistency、意味的重複排除、Difficulty Evolution、Hard Negative Mining）および RAFT/HyDE データセット生成対応
 - 🎯 **検索パラメータ自動チューニング**: 評価データセットを使用して検索パラメータを自動最適化
 - 🧪 **実験管理**: クエリ履歴の保存、結果の比較、エクスポート/インポート
 - 🎨 **多機能UI**: 6つのテーマ、日英対応、3ペインレイアウト、リサイズ可能なパネル

@@ -6,9 +6,38 @@
  */
 
 import type { LlmAuth } from '../lib/llmAuth'
+import type { LlmProviderType } from '../lib/llmProvider'
 
 export type EvalLanguage = 'ja' | 'en'
 export type EvalQueryType = 'factoid' | 'how-to' | 'comparative' | 'yes-no'
+
+/* ------------------------------------------------------------------ */
+/* Index Structure Detection (Phase 0)                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Detected index structure type.
+ * - `chunked`:     Documents are chunks of larger source documents (parent-child).
+ * - `independent`: Each document is a standalone unit (no parent relationship).
+ * - `unknown`:     Could not determine automatically; falls back to simple sampling.
+ */
+export type IndexStructureType = 'chunked' | 'independent' | 'unknown'
+
+/**
+ * Result of automatic index structure detection.
+ * Returned by `detectIndexStructure()` and used to drive adaptive sampling.
+ */
+export interface IndexStructureInfo {
+  type: IndexStructureType
+  /** Field name used to group chunks by source (only set for `chunked`). */
+  parentField?: string
+  /** Number of distinct parent/source values (only set for `chunked`). */
+  parentCount?: number
+  /** Total document count in the index. */
+  documentCount: number
+  /** Human-readable detection reason for the UI tooltip. */
+  reason: string
+}
 
 /**
  * Ragas-style scenario taxonomy (4 quadrants).
@@ -30,6 +59,44 @@ export type QueryShape =
 
 export type EvalStyle = 'web_search' | 'chat' | 'formal' | 'informal'
 export type EvalLength = 'short' | 'medium' | 'long'
+
+/**
+ * Phase 7 (Style Evolution / SNS mode): surface-form degradation types
+ * that make clean LLM queries resemble real user traffic.
+ */
+export type StyleEvolutionKind =
+  | 'keyword'       // strip particles/connectives → noun-list style
+  | 'colloquial'    // casual / spoken form (e.g. "〜って何")
+  | 'typo'          // random char substitution / deletion
+  | 'abbreviated'   // drop subject / object for contextual brevity
+  | 'code_switch'   // mix ja/en in one query
+
+/**
+ * Phase 7: Query Transformation Trace event.
+ * Records how each query was modified (or rejected) at every pipeline step.
+ */
+export interface TraceEvent {
+  /** Pipeline step number (1-based, aligns with the 9-step flow). */
+  step: number
+  /** Pipeline phase identifier. */
+  phase: 'generation' | 'surface-dedup' | 'grounding' | 'semantic-dedup' | 'difficulty' | 'style-evolution' | 'hardneg' | 'relevance'
+  /** What happened to the query at this step. */
+  action: 'created' | 'kept' | 'rejected' | 'modified' | 'enriched'
+  /** ISO 8601 timestamp. */
+  timestamp: string
+  detail?: {
+    /** Query text before modification (for 'modified' actions). */
+    before?: string
+    /** Query text after modification. */
+    after?: string
+    /** Machine-readable rejection / action reason. */
+    reason?: string
+    /** Numeric score (Jaccard, cosine, grounding rank, etc.). */
+    score?: number
+    /** Style evolution kind applied (for style-evolution phase). */
+    styleKind?: StyleEvolutionKind
+  }
+}
 
 /**
  * Phase 4: Evol-Instruct difficulty label.
@@ -59,6 +126,21 @@ export type EvalProvenance = 'synthetic'
 
 /** Reason an item was soft-rejected by a quality filter. */
 export type EvalRejectionReason = 'grounding' | 'semantic-dup' | 'surface-dup'
+
+/* ------------------------------------------------------------------ */
+/* RAFT (Retrieval Augmented Fine-Tuning)                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A single document in the RAFT training context array.
+ * Exactly one document in the array is the oracle (ground-truth source);
+ * the rest are distractors selected via similarity search.
+ */
+export interface RaftContextDoc {
+  doc_id: string
+  text: string
+  oracle: boolean
+}
 
 /**
  * One generated query/answer item.
@@ -103,6 +185,24 @@ export interface GeneratedQAItem {
    * Foundry / TREC-style evaluators consume this directly.
    */
   relevance_grades?: Record<string, number>
+  // Phase 7: Style Evolution (SNS mode) — which degradation was applied.
+  style_evolution_kind?: StyleEvolutionKind
+  // Phase 7: Query Transformation Trace — full lifecycle of this item.
+  trace?: TraceEvent[]
+
+  // RAFT (Retrieval Augmented Fine-Tuning) fields.
+  /** Chain-of-Thought answer citing the oracle document. */
+  raft_cot_answer?: string
+  /** Context array of oracle + distractor documents for RAFT training. */
+  raft_context?: RaftContextDoc[]
+
+  // HyDE (Hypothetical Document Embeddings) fields.
+  /** LLM-generated hypothetical answer passage used as vector search input. */
+  hyde_hypothesis?: string
+  /** Model deployment used to generate the hypothesis. */
+  hyde_model?: string
+  /** ISO-8601 timestamp when the hypothesis was generated. */
+  hyde_generated_at?: string
 }
 
 /**
@@ -116,12 +216,22 @@ export interface EvalDatasetGenerationConfig {
   sampleSize: number
   queriesPerDoc: number
 
+  // Phase 0: Adaptive Sampling (Index Structure Detection).
+  /** Enable auto-detection of index structure + adaptive sampling strategy. */
+  enableAdaptiveSampling?: boolean
+  /**
+   * Parent/source field name for chunked indexes. When set, overrides auto-detection.
+   * Examples: `parent_id`, `metadata_storage_path`, `title`.
+   */
+  parentField?: string
+
   // Generation
   language: EvalLanguage
   queryTypes: EvalQueryType[]
   domainDescription?: string
 
-  // LLM (Azure OpenAI Chat Completions)
+  // LLM (Chat Completions — multi-provider)
+  llmProvider: LlmProviderType
   llmEndpoint: string
   llmAuth: LlmAuth
   llmDeployment: string
@@ -168,4 +278,28 @@ export interface EvalDatasetGenerationConfig {
    * document. Falls back to Jaccard if extraction fails.
    */
   enableEntityKG?: boolean
+
+  // Phase 7a: Judge LLM (separate deployment on the same endpoint).
+  /** When set, grounding / difficulty / hard-neg / style-evolution steps use this deployment instead of the generation LLM. */
+  judgeLlmDeployment?: string
+
+  // Phase 7b: Style Evolution (SNS mode).
+  /** Enable surface-form degradation of clean LLM queries to mimic real user traffic. */
+  enableStyleEvolution?: boolean
+  /** Which degradation kinds to apply. When empty, all 5 are uniformly sampled. */
+  styleEvolutionKinds?: StyleEvolutionKind[]
+
+  // Phase 7c: Query Transformation Trace.
+  /** Record trace events on each item through every pipeline step. */
+  enableTrace?: boolean
+
+  // RAFT (Retrieval Augmented Fine-Tuning).
+  /** Enable RAFT dataset generation: generate CoT answers with oracle + distractor context. */
+  enableRaftMode?: boolean
+  /** Number of distractor documents to include per item. Defaults to 4. */
+  raftDistractorCount?: number
+
+  // HyDE (Hypothetical Document Embeddings).
+  /** Generate a hypothetical answer passage per query for vector search evaluation. */
+  enableHydeMode?: boolean
 }

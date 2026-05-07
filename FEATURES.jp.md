@@ -1,5 +1,7 @@
 # RAGOps Studio — for Azure AI Search
 
+[English version](FEATURES.md)
+
 **RAGOps, from query to quality.**
 
 Azure AI Search の高度な機能を学習・実験できる Web ベースの開発ツールです。検索クエリのテスト、セマンティック検索、ベクトル検索、エージェント検索（Knowledge Retrieval API）、テキスト分析など、さまざまな機能を GUI で簡単に試すことができます。
@@ -249,6 +251,7 @@ RAGOps Studio を離れることなく、Azure AI Search の Custom Skill をブ
 - **Domain Schema 注入（RAGEval）**: ドメイン固有のエンティティ・関係・制約をプロンプトに注入し、事実性とスキーマ整合性を向上
 - **NDCG 互換 relevance_grades**: 関連度スコアを自動付与（`expected_ids[0]` → 3、副ドキュメント → 2、hard negatives → 0）
 - **Entity-KG**: ドキュメントごとに固有名詞・専門用語を LLM 抽出し、entity Jaccard で multi-hop ペアを精緻化（token Jaccard へ自動フォールバック）
+- **RAFT (Retrieval Augmented Fine-Tuning)**: オラクル文書 + ディストラクター文書を組み合わせた Chain-of-Thought Fine-Tuning データセットを生成し、RAFT JSONL としてエクスポート（Zhang et al., 2024）
 - **LLM 認証**: Azure OpenAI 向けの API Key、Bearer Token、Azure AD（Entra ID）認証に対応
 - **データセット永続化**: 生成済みデータセットを localStorage（`ragops.evalDatasets.v1`）に保存・読み込み・削除
 - **JSONL エクスポート**: JSONL 形式でのダウンロード、または Search Parameter AutoTuning への直接送信

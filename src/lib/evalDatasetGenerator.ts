@@ -12,7 +12,7 @@ import type { SampledDoc } from './evalDatasetSampling'
 import type { BuildPromptParams, ExpectedQueryObject } from './evalDatasetPrompts'
 import { buildSystemPrompt, buildUserPrompt } from './evalDatasetPrompts'
 import type { LlmAuth } from './llmAuth'
-import { buildLlmAuthHeaders, LlmAuthError, isLlmAuthStatus } from './llmAuth'
+import { callLlmChat, type LlmProviderType } from './llmProvider'
 
 /** Hard cap for the per-doc excerpt fed to the LLM (chars, not tokens). */
 const MAX_CHUNK_CHARS = 4000
@@ -27,6 +27,10 @@ export interface CallAoaiParams {
   systemPrompt: string
   userPrompt: string
   signal?: AbortSignal
+  /** When false, omit `response_format: json_object`. Defaults to true. */
+  jsonMode?: boolean
+  /** LLM provider type. Defaults to 'azure-openai' for backward compat. */
+  provider?: LlmProviderType
 }
 
 export interface AoaiChatResponse {
@@ -34,49 +38,20 @@ export interface AoaiChatResponse {
 }
 
 /**
- * Call Azure OpenAI Chat Completions in JSON mode.
- * Returns the raw assistant content string (expected to be a JSON object).
+ * Call LLM Chat Completions (multi-provider).
+ *
+ * Delegates to the unified `callLlmChat()` from `llmProvider.ts`.
+ * Retained as a stable entry-point for existing callers.
  */
 export async function callAzureOpenAIChat(params: CallAoaiParams): Promise<string> {
-  const { endpoint, auth, deployment, apiVersion, systemPrompt, userPrompt, signal } = params
-  if (!endpoint.trim()) throw new Error('LLM endpoint is required')
-  if (!deployment.trim()) throw new Error('LLM deployment is required')
-  if (!apiVersion.trim()) throw new Error('LLM apiVersion is required')
-
-  const base = endpoint.replace(/\/+$/, '')
-  const url = `${base}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...buildLlmAuthHeaders(auth),
-    },
+  const { endpoint, auth, deployment, apiVersion, systemPrompt, userPrompt, signal, jsonMode = true, provider = 'azure-openai' } = params
+  return callLlmChat({
+    config: { provider, endpoint, auth, model: deployment, apiVersion },
+    systemPrompt,
+    userPrompt,
     signal,
-    body: JSON.stringify({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.3,
-      response_format: { type: 'json_object' },
-    }),
+    jsonMode,
   })
-
-  if (!res.ok) {
-    const errorText = await res.text().catch(() => '')
-    if (isLlmAuthStatus(res.status)) {
-      throw new LlmAuthError(res.status, auth.mode, errorText.slice(0, 500))
-    }
-    throw new Error(`Azure OpenAI request failed (${res.status}): ${errorText.slice(0, 300)}`)
-  }
-
-  const data = (await res.json()) as AoaiChatResponse
-  const content = data?.choices?.[0]?.message?.content ?? ''
-  if (!content) {
-    throw new Error('Azure OpenAI returned an empty completion')
-  }
-  return content
 }
 
 /**
@@ -358,6 +333,11 @@ export function toJsonl(items: GeneratedQAItem[]): string {
         out['hard_negative_ids'] = i.hard_negative_ids
       if (i.relevance_grades && Object.keys(i.relevance_grades).length > 0)
         out['relevance_grades'] = i.relevance_grades
+      if (i.style_evolution_kind) out['style_evolution_kind'] = i.style_evolution_kind
+      if (i.trace && i.trace.length > 0) out['trace'] = i.trace
+      if (i.hyde_hypothesis) out['hyde_hypothesis'] = i.hyde_hypothesis
+      if (i.hyde_model) out['hyde_model'] = i.hyde_model
+      if (i.hyde_generated_at) out['hyde_generated_at'] = i.hyde_generated_at
       return JSON.stringify(out)
     })
     .join('\n')
@@ -447,4 +427,173 @@ export async function hardenQuery(params: HardenQueryParams): Promise<string | n
   const userPrompt = buildHardenUserPrompt({ language, query, contextText: ctx })
   const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal })
   return parseHardenedQuery(raw)
+}
+
+/* ------------------------------------------------------------------ */
+/* RAFT: Chain-of-Thought answer generation                            */
+/* ------------------------------------------------------------------ */
+
+import {
+  buildRaftAnswerSystemPrompt,
+  buildRaftAnswerUserPrompt,
+} from './evalDatasetPrompts'
+
+export interface GenerateRaftAnswerParams {
+  language: EvalLanguage
+  question: string
+  oracleDoc: { id: string; text: string }
+  distractorDocs: Array<{ id: string; text: string }>
+  llm: Omit<CallAoaiParams, 'systemPrompt' | 'userPrompt' | 'signal'>
+  signal?: AbortSignal
+}
+
+/**
+ * Parse the `{ "cot_answer": "..." }` response from the RAFT answer LLM.
+ * Exported for unit testing.
+ */
+export function parseRaftAnswer(rawJson: string): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawJson)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const a = (parsed as Record<string, unknown>)['cot_answer']
+  if (typeof a !== 'string') return null
+  const trimmed = a.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+/**
+ * Generate a Chain-of-Thought answer for a RAFT training item.
+ * The oracle doc is shuffled among distractors inside the prompt builder
+ * so the model learns to identify the relevant document.
+ *
+ * Returns `null` on parse error (caller keeps item without CoT answer).
+ */
+export async function generateRaftAnswer(
+  params: GenerateRaftAnswerParams,
+): Promise<string | null> {
+  const { language, question, oracleDoc, distractorDocs, llm, signal } = params
+
+  // Truncate excerpts to fit within budget
+  const perDocBudget = Math.max(
+    300,
+    Math.floor(MAX_CHUNK_CHARS / Math.max(1, 1 + distractorDocs.length)),
+  )
+  const truncOracle = {
+    id: oracleDoc.id,
+    text: oracleDoc.text.length > perDocBudget ? oracleDoc.text.slice(0, perDocBudget) : oracleDoc.text,
+  }
+  const truncDistractors = distractorDocs.map((d) => ({
+    id: d.id,
+    text: d.text.length > perDocBudget ? d.text.slice(0, perDocBudget) : d.text,
+  }))
+
+  const systemPrompt = buildRaftAnswerSystemPrompt(language)
+  const userPrompt = buildRaftAnswerUserPrompt({
+    language,
+    question,
+    oracleDoc: truncOracle,
+    distractorDocs: truncDistractors,
+  })
+
+  const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal })
+  return parseRaftAnswer(raw)
+}
+
+/**
+ * Convert items to RAFT-format JSONL (for fine-tuning).
+ * Only non-rejected items that have `raft_cot_answer` are included.
+ *
+ * RAFT JSONL schema per line:
+ * ```json
+ * {
+ *   "question": "...",
+ *   "context": [{ "doc_id": "...", "text": "...", "oracle": true/false }, ...],
+ *   "cot_answer": "##Reason: ... ##Answer: ...",
+ *   "expected_ids": ["..."],
+ *   "provenance": "synthetic",
+ *   ...metadata
+ * }
+ * ```
+ */
+export function toRaftJsonl(items: GeneratedQAItem[]): string {
+  return items
+    .filter((i) => !i.rejected && i.raft_cot_answer)
+    .map((i) => {
+      const out: Record<string, unknown> = {
+        question: i.query,
+        context: (i.raft_context ?? []).map((c) => ({
+          doc_id: c.doc_id,
+          text: c.text,
+          oracle: c.oracle,
+        })),
+        cot_answer: i.raft_cot_answer,
+        expected_ids: i.expected_ids,
+      }
+      if (i.query_type) out['query_type'] = i.query_type
+      if (i.language) out['language'] = i.language
+      if (i.source_doc_id) out['source_doc_id'] = i.source_doc_id
+      if (i.generation_model) out['generation_model'] = i.generation_model
+      if (i.provenance) out['provenance'] = i.provenance
+      if (i.generated_at) out['generated_at'] = i.generated_at
+      if (i.generated_against_index) out['generated_against_index'] = i.generated_against_index
+      if (i.generation_run_id) out['generation_run_id'] = i.generation_run_id
+      if (i.difficulty) out['difficulty'] = i.difficulty
+      return JSON.stringify(out)
+    })
+    .join('\n')
+}
+
+/* ------------------------------------------------------------------ */
+/* HyDE: Hypothetical Document Embeddings generation                   */
+/* ------------------------------------------------------------------ */
+
+import {
+  buildHydeSystemPrompt,
+  buildHydeUserPrompt,
+} from './evalDatasetPrompts'
+
+export interface GenerateHydeHypothesisParams {
+  language: EvalLanguage
+  query: string
+  llm: Omit<CallAoaiParams, 'systemPrompt' | 'userPrompt' | 'signal'>
+  signal?: AbortSignal
+}
+
+/**
+ * Parse the `{ "hypothesis": "..." }` response from the HyDE LLM.
+ * Exported for unit testing.
+ */
+export function parseHydeHypothesis(rawJson: string): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawJson)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const h = (parsed as Record<string, unknown>)['hypothesis']
+  if (typeof h !== 'string') return null
+  const trimmed = h.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+/**
+ * Generate a hypothetical document passage (HyDE) for a given query.
+ * The hypothesis is used as vector search input instead of the raw query,
+ * enabling embedding-space alignment with actual document passages.
+ *
+ * Returns `null` on parse error (caller keeps item without hypothesis).
+ */
+export async function generateHydeHypothesis(
+  params: GenerateHydeHypothesisParams,
+): Promise<string | null> {
+  const { language, query, llm, signal } = params
+  const systemPrompt = buildHydeSystemPrompt(language)
+  const userPrompt = buildHydeUserPrompt({ language, query })
+  const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal })
+  return parseHydeHypothesis(raw)
 }

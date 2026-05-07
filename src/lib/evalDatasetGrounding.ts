@@ -160,3 +160,96 @@ export async function mineHardNegatives(
   }
   return out
 }
+
+/* ------------------------------------------------------------------ */
+/* RAFT: Distractor document fetching (text + id)                      */
+/* ------------------------------------------------------------------ */
+
+export interface FetchDistractorDocsParams {
+  profile: ConnectionProfile
+  indexName: string
+  apiVersion: SearchApiVersion
+  keyField: string
+  contentFields: string[]
+  query: string
+  /** Doc IDs that ARE the correct answer; will be excluded from results. */
+  expectedIds: string[]
+  /** Number of distractor docs to return. */
+  count: number
+  language?: Language
+  signal?: AbortSignal
+}
+
+export interface DistractorDoc {
+  id: string
+  text: string
+}
+
+/**
+ * Search the index for `query` and return the top non-oracle docs with text.
+ * This is similar to `mineHardNegatives` but returns both ID and content
+ * for RAFT training context assembly.
+ */
+export async function fetchDistractorDocs(
+  params: FetchDistractorDocsParams,
+): Promise<DistractorDoc[]> {
+  const {
+    profile,
+    indexName,
+    apiVersion,
+    keyField,
+    contentFields,
+    query,
+    expectedIds,
+    count,
+    language,
+    signal,
+  } = params
+
+  if (signal?.aborted) throw new Error('aborted')
+  if (!query.trim()) return []
+  if (count <= 0) return []
+
+  const expectedSet = new Set(expectedIds.map((s) => s.trim()).filter(Boolean))
+  // Fetch more than needed since some may be oracle docs
+  const topK = Math.max(1, Math.min(50, count + expectedIds.length + 2))
+  const select = [keyField, ...contentFields].join(',')
+
+  const body: JsonValue = {
+    search: query,
+    top: topK,
+    select,
+    queryType: 'simple',
+  }
+
+  const result = await searchDocuments({ profile, indexName, apiVersion, body, language, signal })
+  if (!result.ok) {
+    throw new Error(result.error?.message ?? 'searchDocuments failed')
+  }
+
+  const response = result.response as Record<string, unknown> | null
+  const value = response && Array.isArray(response['value']) ? (response['value'] as unknown[]) : []
+
+  const out: DistractorDoc[] = []
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object') continue
+    const obj = raw as Record<string, unknown>
+    const id = pickIdString(obj, keyField).trim()
+    if (!id || expectedSet.has(id)) continue
+
+    const textParts = contentFields
+      .map((f) => {
+        const v = obj[f]
+        if (typeof v === 'string') return v.trim()
+        if (Array.isArray(v)) return v.filter((x) => typeof x === 'string').join('\n').trim()
+        return ''
+      })
+      .filter((s) => s.length > 0)
+    const text = textParts.join('\n\n')
+    if (!text) continue
+
+    out.push({ id, text })
+    if (out.length >= count) break
+  }
+  return out
+}

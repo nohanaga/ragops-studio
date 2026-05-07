@@ -11,8 +11,9 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import type { ConnectionProfile, SearchApiVersion } from '../../lib/model'
 import type { Language } from '../../lib/translations'
 import { translations } from '../../lib/translations'
-import { toJsonl } from '../../lib/evalDatasetGenerator'
+import { toJsonl, toRaftJsonl } from '../../lib/evalDatasetGenerator'
 import { buildAadCliCommand, type LlmAuthMode } from '../../lib/llmAuth'
+import { LLM_PROVIDER_LABELS, LLM_PROVIDER_OPTIONS, PROVIDER_DEFAULTS, type LlmProviderType } from '../../lib/llmProvider'
 import { useEvalDatasetGeneration } from '../../hooks/useEvalDatasetGeneration'
 import {
   deleteEvalDataset,
@@ -116,6 +117,10 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
   const [sampleSize, setSampleSize] = useState<number>(20)
   const [queriesPerDoc, setQueriesPerDoc] = useState<number>(3)
 
+  // Phase 0: Adaptive Sampling
+  const [enableAdaptiveSampling, setEnableAdaptiveSampling] = useState<boolean>(true)
+  const [parentField, setParentField] = useState<string>('')
+
   // Generation state
   const [edgLanguage, setEdgLanguage] = useState<EvalLanguage>(language === 'en' ? 'en' : 'ja')
   const [queryTypes, setQueryTypes] = useState<EvalQueryType[]>(['factoid', 'how-to'])
@@ -124,6 +129,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
   // LLM state. apiKey / bearerToken are persisted in IndexedDB to match the
   // Connection profile (admin keys) behavior. Persisted values take
   // precedence over the defaults inherited from the Connection.
+  const [llmProvider, setLlmProvider] = useState<LlmProviderType>('azure-openai')
   const [llmEndpoint, setLlmEndpoint] = useState<string>(defaultLlmEndpoint ?? '')
   const [llmAuthMode, setLlmAuthMode] = useState<LlmAuthMode>(defaultLlmAuthMode ?? 'apiKey')
   const [llmApiKey, setLlmApiKey] = useState<string>(defaultLlmApiKey ?? '')
@@ -168,6 +174,27 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
   const [enableRelevanceGrades, setEnableRelevanceGrades] = useState<boolean>(false)
   const [enableEntityKG, setEnableEntityKG] = useState<boolean>(false)
 
+  // Phase 7a: Judge LLM (deployment name only — same endpoint/auth as generation LLM).
+  const [judgeLlmDeployment, setJudgeLlmDeployment] = useState<string>('')
+
+  // Phase 7b: Style Evolution (SNS mode).
+  const [enableStyleEvolution, setEnableStyleEvolution] = useState<boolean>(false)
+  const [seKeyword, setSeKeyword] = useState<boolean>(true)
+  const [seColloquial, setSeColloquial] = useState<boolean>(true)
+  const [seTypo, setSeTypo] = useState<boolean>(true)
+  const [seAbbreviated, setSeAbbreviated] = useState<boolean>(true)
+  const [seCodeSwitch, setSeCodeSwitch] = useState<boolean>(true)
+
+  // Phase 7c: Query Transformation Trace.
+  const [enableTrace, setEnableTrace] = useState<boolean>(true)
+
+  // RAFT (Retrieval Augmented Fine-Tuning)
+  const [enableRaftMode, setEnableRaftMode] = useState<boolean>(false)
+  const [raftDistractorCount, setRaftDistractorCount] = useState<number>(4)
+
+  // HyDE (Hypothetical Document Embeddings)
+  const [enableHydeMode, setEnableHydeMode] = useState<boolean>(false)
+
   // Phase 3: persistence
   const [persistTitle, setPersistTitle] = useState<string>('')
   const [persistList, setPersistList] = useState<PersistedEvalDatasetItem[]>(() => listEvalDatasets())
@@ -178,7 +205,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
 
   const [validationError, setValidationError] = useState<string | null>(null)
 
-  const { items, isRunning, error, progress, docTextById, start, cancel, reset } = useEvalDatasetGeneration({
+  const { items, isRunning, error, progress, docTextById, indexStructure, start, cancel, reset } = useEvalDatasetGeneration({
     profile: activeProfile,
     apiVersion,
     language,
@@ -197,9 +224,12 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         if (form.contentFieldsText !== undefined) setContentFieldsText(form.contentFieldsText)
         if (form.sampleSize !== undefined) setSampleSize(form.sampleSize)
         if (form.queriesPerDoc !== undefined) setQueriesPerDoc(form.queriesPerDoc)
+        if (form.enableAdaptiveSampling !== undefined) setEnableAdaptiveSampling(form.enableAdaptiveSampling)
+        if (form.parentField !== undefined) setParentField(form.parentField)
         if (form.edgLanguage !== undefined) setEdgLanguage(form.edgLanguage)
         if (form.queryTypes !== undefined) setQueryTypes(form.queryTypes)
         if (form.domainDescription !== undefined) setDomainDescription(form.domainDescription)
+        if (form.llmProvider !== undefined) setLlmProvider(form.llmProvider)
         if (form.llmEndpoint !== undefined) setLlmEndpoint(form.llmEndpoint)
         if (form.llmAuthMode !== undefined) setLlmAuthMode(form.llmAuthMode)
         if (form.llmApiKey !== undefined) setLlmApiKey(form.llmApiKey)
@@ -237,6 +267,22 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         if (form.enableRelevanceGrades !== undefined)
           setEnableRelevanceGrades(form.enableRelevanceGrades)
         if (form.enableEntityKG !== undefined) setEnableEntityKG(form.enableEntityKG)
+        // Phase 7a: Judge LLM
+        if (form.judgeLlmDeployment !== undefined) setJudgeLlmDeployment(form.judgeLlmDeployment)
+        // Phase 7b: Style Evolution
+        if (form.enableStyleEvolution !== undefined) setEnableStyleEvolution(form.enableStyleEvolution)
+        if (form.seKeyword !== undefined) setSeKeyword(form.seKeyword)
+        if (form.seColloquial !== undefined) setSeColloquial(form.seColloquial)
+        if (form.seTypo !== undefined) setSeTypo(form.seTypo)
+        if (form.seAbbreviated !== undefined) setSeAbbreviated(form.seAbbreviated)
+        if (form.seCodeSwitch !== undefined) setSeCodeSwitch(form.seCodeSwitch)
+        // Phase 7c: Trace
+        if (form.enableTrace !== undefined) setEnableTrace(form.enableTrace)
+        // RAFT
+        if (form.enableRaftMode !== undefined) setEnableRaftMode(form.enableRaftMode)
+        if (form.raftDistractorCount !== undefined) setRaftDistractorCount(form.raftDistractorCount)
+        // HyDE
+        if (form.enableHydeMode !== undefined) setEnableHydeMode(form.enableHydeMode)
         if (form.persistTitle !== undefined) setPersistTitle(form.persistTitle)
         if (form.selectedPersistId !== undefined) setSelectedPersistId(form.selectedPersistId)
       }
@@ -258,9 +304,12 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         contentFieldsText,
         sampleSize,
         queriesPerDoc,
+        enableAdaptiveSampling,
+        parentField,
         edgLanguage,
         queryTypes,
         domainDescription,
+        llmProvider,
         llmEndpoint,
         llmAuthMode,
         llmApiKey,
@@ -295,6 +344,17 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         schemaConstraints,
         enableRelevanceGrades,
         enableEntityKG,
+        judgeLlmDeployment,
+        enableStyleEvolution,
+        seKeyword,
+        seColloquial,
+        seTypo,
+        seAbbreviated,
+        seCodeSwitch,
+        enableTrace,
+        enableRaftMode,
+        raftDistractorCount,
+        enableHydeMode,
         persistTitle,
         selectedPersistId,
       })
@@ -305,9 +365,12 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     contentFieldsText,
     sampleSize,
     queriesPerDoc,
+    enableAdaptiveSampling,
+    parentField,
     edgLanguage,
     queryTypes,
     domainDescription,
+    llmProvider,
     llmEndpoint,
     llmAuthMode,
     llmApiKey,
@@ -342,6 +405,17 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     schemaConstraints,
     enableRelevanceGrades,
     enableEntityKG,
+    judgeLlmDeployment,
+    enableStyleEvolution,
+    seKeyword,
+    seColloquial,
+    seTypo,
+    seAbbreviated,
+    seCodeSwitch,
+    enableTrace,
+    enableRaftMode,
+    raftDistractorCount,
+    enableHydeMode,
     persistTitle,
     selectedPersistId,
   ])
@@ -391,9 +465,11 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     if (!indexName.trim()) return String(t('edgErrIndexName'))
     if (!keyField.trim()) return String(t('edgErrKeyField'))
     if (contentFields.length === 0) return String(t('edgErrContentFields'))
-    if (!llmEndpoint.trim()) return String(t('edgErrLlmEndpoint'))
-    if (llmAuthMode === 'apiKey' && !llmApiKey.trim()) return String(t('edgErrLlmApiKey'))
-    if (llmAuthMode === 'bearer' && !llmBearerToken.trim()) return String(t('edgErrLlmBearerToken'))
+    if (llmProvider !== 'openai' && !llmEndpoint.trim()) return String(t('edgErrLlmEndpoint'))
+    // OpenAI mode forces apiKey auth
+    const effectiveLlmAuthMode = llmProvider === 'openai' ? 'apiKey' : llmAuthMode
+    if (effectiveLlmAuthMode === 'apiKey' && !llmApiKey.trim()) return String(t('edgErrLlmApiKey'))
+    if (effectiveLlmAuthMode === 'bearer' && !llmBearerToken.trim()) return String(t('edgErrLlmBearerToken'))
     if (!llmDeployment.trim()) return String(t('edgErrLlmDeployment'))
     if (enableSemanticDedup && !embeddingDeployment.trim())
       return String(t('edgErrEmbeddingDeployment'))
@@ -410,16 +486,23 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
       contentFields,
       sampleSize,
       queriesPerDoc,
+      enableAdaptiveSampling,
+      parentField: parentField.trim() || undefined,
       language: edgLanguage,
       queryTypes: queryTypes.length > 0 ? queryTypes : ['factoid'],
       domainDescription: domainDescription.trim() || undefined,
-      llmEndpoint: llmEndpoint.trim(),
+      llmProvider,
+      llmEndpoint: llmProvider === 'openai'
+        ? PROVIDER_DEFAULTS.openai.endpoint
+        : llmEndpoint.trim(),
       llmAuth:
-        llmAuthMode === 'bearer'
+        (llmProvider === 'openai' ? 'apiKey' : llmAuthMode) === 'bearer'
           ? { mode: 'bearer', bearerToken: llmBearerToken.trim() }
           : { mode: 'apiKey', apiKey: llmApiKey.trim() },
       llmDeployment: llmDeployment.trim(),
-      llmApiVersion: llmApiVersion.trim() || DEFAULT_LLM_API_VERSION,
+      llmApiVersion: llmProvider === 'azure-openai'
+        ? (llmApiVersion.trim() || PROVIDER_DEFAULTS['azure-openai'].apiVersion)
+        : '',
       enableGroundingCheck,
       groundingTopK: Math.max(1, Math.min(50, Math.floor(groundingTopK || DEFAULT_GROUNDING_TOP_K))),
       enableSemanticDedup,
@@ -474,6 +557,26 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
       // Phase 6: NDCG/XDCG-compatible relevance grades + entity-KG.
       enableRelevanceGrades,
       enableEntityKG: enableRagasMode ? enableEntityKG : undefined,
+      // Phase 7a: Judge LLM (deployment name only).
+      judgeLlmDeployment: judgeLlmDeployment.trim() || undefined,
+      // Phase 7b: Style Evolution (SNS mode).
+      enableStyleEvolution,
+      styleEvolutionKinds: enableStyleEvolution
+        ? ([
+            seKeyword ? 'keyword' : null,
+            seColloquial ? 'colloquial' : null,
+            seTypo ? 'typo' : null,
+            seAbbreviated ? 'abbreviated' : null,
+            seCodeSwitch ? 'code_switch' : null,
+          ].filter(Boolean) as EvalDatasetGenerationConfig['styleEvolutionKinds'])
+        : undefined,
+      // Phase 7c: Trace.
+      enableTrace,
+      // RAFT
+      enableRaftMode,
+      raftDistractorCount: enableRaftMode ? raftDistractorCount : undefined,
+      // HyDE
+      enableHydeMode,
     }
     await start(config)
   }
@@ -495,6 +598,14 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     const ts = new Date().toISOString().replace(/[:.]/g, '-')
     const safeIndex = indexName.replace(/[^a-z0-9_-]/gi, '_') || 'index'
     downloadTextFile(`eval-dataset-${safeIndex}-${ts}.jsonl`, jsonl)
+  }
+
+  function onExportRaft() {
+    const jsonl = toRaftJsonl(items)
+    if (!jsonl) return
+    const ts = new Date().toISOString().replace(/[:.]/g, '-')
+    const safeIndex = indexName.replace(/[^a-z0-9_-]/gi, '_') || 'index'
+    downloadTextFile(`raft-dataset-${safeIndex}-${ts}.jsonl`, jsonl)
   }
 
   // ---- Phase 3: persistence + AutoTuning handoff -----------------
@@ -560,12 +671,11 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
       <div className="section">
         <div className="section__title">{t('evalDatasetGenerator')}</div>
         <div className="app__hint">{t('edgIntro')}</div>
-        <div className="edgSyntheticBanner">{t('edgSyntheticBanner')}</div>
       </div>
 
       {/* Source ------------------------------------------------------ */}
       <div className="section">
-        <div className="section__title">{t('edgSourceTitle')}</div>
+        <div className="section__title"><i className="bi bi-database icon--mr6" />{t('edgSourceTitle')}</div>
         <div className="formGrid">
           <label className="field" data-guide-target="edg-index">
             <span className="field__label">{t('edgIndexNameLabel')}</span>
@@ -648,12 +758,54 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
               }
             />
           </label>
+
+          {/* Phase 0: Adaptive Sampling */}
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span className="field__label edgCheckboxLabel">
+              <input
+                type="checkbox"
+                checked={enableAdaptiveSampling}
+                onChange={(e) => setEnableAdaptiveSampling(e.target.checked)}
+              />{' '}
+              {t('edgAdaptiveSamplingLabel')}
+            </span>
+            <div className="field__hint">{t('edgAdaptiveSamplingHint')}</div>
+          </label>
+
+          {enableAdaptiveSampling && (
+            <label className="field" style={{ gridColumn: '1 / -1' }}>
+              <span className="field__label">{t('edgParentFieldLabel')}</span>
+              <select
+                className="field__input"
+                value={parentField}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setParentField(e.target.value)}
+              >
+                <option value="">{t('edgParentFieldAuto')}</option>
+                {indexFieldNames.map((f) => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+              <div className="field__hint">{t('edgParentFieldHint')}</div>
+            </label>
+          )}
+
+          {indexStructure && (
+            <div className="field" style={{ gridColumn: '1 / -1' }}>
+              <div className="field__hint">
+                <i className="bi bi-info-circle icon--mr6" />
+                {t('edgIndexStructureDetected')}: <strong>{indexStructure.type}</strong>
+                {indexStructure.parentField && <> — {t('edgParentFieldLabel')}: <code>{indexStructure.parentField}</code></>}
+                {indexStructure.parentCount != null && <> ({indexStructure.parentCount} {t('edgSources')})</>}
+                {' '} — {indexStructure.documentCount} docs
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Generation -------------------------------------------------- */}
       <div className="section">
-        <div className="section__title">{t('edgGenerationTitle')}</div>
+        <div className="section__title"><i className="bi bi-sliders icon--mr6" />{t('edgGenerationTitle')}</div>
         <div className="formGrid">
           <label className="field">
             <span className="field__label">{t('edgLanguageLabel')}</span>
@@ -699,31 +851,60 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
 
       {/* LLM --------------------------------------------------------- */}
       <div className="section">
-        <div className="section__title">{t('edgLlmTitle')}</div>
+        <div className="section__title"><i className="bi bi-robot icon--mr6" />{t('edgLlmTitle')}</div>
         <div className="formGrid">
           <label className="field">
-            <span className="field__label">{t('edgLlmEndpointLabel')}</span>
-            <input
-              className="field__input"
-              value={llmEndpoint}
-              onChange={(e) => setLlmEndpoint(e.target.value)}
-              placeholder="https://YOUR-RESOURCE.openai.azure.com"
-            />
-          </label>
-          <label className="field">
-            <span className="field__label">{t('llmAuthModeLabel')}</span>
+            <span className="field__label">{t('edgLlmProviderLabel')}</span>
             <select
               className="field__input"
-              value={llmAuthMode}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) =>
-                setLlmAuthMode(e.target.value === 'bearer' ? 'bearer' : 'apiKey')
-              }
+              value={llmProvider}
+              onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                const v = e.target.value as LlmProviderType
+                setLlmProvider(v)
+                // Auto-fill endpoint for OpenAI
+                if (v === 'openai' && !llmEndpoint.trim()) {
+                  setLlmEndpoint(PROVIDER_DEFAULTS.openai.endpoint)
+                }
+                // Reset auth mode if provider doesn't support bearer
+                if (v === 'openai' && llmAuthMode === 'bearer') {
+                  setLlmAuthMode('apiKey')
+                }
+              }}
             >
-              <option value="apiKey">apiKey</option>
-              <option value="bearer">bearer (Entra ID)</option>
+              {LLM_PROVIDER_OPTIONS.map((p) => (
+                <option key={p} value={p}>
+                  {LLM_PROVIDER_LABELS[p][language === 'ja' ? 'ja' : 'en']}
+                </option>
+              ))}
             </select>
           </label>
-          {llmAuthMode === 'apiKey' ? (
+          {llmProvider !== 'openai' && (
+            <label className="field">
+              <span className="field__label">{t('edgLlmEndpointLabel')}</span>
+              <input
+                className="field__input"
+                value={llmEndpoint}
+                onChange={(e) => setLlmEndpoint(e.target.value)}
+                placeholder="https://YOUR-RESOURCE.openai.azure.com"
+              />
+            </label>
+          )}
+          {llmProvider !== 'openai' && (
+            <label className="field">
+              <span className="field__label">{t('llmAuthModeLabel')}</span>
+              <select
+                className="field__input"
+                value={llmAuthMode}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) =>
+                  setLlmAuthMode(e.target.value === 'bearer' ? 'bearer' : 'apiKey')
+                }
+              >
+                <option value="apiKey">apiKey</option>
+                <option value="bearer">bearer (Entra ID)</option>
+              </select>
+            </label>
+          )}
+          {(llmProvider === 'openai' || llmAuthMode === 'apiKey') ? (
             <label className="field">
               <span className="field__label">{t('edgLlmApiKeyLabel')}</span>
               <input
@@ -754,17 +935,19 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
               placeholder="gpt-5.4-mini"
             />
           </label>
-          <label className="field">
-            <span className="field__label">{t('edgLlmApiVersionLabel')}</span>
-            <input
-              className="field__input"
-              value={llmApiVersion}
-              onChange={(e) => setLlmApiVersion(e.target.value)}
-              placeholder={DEFAULT_LLM_API_VERSION}
-            />
-          </label>
+          {llmProvider === 'azure-openai' && (
+            <label className="field">
+              <span className="field__label">{t('edgLlmApiVersionLabel')}</span>
+              <input
+                className="field__input"
+                value={llmApiVersion}
+                onChange={(e) => setLlmApiVersion(e.target.value)}
+                placeholder={PROVIDER_DEFAULTS['azure-openai'].apiVersion}
+              />
+            </label>
+          )}
         </div>
-        {llmAuthMode === 'bearer' && (
+        {llmAuthMode === 'bearer' && llmProvider !== 'openai' && (
           <div className="field__hint" style={{ marginTop: 8 }}>
             <div>{t('aadCliHelperDesc')}</div>
             <div className="aadCliHelper">
@@ -784,7 +967,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
 
       {/* Quality filters (Phase 2) ----------------------------------- */}
       <div className="section">
-        <div className="section__title" data-guide-target="edg-quality">{t('edgQualityTitle')}</div>
+        <div className="section__title" data-guide-target="edg-quality"><i className="bi bi-funnel icon--mr6" />{t('edgQualityTitle')}</div>
         <div className="edgScienceInfo">
           <div className="edgScienceInfo__header">
             <i className="bi bi-mortarboard-fill"></i>
@@ -861,7 +1044,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
 
       {/* Phase 3: Ragas-style scenario generation -------------------- */}
       <div className="section" data-guide-target="edg-ragas">
-        <h4 className="section__title">{t('edgRagasTitle')}</h4>
+        <h4 className="section__title"><i className="bi bi-grid-3x3-gap icon--mr6" />{t('edgRagasTitle')}</h4>
         <div className="edgScienceInfo">
           <div className="edgScienceInfo__header">
             <i className="bi bi-mortarboard-fill"></i>
@@ -1083,7 +1266,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
 
       {/* Phase 4: difficulty / hard negative / schema --------------- */}
       <div className="section" data-guide-target="edg-evol-hardneg">
-        <h4 className="section__title">{t('edgPhase4Title')}</h4>
+        <h4 className="section__title"><i className="bi bi-bar-chart-steps icon--mr6" />{t('edgPhase4Title')}</h4>
         <div className="edgScienceInfo">
           <div className="edgScienceInfo__header">
             <i className="bi bi-mortarboard-fill"></i>
@@ -1135,6 +1318,14 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         <div style={{ marginTop: 12 }} data-guide-target="edg-domain-schema">
           <div className="field__label">{t('edgSchemaTitle')}</div>
           <div className="field__hint" style={{ marginBottom: 6 }}>{t('edgSchemaHint')}</div>
+          <details style={{ marginBottom: 8 }}>
+            <summary className="field__hint" style={{ cursor: 'pointer', userSelect: 'none' }}>
+              <i className="bi bi-lightbulb icon--mr6" />{t('edgSchemaExampleTitle')}
+            </summary>
+            <div className="field__hint" style={{ marginTop: 4, paddingLeft: 8 }}>
+              <TipsBlock text={String(t('edgSchemaExampleBody'))} />
+            </div>
+          </details>
           <div className="formGrid">
             <label className="field" style={{ gridColumn: '1 / -1' }}>
               <span className="field__label">{t('edgSchemaEntities')}</span>
@@ -1169,7 +1360,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
 
       {/* Phase 6: NDCG/XDCG-compatible relevance grades + entity-KG -- */}
       <div className="section" data-guide-target="edg-relevance-entity">
-        <h4 className="section__title">{t('edgPhase6Title')}</h4>
+        <h4 className="section__title"><i className="bi bi-graph-up icon--mr6" />{t('edgPhase6Title')}</h4>
         <div className="edgScienceInfo">
           <div className="edgScienceInfo__header">
             <i className="bi bi-mortarboard-fill"></i>
@@ -1205,9 +1396,145 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         </div>
       </div>
 
+      {/* Phase 7: Judge LLM / Style Evolution / Trace --------------- */}
+      <div className="section" data-guide-target="edg-phase7">
+        <h4 className="section__title"><i className="bi bi-clipboard-check icon--mr6" />{t('edgPhase7Title')}</h4>
+
+        {/* 7a: Judge LLM ------------------------------------------- */}
+        <div className="formGrid">
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span className="field__label">{t('edgJudgeLlmTitle')}</span>
+            <input
+              className="field__input"
+              value={judgeLlmDeployment}
+              onChange={(e) => setJudgeLlmDeployment(e.target.value)}
+              placeholder={t('edgJudgeLlmDeploymentPlaceholder')}
+            />
+            <div className="field__hint">{t('edgJudgeLlmHint')}</div>
+          </label>
+          {judgeLlmDeployment.trim() &&
+            judgeLlmDeployment.trim() === llmDeployment.trim() && (
+              <div className="notice notice--warning" style={{ gridColumn: '1 / -1' }} role="status" aria-live="polite">{t('edgJudgeSameModelWarning')}</div>
+            )}
+        </div>
+
+        {/* 7b: Style Evolution (SNS mode) -------------------------- */}
+        <div className="formGrid" style={{ marginTop: 12 }}>
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span className="field__label edgCheckboxLabel">
+              <input
+                type="checkbox"
+                checked={enableStyleEvolution}
+                onChange={(e) => setEnableStyleEvolution(e.target.checked)}
+              />{' '}
+              {t('edgStyleEvolEnableLabel')}
+            </span>
+            <div className="field__hint">{t('edgStyleEvolHint')}</div>
+          </label>
+          {enableStyleEvolution && (
+            <div className="edgCheckboxGroup" style={{ gridColumn: '1 / -1' }}>
+              <label className="edgCheckboxLabel"><input type="checkbox" checked={seKeyword} onChange={(e) => setSeKeyword(e.target.checked)} /> {t('edgSeKeyword')}</label>
+              <label className="edgCheckboxLabel"><input type="checkbox" checked={seColloquial} onChange={(e) => setSeColloquial(e.target.checked)} /> {t('edgSeColloquial')}</label>
+              <label className="edgCheckboxLabel"><input type="checkbox" checked={seTypo} onChange={(e) => setSeTypo(e.target.checked)} /> {t('edgSeTypo')}</label>
+              <label className="edgCheckboxLabel"><input type="checkbox" checked={seAbbreviated} onChange={(e) => setSeAbbreviated(e.target.checked)} /> {t('edgSeAbbreviated')}</label>
+              <label className="edgCheckboxLabel"><input type="checkbox" checked={seCodeSwitch} onChange={(e) => setSeCodeSwitch(e.target.checked)} /> {t('edgSeCodeSwitch')}</label>
+            </div>
+          )}
+        </div>
+
+        {/* 7c: Query Transformation Trace -------------------------- */}
+        <div className="formGrid" style={{ marginTop: 12 }}>
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span className="field__label edgCheckboxLabel">
+              <input
+                type="checkbox"
+                checked={enableTrace}
+                onChange={(e) => setEnableTrace(e.target.checked)}
+              />{' '}
+              {t('edgTraceEnableLabel')}
+            </span>
+            <div className="field__hint">{t('edgTraceHint')}</div>
+          </label>
+        </div>
+      </div>
+
+      {/* RAFT — Fine-Tuning Dataset Generation ---------------------- */}
+      <div className="section" data-guide-target="edg-raft">
+        <h4 className="section__title"><i className="bi bi-layers-fill icon--mr6" />{t('edgRaftTitle')}</h4>
+        <div className="formGrid">
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span className="field__label edgCheckboxLabel">
+              <input
+                type="checkbox"
+                checked={enableRaftMode}
+                onChange={(e) => setEnableRaftMode(e.target.checked)}
+              />{' '}
+              {t('edgRaftEnableLabel')}
+            </span>
+            <div className="field__hint">{t('edgRaftEnableHint')}</div>
+          </label>
+          {enableRaftMode && (
+            <>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <div className="edgScienceInfo">
+                  <div className="edgScienceInfo__header">
+                    <i className="bi bi-mortarboard-fill"></i>
+                    <span>{t('edgSciInfoRaftTitle')}</span>
+                  </div>
+                  <div className="edgScienceInfo__body">{t('edgSciInfoRaftBody')}</div>
+                  <div className="edgScienceInfo__refs">{t('edgSciInfoRaftRefs')}</div>
+                </div>
+              </div>
+              <label className="field">
+                <span className="field__label">{t('edgRaftDistractorCountLabel')}</span>
+                <input
+                  className="field__input"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={raftDistractorCount}
+                  onChange={(e) => setRaftDistractorCount(Math.max(1, Math.min(10, Number(e.target.value))))}
+                />
+                <div className="field__hint">{t('edgRaftDistractorCountHint')}</div>
+              </label>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* HyDE — Hypothetical Document Embeddings -------------------- */}
+      <div className="section" data-guide-target="edg-hyde">
+        <h4 className="section__title"><i className="bi bi-lightbulb-fill icon--mr6" />{t('edgHydeTitle')}</h4>
+        <div className="formGrid">
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span className="field__label edgCheckboxLabel">
+              <input
+                type="checkbox"
+                checked={enableHydeMode}
+                onChange={(e) => setEnableHydeMode(e.target.checked)}
+              />{' '}
+              {t('edgHydeEnableLabel')}
+            </span>
+            <div className="field__hint">{t('edgHydeEnableHint')}</div>
+          </label>
+          {enableHydeMode && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <div className="edgScienceInfo">
+                <div className="edgScienceInfo__header">
+                  <i className="bi bi-mortarboard-fill"></i>
+                  <span>{t('edgSciInfoHydeTitle')}</span>
+                </div>
+                <div className="edgScienceInfo__body">{t('edgSciInfoHydeBody')}</div>
+                <div className="edgScienceInfo__refs">{t('edgSciInfoHydeRefs')}</div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Phase 3: persistence (Save / Load / Send to AutoTuning) ---- */}
       <div className="section">
-        <h4 className="section__title">{t('edgPersistTitle')}</h4>
+        <h4 className="section__title"><i className="bi bi-save icon--mr6" />{t('edgPersistTitle')}</h4>
         <div className="formGrid">
           <label className="field" style={{ gridColumn: '1 / -1' }}>
             <span className="field__label">{t('edgPersistTitleField')}</span>
@@ -1323,35 +1650,73 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
             <i className="bi bi-download icon--mr6"></i>
             {t('edgExportJsonl')}
           </button>
-
-          {progress.total > 0 && (
-            <span style={{ marginLeft: 8 }}>
-              {(() => {
-                switch (progress.phase) {
-                  case 'sampling':
-                    return t('edgPhaseSampling')
-                  case 'generating':
-                    return t('edgPhaseGenerating')
-                  case 'grounding':
-                    return t('edgPhaseGrounding')
-                  case 'embedding':
-                    return t('edgPhaseEmbedding')
-                  case 'difficulty':
-                    return t('edgPhaseDifficulty')
-                  case 'hardneg':
-                    return t('edgPhaseHardneg')
-                  default:
-                    return t('edgProgressLabel')
-                }
-              })()}
-              : {progress.done} / {progress.total}
-            </span>
+          {enableRaftMode && progress.phase === 'done' && items.some((it) => it.raft_cot_answer) && (
+            <button
+              type="button"
+              className="btn"
+              onClick={onExportRaft}
+            >
+              <i className="bi bi-download icon--mr6"></i>
+              {t('edgRaftExportBtn')}
+            </button>
           )}
+
+          <div
+            style={{
+              gridColumn: '1 / -1',
+              display: (isRunning || progress.phase === 'done') && progress.phaseTotal > 0 ? 'flex' : 'none',
+              gap: 12,
+              alignItems: 'center',
+            }}
+          >
+            <div style={{ flex: '0 0 auto' }}>
+              <span className="mono mono--ellipsesSm">
+                {t('edgProgressOverall').replace('{current}', String(progress.phaseIndex)).replace('{total}', String(progress.phaseTotal))}
+              </span>
+              <progress value={progress.phaseIndex} max={progress.phaseTotal} style={{ width: '100%', display: 'block', marginTop: 2 }} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0, visibility: isRunning ? 'visible' : 'hidden' }}>
+              <span className="mono mono--ellipsesSm">
+                {(() => {
+                  switch (progress.phase) {
+                    case 'detecting':
+                      return t('edgPhaseDetecting')
+                    case 'sampling':
+                      return t('edgPhaseSampling')
+                    case 'generating':
+                      return t('edgPhaseGenerating')
+                    case 'grounding':
+                      return t('edgPhaseGrounding')
+                    case 'embedding':
+                      return t('edgPhaseEmbedding')
+                    case 'difficulty':
+                      return t('edgPhaseDifficulty')
+                    case 'styleevol':
+                      return t('edgPhaseStyleEvol')
+                    case 'hardneg':
+                      return t('edgPhaseHardneg')
+                    case 'raft':
+                      return t('edgPhaseRaft')
+                    case 'hyde':
+                      return t('edgPhaseHyde')
+                    default:
+                      return t('edgProgressLabel')
+                  }
+                })()}
+                {progress.total > 0 ? `: ${progress.done} / ${progress.total}` : '…'}
+              </span>
+              <progress
+                value={progress.total > 0 ? progress.done : undefined}
+                max={progress.total > 0 ? progress.total : undefined}
+                style={{ width: '100%', display: 'block', marginTop: 2 }}
+              />
+            </div>
+          </div>
         </div>
         {validationError && (
-          <div className="errorNotice" style={{ marginTop: 8 }}>{validationError}</div>
+          <div className="notice notice--error" role="alert">{validationError}</div>
         )}
-        {error && <div className="errorNotice" style={{ marginTop: 8 }}>{error}</div>}
+        {error && <div className="notice notice--error" role="alert">{error}</div>}
       </div>
 
       {/* Results ----------------------------------------------------- */}
@@ -1371,6 +1736,16 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
             {t('edgShowRejectedLabel')}
           </label>
         </div>
+        {indexStructure && (
+          <div className="field__hint" style={{ marginBottom: 6 }}>
+            <i className="bi bi-diagram-3 icon--mr6" />
+            {t('edgIndexStructureDetected')}: <strong>{indexStructure.type}</strong>
+            {indexStructure.parentField && <> — {t('edgParentFieldLabel')}: <code>{indexStructure.parentField}</code></>}
+            {indexStructure.parentCount != null && <> ({indexStructure.parentCount} {t('edgSources')})</>}
+            {' — '}{indexStructure.documentCount} {t('edgDocuments')}
+            {indexStructure.reason && <> — {indexStructure.reason}</>}
+          </div>
+        )}
         {items.length === 0 ? (
           <div className="app__hint">{t('edgEmptyResults')}</div>
         ) : (
@@ -1382,6 +1757,10 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
             enableRagasMode={enableRagasMode}
             enableDifficultyEvolution={enableDifficultyEvolution}
             enableHardNegativeMining={enableHardNegativeMining}
+            enableStyleEvolution={enableStyleEvolution}
+            enableTrace={enableTrace}
+            enableRaftMode={enableRaftMode}
+            enableHydeMode={enableHydeMode}
           />
         )}
       </div>
