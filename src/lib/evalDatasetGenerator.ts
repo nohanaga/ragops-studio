@@ -12,7 +12,7 @@ import type { SampledDoc } from './evalDatasetSampling'
 import type { BuildPromptParams, ExpectedQueryObject } from './evalDatasetPrompts'
 import { buildSystemPrompt, buildUserPrompt } from './evalDatasetPrompts'
 import type { LlmAuth } from './llmAuth'
-import { buildLlmAuthHeaders, LlmAuthError, isLlmAuthStatus } from './llmAuth'
+import { callLlmChat, type LlmProviderType } from './llmProvider'
 
 /** Hard cap for the per-doc excerpt fed to the LLM (chars, not tokens). */
 const MAX_CHUNK_CHARS = 4000
@@ -29,6 +29,8 @@ export interface CallAoaiParams {
   signal?: AbortSignal
   /** When false, omit `response_format: json_object`. Defaults to true. */
   jsonMode?: boolean
+  /** LLM provider type. Defaults to 'azure-openai' for backward compat. */
+  provider?: LlmProviderType
 }
 
 export interface AoaiChatResponse {
@@ -36,74 +38,20 @@ export interface AoaiChatResponse {
 }
 
 /**
- * Call Azure OpenAI Chat Completions.
- * When `jsonMode` is true (default), sends `response_format: json_object`.
- * Returns the raw assistant content string.
+ * Call LLM Chat Completions (multi-provider).
  *
- * Retries up to `MAX_CONTENT_FILTER_RETRIES` times on 400 content-filter
- * responses with increasing temperature to nudge the model past the filter.
+ * Delegates to the unified `callLlmChat()` from `llmProvider.ts`.
+ * Retained as a stable entry-point for existing callers.
  */
-const MAX_CONTENT_FILTER_RETRIES = 3
-const CONTENT_FILTER_RETRY_DELAY_MS = 1000
-
-function isContentFilterError(status: number, body: string): boolean {
-  return status === 400 && (body.includes('content_filter') || body.includes('content management policy') || body.includes('content filtering'))
-}
-
 export async function callAzureOpenAIChat(params: CallAoaiParams): Promise<string> {
-  const { endpoint, auth, deployment, apiVersion, systemPrompt, userPrompt, signal, jsonMode = true } = params
-  if (!endpoint.trim()) throw new Error('LLM endpoint is required')
-  if (!deployment.trim()) throw new Error('LLM deployment is required')
-  if (!apiVersion.trim()) throw new Error('LLM apiVersion is required')
-
-  const base = endpoint.replace(/\/+$/, '')
-  const url = `${base}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`
-
-  let lastErrorText = ''
-  for (let attempt = 0; attempt <= MAX_CONTENT_FILTER_RETRIES; attempt++) {
-    const temperature = 0.3 + attempt * 0.15 // slightly raise temperature on retries
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...buildLlmAuthHeaders(auth),
-      },
-      signal,
-      body: JSON.stringify({
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature,
-        ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
-      }),
-    })
-
-    if (!res.ok) {
-      const errorText = await res.text().catch(() => '')
-      if (isLlmAuthStatus(res.status)) {
-        throw new LlmAuthError(res.status, auth.mode, errorText.slice(0, 500))
-      }
-      // Retry on content filter 400 errors
-      if (isContentFilterError(res.status, errorText) && attempt < MAX_CONTENT_FILTER_RETRIES) {
-        lastErrorText = errorText
-        await new Promise((r) => setTimeout(r, CONTENT_FILTER_RETRY_DELAY_MS * (attempt + 1)))
-        continue
-      }
-      throw new Error(`Azure OpenAI request failed (${res.status}): ${errorText.slice(0, 300)}`)
-    }
-
-    const data = (await res.json()) as AoaiChatResponse
-    const content = data?.choices?.[0]?.message?.content ?? ''
-    if (!content) {
-      throw new Error('Azure OpenAI returned an empty completion')
-    }
-    return content
-  }
-
-  // Should not reach here, but safety fallback
-  throw new Error(`Azure OpenAI content filter triggered after ${MAX_CONTENT_FILTER_RETRIES} retries: ${lastErrorText.slice(0, 300)}`)
+  const { endpoint, auth, deployment, apiVersion, systemPrompt, userPrompt, signal, jsonMode = true, provider = 'azure-openai' } = params
+  return callLlmChat({
+    config: { provider, endpoint, auth, model: deployment, apiVersion },
+    systemPrompt,
+    userPrompt,
+    signal,
+    jsonMode,
+  })
 }
 
 /**

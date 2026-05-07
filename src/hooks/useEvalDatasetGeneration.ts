@@ -224,6 +224,7 @@ export function useEvalDatasetGeneration(
           auth: config.llmAuth,
           deployment: config.llmDeployment,
           apiVersion: config.llmApiVersion,
+          provider: config.llmProvider,
         }
         // Judge LLM: same endpoint/auth, different deployment only.
         const judgeLlm = config.judgeLlmDeployment?.trim()
@@ -493,6 +494,7 @@ export function useEvalDatasetGeneration(
                 apiVersion: config.llmApiVersion,
                 inputs: queries,
                 signal: controller.signal,
+                provider: config.llmProvider,
               })
               setProgress((p) => ({ ...p, done: survivorIdx.length, total: survivorIdx.length }))
               const dropped = findSemanticDuplicates(vectors, config.semanticDedupThreshold)
@@ -605,6 +607,7 @@ export function useEvalDatasetGeneration(
                     auth: seLlm.auth,
                     deployment: seLlm.deployment,
                     apiVersion: seLlm.apiVersion,
+                    provider: seLlm.provider,
                     query: item.query,
                     language: config.language,
                     allowedKinds,

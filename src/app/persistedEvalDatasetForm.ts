@@ -9,6 +9,7 @@
 
 import type { EvalLanguage, EvalQueryType } from '../types'
 import type { LlmAuthMode } from '../lib/llmAuth'
+import type { LlmProviderType } from '../lib/llmProvider'
 import { getSettings, updateSettings } from '../lib/db'
 
 const LEGACY_STORAGE_KEY = 'ragops.evalDatasetForm.v1'
@@ -31,6 +32,7 @@ export type PersistedEvalDatasetForm = {
 
   // LLM (apiKey / bearerToken are persisted, mirroring the Connection
   // profile behavior which stores admin keys in IndexedDB.)
+  llmProvider?: LlmProviderType
   llmEndpoint?: string
   llmAuthMode?: LlmAuthMode
   llmApiKey?: string
@@ -125,11 +127,13 @@ function pickBoolean(v: unknown): boolean | undefined {
 const VALID_LANGUAGES: EvalLanguage[] = ['ja', 'en']
 const VALID_QUERY_TYPES: EvalQueryType[] = ['factoid', 'how-to', 'comparative', 'yes-no']
 const VALID_AUTH_MODES: LlmAuthMode[] = ['apiKey', 'bearer']
+const VALID_LLM_PROVIDERS: LlmProviderType[] = ['azure-openai', 'openai']
 
 function normalize(parsed: unknown): PersistedEvalDatasetForm | null {
   if (!isRecord(parsed)) return null
   const lang = pickString(parsed.edgLanguage)
   const auth = pickString(parsed.llmAuthMode)
+  const prov = pickString(parsed.llmProvider)
   const qts = Array.isArray(parsed.queryTypes)
     ? (parsed.queryTypes.filter(
         (x): x is EvalQueryType =>
@@ -151,6 +155,8 @@ function normalize(parsed: unknown): PersistedEvalDatasetForm | null {
     queryTypes: qts,
     domainDescription: pickString(parsed.domainDescription),
 
+    llmProvider:
+      prov && (VALID_LLM_PROVIDERS as string[]).includes(prov) ? (prov as LlmProviderType) : undefined,
     llmEndpoint: pickString(parsed.llmEndpoint),
     llmAuthMode:
       auth && (VALID_AUTH_MODES as string[]).includes(auth) ? (auth as LlmAuthMode) : undefined,

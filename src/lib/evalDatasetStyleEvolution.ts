@@ -13,6 +13,7 @@
 import type { StyleEvolutionKind } from '../types'
 import { callAzureOpenAIChat } from './evalDatasetGenerator'
 import type { LlmAuth } from './llmAuth'
+import type { LlmProviderType } from './llmProvider'
 
 const ALL_KINDS: StyleEvolutionKind[] = [
   'keyword',
@@ -57,6 +58,7 @@ export interface DegradeQueryParams {
   auth: LlmAuth
   deployment: string
   apiVersion: string
+  provider?: LlmProviderType
   query: string
   language: string
   allowedKinds: StyleEvolutionKind[]
@@ -80,6 +82,7 @@ export async function degradeQuery(params: DegradeQueryParams): Promise<DegradeR
     auth: params.auth,
     deployment: params.deployment,
     apiVersion: params.apiVersion,
+    provider: params.provider,
     systemPrompt,
     userPrompt: params.query,
     signal: params.signal,

@@ -7,6 +7,7 @@
 
 import type { TranslationKey } from '../../lib/translations'
 import { buildAadCliCommand, type LlmAuthMode } from '../../lib/llmAuth'
+import { LLM_PROVIDER_LABELS, LLM_PROVIDER_OPTIONS, type LlmProviderType } from '../../lib/llmProvider'
 import { useState } from 'react'
 
 export function TextToVectorModal(props: {
@@ -14,6 +15,9 @@ export function TextToVectorModal(props: {
   onClose: () => void
   t: (key: TranslationKey) => string
   format: (key: TranslationKey, params: Record<string, string | number>) => string
+  language: 'ja' | 'en'
+  textToVectorProvider: LlmProviderType
+  setTextToVectorProvider: (v: LlmProviderType) => void
   textToVectorEndpoint: string
   setTextToVectorEndpoint: (v: string) => void
   textToVectorApiKey: string
@@ -39,6 +43,9 @@ export function TextToVectorModal(props: {
     onClose,
     t,
     format,
+    language,
+    textToVectorProvider,
+    setTextToVectorProvider,
     textToVectorEndpoint,
     setTextToVectorEndpoint,
     textToVectorApiKey,
@@ -85,31 +92,51 @@ export function TextToVectorModal(props: {
           </button>
         </div>
         <div className="modal-body">
-          <label className="field field--mb16" data-guide-target="t2v-endpoint">
-            <span className="field__label">{t('textToVectorEndpointLabel')}</span>
-            <input
-              className="field__input"
-              value={textToVectorEndpoint}
-              onChange={(e) => setTextToVectorEndpoint(e.target.value)}
-              placeholder={String(t('textToVectorEndpointPlaceholder'))}
-              disabled={textToVectorLoading}
-            />
-          </label>
-
           <label className="field field--mb16">
-            <span className="field__label">{t('llmAuthModeLabel')}</span>
+            <span className="field__label">{t('edgLlmProviderLabel')}</span>
             <select
               className="field__input"
-              value={textToVectorAuthMode}
-              onChange={(e) => setTextToVectorAuthMode(e.target.value === 'bearer' ? 'bearer' : 'apiKey')}
+              value={textToVectorProvider}
+              onChange={(e) => setTextToVectorProvider(e.target.value as LlmProviderType)}
               disabled={textToVectorLoading}
             >
-              <option value="apiKey">apiKey</option>
-              <option value="bearer">bearer (Entra ID)</option>
+              {LLM_PROVIDER_OPTIONS.map((p) => (
+                <option key={p} value={p}>
+                  {LLM_PROVIDER_LABELS[p][language]}
+                </option>
+              ))}
             </select>
           </label>
 
-          {textToVectorAuthMode === 'apiKey' ? (
+          {textToVectorProvider !== 'openai' && (
+            <label className="field field--mb16" data-guide-target="t2v-endpoint">
+              <span className="field__label">{t('textToVectorEndpointLabel')}</span>
+              <input
+                className="field__input"
+                value={textToVectorEndpoint}
+                onChange={(e) => setTextToVectorEndpoint(e.target.value)}
+                placeholder={String(t('textToVectorEndpointPlaceholder'))}
+                disabled={textToVectorLoading}
+              />
+            </label>
+          )}
+
+          {textToVectorProvider !== 'openai' && (
+            <label className="field field--mb16">
+              <span className="field__label">{t('llmAuthModeLabel')}</span>
+              <select
+                className="field__input"
+                value={textToVectorAuthMode}
+                onChange={(e) => setTextToVectorAuthMode(e.target.value === 'bearer' ? 'bearer' : 'apiKey')}
+                disabled={textToVectorLoading}
+              >
+                <option value="apiKey">apiKey</option>
+                <option value="bearer">bearer (Entra ID)</option>
+              </select>
+            </label>
+          )}
+
+          {textToVectorAuthMode === 'apiKey' || textToVectorProvider === 'openai' ? (
             <label className="field field--mb16">
               <span className="field__label">
                 {t('textToVectorApiKeyLabel')}

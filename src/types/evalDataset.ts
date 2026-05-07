@@ -6,6 +6,7 @@
  */
 
 import type { LlmAuth } from '../lib/llmAuth'
+import type { LlmProviderType } from '../lib/llmProvider'
 
 export type EvalLanguage = 'ja' | 'en'
 export type EvalQueryType = 'factoid' | 'how-to' | 'comparative' | 'yes-no'
@@ -229,7 +230,8 @@ export interface EvalDatasetGenerationConfig {
   queryTypes: EvalQueryType[]
   domainDescription?: string
 
-  // LLM (Azure OpenAI Chat Completions)
+  // LLM (Chat Completions — multi-provider)
+  llmProvider: LlmProviderType
   llmEndpoint: string
   llmAuth: LlmAuth
   llmDeployment: string

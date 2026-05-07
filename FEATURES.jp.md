@@ -1,5 +1,7 @@
 # RAGOps Studio — for Azure AI Search
 
+[English version](FEATURES.md)
+
 **RAGOps, from query to quality.**
 
 Azure AI Search の高度な機能を学習・実験できる Web ベースの開発ツールです。検索クエリのテスト、セマンティック検索、ベクトル検索、エージェント検索（Knowledge Retrieval API）、テキスト分析など、さまざまな機能を GUI で簡単に試すことができます。
