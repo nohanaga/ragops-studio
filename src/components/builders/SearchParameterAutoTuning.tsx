@@ -1478,7 +1478,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
               </span>
             )
           }
-          return <span style={{ color: 'var(--success, #388e3c)' }}>✓</span>
+          return <span aria-label="success" style={{ color: 'var(--success, #388e3c)' }}>✓</span>
         },
       })
 
