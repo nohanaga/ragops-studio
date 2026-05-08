@@ -127,7 +127,7 @@ function pickBoolean(v: unknown): boolean | undefined {
 const VALID_LANGUAGES: EvalLanguage[] = ['ja', 'en']
 const VALID_QUERY_TYPES: EvalQueryType[] = ['factoid', 'how-to', 'comparative', 'yes-no']
 const VALID_AUTH_MODES: LlmAuthMode[] = ['apiKey', 'bearer']
-const VALID_LLM_PROVIDERS: LlmProviderType[] = ['azure-openai', 'openai']
+const VALID_LLM_PROVIDERS: LlmProviderType[] = ['azure-openai', 'openai', 'foundry-local', 'lmstudio']
 
 function normalize(parsed: unknown): PersistedEvalDatasetForm | null {
   if (!isRecord(parsed)) return null

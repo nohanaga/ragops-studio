@@ -31,6 +31,8 @@ export type AppHeaderProps = {
   onOpenSkillPipelineBuilder: () => void
   onOpenSkillEditor: () => void
   onOpenSearchPipelineVisualizer: () => void
+  onOpenIndexVisualizer: () => void
+  onOpenLlmSettings: () => void
 }
 
 export function AppHeader({
@@ -52,6 +54,8 @@ export function AppHeader({
   onOpenSkillPipelineBuilder,
   onOpenSkillEditor,
   onOpenSearchPipelineVisualizer,
+  onOpenIndexVisualizer,
+  onOpenLlmSettings,
 }: AppHeaderProps) {
   return (
     <header className="app__header">
@@ -126,6 +130,13 @@ export function AppHeader({
             >
               🧬 {t('searchPipelineVisualizer')}
             </button>
+            <button
+              type="button"
+              className="dropdown-item"
+              onClick={onOpenIndexVisualizer}
+            >
+              📊 {t('indexVisualizer')}
+            </button>
           </div>
         </div>
         <label className="theme" aria-label="language selector">
@@ -165,6 +176,15 @@ export function AppHeader({
             <option value="solarized">{t('themeSolarized')}</option>
           </select>
         </label>
+        <button
+          type="button"
+          className="btn btn--icon"
+          onClick={onOpenLlmSettings}
+          title={String(t('llmSettingsTitle'))}
+          aria-label={String(t('llmSettingsTitle'))}
+        >
+          <i className="bi bi-gear" />
+        </button>
         <div className="dropdown dropdown--ml12">
           <button
             type="button"

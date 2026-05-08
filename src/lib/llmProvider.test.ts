@@ -44,6 +44,20 @@ describe('buildChatCompletionsUrl', () => {
     expect(url).toBe('https://api.openai.com/v1/chat/completions')
   })
 
+  it('foundry-local: uses /v1/chat/completions', () => {
+    const url = buildChatCompletionsUrl(
+      cfg({ provider: 'foundry-local', endpoint: 'http://localhost:5272' }),
+    )
+    expect(url).toBe('http://localhost:5272/v1/chat/completions')
+  })
+
+  it('lmstudio: uses /v1/chat/completions', () => {
+    const url = buildChatCompletionsUrl(
+      cfg({ provider: 'lmstudio', endpoint: 'http://localhost:1234' }),
+    )
+    expect(url).toBe('http://localhost:1234/v1/chat/completions')
+  })
+
   it('strips trailing slashes from endpoint', () => {
     const url = buildChatCompletionsUrl(
       cfg({ provider: 'openai', endpoint: 'https://api.openai.com/' }),
@@ -67,6 +81,13 @@ describe('buildEmbeddingsUrl', () => {
       cfg({ provider: 'openai', endpoint: 'https://api.openai.com', model: 'text-embedding-3-small' }),
     )
     expect(url).toBe('https://api.openai.com/v1/embeddings')
+  })
+
+  it('lmstudio: uses /v1/embeddings', () => {
+    const url = buildEmbeddingsUrl(
+      cfg({ provider: 'lmstudio', endpoint: 'http://localhost:1234', model: 'nomic-embed-text' }),
+    )
+    expect(url).toBe('http://localhost:1234/v1/embeddings')
   })
 })
 
@@ -106,6 +127,24 @@ describe('buildProviderAuthHeaders', () => {
       buildProviderAuthHeaders({ mode: 'bearer', bearerToken: '  ' }, 'openai'),
     ).toThrow()
   })
+
+  it('foundry-local: uses Bearer with dummy key when apiKey is empty', () => {
+    expect(
+      buildProviderAuthHeaders({ mode: 'apiKey', apiKey: '' }, 'foundry-local'),
+    ).toEqual({ Authorization: 'Bearer none' })
+  })
+
+  it('lmstudio: uses Bearer with dummy key when apiKey is empty', () => {
+    expect(
+      buildProviderAuthHeaders({ mode: 'apiKey', apiKey: '' }, 'lmstudio'),
+    ).toEqual({ Authorization: 'Bearer none' })
+  })
+
+  it('foundry-local: passes through user-provided key', () => {
+    expect(
+      buildProviderAuthHeaders({ mode: 'apiKey', apiKey: 'my-key' }, 'foundry-local'),
+    ).toEqual({ Authorization: 'Bearer my-key' })
+  })
 })
 
 // ─── buildChatRequestBody ───────────────────────────────────────────────────
@@ -123,6 +162,16 @@ describe('buildChatRequestBody', () => {
   it('openai: includes model field', () => {
     const body = buildChatRequestBody(cfg({ provider: 'openai' }), msgs)
     expect(body.model).toBe('gpt-4o')
+  })
+
+  it('foundry-local: includes model field', () => {
+    const body = buildChatRequestBody(cfg({ provider: 'foundry-local', model: 'phi-3.5-mini' }), msgs)
+    expect(body.model).toBe('phi-3.5-mini')
+  })
+
+  it('lmstudio: includes model field', () => {
+    const body = buildChatRequestBody(cfg({ provider: 'lmstudio', model: 'qwen2.5' }), msgs)
+    expect(body.model).toBe('qwen2.5')
   })
 
   it('jsonMode adds response_format', () => {
@@ -150,5 +199,53 @@ describe('buildEmbeddingsRequestBody', () => {
   it('openai: includes model', () => {
     const body = buildEmbeddingsRequestBody(cfg({ provider: 'openai' }), inputs)
     expect(body.model).toBe('gpt-4o')
+  })
+
+  it('lmstudio: includes model', () => {
+    const body = buildEmbeddingsRequestBody(cfg({ provider: 'lmstudio', model: 'nomic-embed' }), inputs)
+    expect(body.model).toBe('nomic-embed')
+  })
+})
+
+// ─── guessMaxInputTokens / resolveMaxInputTokens ────────────────────────────
+
+import { guessMaxInputTokens, resolveMaxInputTokens, DEFAULT_MAX_INPUT_TOKENS } from './llmProvider'
+
+describe('guessMaxInputTokens', () => {
+  it('matches exact model name', () => {
+    expect(guessMaxInputTokens('gpt-4o')).toBe(128_000)
+  })
+  it('matches deployment name containing model', () => {
+    expect(guessMaxInputTokens('my-gpt-4o-deployment')).toBe(128_000)
+  })
+  it('matches gpt-4.1', () => {
+    expect(guessMaxInputTokens('gpt-4.1')).toBe(300_000)
+  })
+  it('matches gpt-4.1-mini over gpt-4.1', () => {
+    expect(guessMaxInputTokens('gpt-4.1-mini')).toBe(300_000)
+  })
+  it('matches o3', () => {
+    expect(guessMaxInputTokens('o3')).toBe(200_000)
+  })
+  it('returns null for unknown models', () => {
+    expect(guessMaxInputTokens('totally-unknown-model')).toBeNull()
+  })
+  it('returns null for empty string', () => {
+    expect(guessMaxInputTokens('')).toBeNull()
+  })
+})
+
+describe('resolveMaxInputTokens', () => {
+  it('uses explicit override when provided', () => {
+    expect(resolveMaxInputTokens('gpt-4o', 50_000)).toBe(50_000)
+  })
+  it('uses guessed value when no override', () => {
+    expect(resolveMaxInputTokens('gpt-4o')).toBe(128_000)
+  })
+  it('falls back to default for unknown model and no override', () => {
+    expect(resolveMaxInputTokens('unknown')).toBe(DEFAULT_MAX_INPUT_TOKENS)
+  })
+  it('ignores zero override', () => {
+    expect(resolveMaxInputTokens('gpt-4o', 0)).toBe(128_000)
   })
 })

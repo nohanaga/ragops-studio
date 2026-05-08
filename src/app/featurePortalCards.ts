@@ -850,6 +850,48 @@ export const PORTAL_CARDS: PortalCard[] = [
       docsUrl: 'https://learn.microsoft.com/azure/search/search-what-is-an-index',
     },
   },
+  {
+    id: 'index-cluster-visualizer',
+    icon: 'diagram-3',
+    category: 'devtool',
+    titleJa: 'Index Cluster Visualizer',
+    titleEn: 'Index Cluster Visualizer',
+    descJa: 'インデックス内ベクトルを K-Means クラスタリングし散布図で可視化。LLM 要約・メタインデックス・2 段階検索にも対応。',
+    descEn: 'Cluster index vectors with K-Means and visualize as a scatter plot. Supports LLM summarization, meta-index generation, and 2-stage search.',
+    action: 'openIndexVisualizer',
+    guide: {
+      stepsJa: 'Index Cluster Visualizer の使い方',
+      stepsEn: 'How to use Index Cluster Visualizer',
+      steps: [
+        { icon: 'box-arrow-in-right', titleJa: 'ツールメニューから起動', titleEn: 'Launch from Tools menu', descJa: 'ツールメニューから Index Cluster Visualizer を起動します。接続中のサービスとインデックスを使います。', descEn: 'Open Index Cluster Visualizer from the Tools menu. Uses the connected service and selected index.' },
+        { icon: 'gear', titleJa: 'インデックス・クラスタ数・次元削減を設定', titleEn: 'Set index, cluster count & reduction', descJa: 'インデックス名・ベクトルフィールド・クラスタ数 (k)・最大ドキュメント数・次元削減手法 (PCA / UMAP / t-SNE / PCA+UMAP) を設定します。Adaptive Sampling・階層クラスタリング・グラフ構造も有効化可能。', descEn: 'Set index name, vector field, cluster count (k), max documents, and reduction method (PCA / UMAP / t-SNE / PCA+UMAP). Optionally enable Adaptive Sampling, Hierarchical Clustering, and Graph Structure.', targetSelector: '[data-guide-target="iv-settings"]' },
+        { icon: 'play-circle', titleJa: 'スキャン→クラスタリング→散布図を実行', titleEn: 'Run scan → cluster → scatter plot', descJa: '実行を押すとベクトルスキャン → クラスタリング → 次元削減 → 散布図描画のパイプラインが順に進行します。進捗バーで現在のステップを確認できます。', descEn: 'Click Run to execute the pipeline: vector scan → clustering → dimensionality reduction → scatter plot rendering. The progress bar shows the current step.', targetSelector: '[data-guide-target="iv-run"]' },
+        { icon: 'eye', titleJa: 'クラスタをホバー/クリックしてドキュメント閲覧', titleEn: 'Hover/click clusters to browse docs', descJa: '散布図のクラスタをホバーするとクラスタ一覧がハイライトされます。クラスタをクリックすると所属ドキュメントを閲覧できます。', descEn: 'Hover over clusters on the scatter plot to highlight them in the cluster list. Click a cluster to browse its member documents.' },
+        { icon: 'chat-left-text', titleJa: 'LLM でトピック要約しメタインデックスに登録', titleEn: 'Summarize topics & register meta-index', descJa: 'LLM 設定後、メタインデックスを生成すると各クラスタのトピック名・説明・キーワードが自動生成されます。生成されたメタインデックスは Azure AI Search に登録されます。', descEn: 'After configuring the LLM, generating a meta-index auto-creates topic names, descriptions, and keywords for each cluster. The meta-index is registered in Azure AI Search.', targetSelector: '[data-guide-target="iv-meta"]' },
+        { icon: 'search', titleJa: 'クラスタ絞り込み→ドキュメント検索の 2 段階検索', titleEn: 'Cluster narrowing → doc search (2-stage)', descJa: 'メタインデックスでクラスタを絞り込み、そのメンバー ID で元インデックスを検索します。大規模インデックスでの精度向上と検索範囲の制御に有効です。', descEn: 'Narrow down clusters via the meta-index, then search the original index by member IDs. Effective for improving precision and controlling search scope on large indexes.', targetSelector: '[data-guide-target="iv-search"]' },
+        { icon: 'download', titleJa: '結果を .ragvis.json でエクスポート/インポート', titleEn: 'Export/import as .ragvis.json', descJa: '可視化結果を .ragvis.json ファイルとしてエクスポート。別環境でインポートして同じ結果を再現できます。', descEn: 'Export visualization results as a .ragvis.json file. Import in another environment to reproduce the same results.' },
+      ],
+      tipsJa: [
+        'まず少量 (500〜1000 件) で実行してクラスタの分布傾向を把握してからスケールアップしましょう。',
+        'チャンクインデックスでは Adaptive Sampling を有効にすると、親ドキュメント単位の偏りのないサンプリングが行われます。',
+        'k はインデックスのトピック数に応じて設定。少なすぎると異なるトピックが混在し、多すぎると各クラスタの意味が薄くなります。',
+        '次元削減は PCA (高速) → UMAP (局所構造保存) → t-SNE (クラスタ分離) の順で試すのがおすすめ。',
+        'メタインデックスは Azure AI Search 上に実際のインデックスとして作成されます。不要になったら「メタインデックスを削除」で削除してください。',
+        '2 段階検索は大規模インデックス (10,000 件以上) で特に効果的です。クラスタ単位での絞り込みにより、検索精度と応答速度が改善します。',
+        'グラフ構造のエッジ閾値はクラスタ間の類似度を制御します。高いと強い接続のみ、低いと弱い接続も表示されます。',
+      ],
+      tipsEn: [
+        'Start with a small set (500–1000 documents) to grasp the cluster distribution trend before scaling up.',
+        'For chunk indexes, enable Adaptive Sampling for unbiased per-parent document sampling.',
+        'Set k according to the number of topics in the index. Too few mixes different topics; too many dilutes each cluster\'s meaning.',
+        'Try dimensionality reduction in order: PCA (fast) → UMAP (local structure) → t-SNE (cluster separation).',
+        'The meta-index is created as an actual index on Azure AI Search. Delete it via "Delete Meta-Index" when no longer needed.',
+        '2-stage search is especially effective for large indexes (10,000+ documents). Cluster-level narrowing improves both search precision and response time.',
+        'Graph edge threshold controls inter-cluster similarity display. Higher shows only strong connections; lower shows weak ones too.',
+      ],
+      docsUrl: 'https://learn.microsoft.com/azure/search/vector-search-overview',
+    },
+  },
 
   // ── Experiment Management ────────────────────────────────────
   {

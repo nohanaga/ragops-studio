@@ -31,6 +31,7 @@ import { useApiOperations } from './hooks/useApiOperations'
 import { useJwtDecoderModal } from './hooks/useJwtDecoderModal'
 import { useRunRestore } from './hooks/useRunRestore'
 import { useTextToVectorTool } from './hooks/useTextToVectorTool'
+import { useSharedLlmConfig } from './hooks/useSharedLlmConfig'
 import { useRequestBuilderIndexSchema } from './hooks/useRequestBuilderIndexSchema'
 import { useExperimentRunActions } from './hooks/useExperimentRunActions'
 import { useClearAll } from './hooks/useClearAll'
@@ -92,6 +93,8 @@ function App() {
     setIsSkillEditorOpen,
     isEvalDatasetGeneratorOpen,
     setIsEvalDatasetGeneratorOpen,
+    isIndexVisualizerOpen,
+    setIsIndexVisualizerOpen,
   } = useModalState()
   const {
     setUiError,
@@ -356,7 +359,8 @@ function App() {
     return text
   }
 
-  const textToVector = useTextToVectorTool({ t, settings })
+  const sharedLlm = useSharedLlmConfig()
+  const textToVector = useTextToVectorTool({ t, sharedLlm })
 
   const buildRequestBuilderActiveSummary = useCallback((): string => {
     return buildRequestBuilderActiveSummaryFn({
@@ -712,6 +716,7 @@ function App() {
     isVectorOptimizerOpen,
     isSkillEditorOpen,
     isEvalDatasetGeneratorOpen,
+    isIndexVisualizerOpen,
   })
 
   useLatestResponseRestore({
@@ -755,6 +760,7 @@ function App() {
     setIsVectorOptimizerOpen,
     setIsSkillEditorOpen,
     setIsEvalDatasetGeneratorOpen,
+    setIsIndexVisualizerOpen,
   })
 
   useSelectedRunsArtifacts({
@@ -782,6 +788,7 @@ function App() {
     setIsSkillPipelineBuilderOpen,
     setIsVectorOptimizerOpen,
     setIsEvalDatasetGeneratorOpen,
+    setIsIndexVisualizerOpen,
   })
 
   const { renderResultView } = useResultViewRenderer({
@@ -896,6 +903,7 @@ function App() {
       format={format}
       changeLanguage={changeLanguage}
       textToVector={textToVector}
+      sharedLlm={sharedLlm}
       onPasteVectorToBuilder={onPasteVectorToBuilder}
       centerTab={centerTab}
       setCenterTab={setCenterTab}

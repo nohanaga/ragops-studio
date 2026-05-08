@@ -21,6 +21,7 @@ export function usePersistedTabsState(params: {
   isVectorOptimizerOpen: boolean
   isSkillEditorOpen: boolean
   isEvalDatasetGeneratorOpen: boolean
+  isIndexVisualizerOpen: boolean
 }) {
   const {
     selectedExperimentId,
@@ -38,6 +39,7 @@ export function usePersistedTabsState(params: {
     isVectorOptimizerOpen,
     isSkillEditorOpen,
     isEvalDatasetGeneratorOpen,
+    isIndexVisualizerOpen,
   } = params
 
   /**
@@ -82,6 +84,7 @@ export function usePersistedTabsState(params: {
       isVectorOptimizerOpen: isVectorOptimizerOpen || normalizedCenterTab === 'vector-optimizer',
       isSkillEditorOpen: isSkillEditorOpen || normalizedCenterTab === 'skill-editor',
       isEvalDatasetGeneratorOpen: isEvalDatasetGeneratorOpen || normalizedCenterTab === 'eval-dataset-generator',
+      isIndexVisualizerOpen: isIndexVisualizerOpen || normalizedCenterTab === 'index-visualizer',
     }
 
     const payload: PersistedTabs = {
@@ -117,5 +120,6 @@ export function usePersistedTabsState(params: {
     isVectorOptimizerOpen,
     isSkillEditorOpen,
     isEvalDatasetGeneratorOpen,
+    isIndexVisualizerOpen,
   ])
 }

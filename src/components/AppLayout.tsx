@@ -1,4 +1,4 @@
-import { useMemo, type Dispatch, type ReactElement, type RefObject, type SetStateAction } from 'react'
+import { useMemo, useState, type Dispatch, type ReactElement, type RefObject, type SetStateAction } from 'react'
 import type {
   CenterTab,
   KnowledgeSourceInfo,
@@ -24,8 +24,10 @@ import {
   SearchParameterAutoTuning,
   EvalDatasetGenerator,
   SearchPipelineVisualizer,
+  IndexVisualizer,
   SynonymMapBuilder,
   TextToVectorModal,
+  LlmSettingsModal,
   VectorOptimizerBuilder,
   FeaturePortal,
   FeatureGuideDrawer,
@@ -36,6 +38,8 @@ import { useTheme, useSettings, useModalState, useUiState, useBuilderState, useE
 import { useGuide } from '../contexts/GuideContext'
 
 import type { JwtDecoderResult } from './modals/JwtDecoderModal'
+
+import type { SharedLlmConfig } from '../hooks/useSharedLlmConfig'
 
 type TFunction = (key: TranslationKey) => string
 
@@ -58,16 +62,6 @@ export function AppLayout(props: {
   textToVector: {
     showTextToVectorTool: boolean
     setShowTextToVectorTool: (v: boolean) => void
-    textToVectorProvider: import('../lib/llmProvider').LlmProviderType
-    setTextToVectorProvider: (v: import('../lib/llmProvider').LlmProviderType) => void
-    textToVectorEndpoint: string
-    setTextToVectorEndpoint: (v: string) => void
-    textToVectorApiKey: string
-    setTextToVectorApiKey: (v: string) => void
-    textToVectorAuthMode: 'apiKey' | 'bearer'
-    setTextToVectorAuthMode: (v: 'apiKey' | 'bearer') => void
-    textToVectorBearerToken: string
-    setTextToVectorBearerToken: (v: string) => void
     textToVectorModel: string
     setTextToVectorModel: (v: string) => void
     textToVectorDimensions: number | null
@@ -78,7 +72,11 @@ export function AppLayout(props: {
     onGenerateVector: () => Promise<void>
     textToVectorResult: number[] | null
     onCopyVector: () => Promise<void>
+    selectedLlmProfileId: string
+    setSelectedLlmProfileId: (v: string) => void
   }
+
+  sharedLlm: SharedLlmConfig
 
   onPasteVectorToBuilder: () => void
 
@@ -231,6 +229,8 @@ export function AppLayout(props: {
     setSkillEditorLinkedNodeId,
     isEvalDatasetGeneratorOpen,
     setIsEvalDatasetGeneratorOpen,
+    isIndexVisualizerOpen,
+    setIsIndexVisualizerOpen,
   } = useModalState()
   const {
     uiError,
@@ -390,6 +390,8 @@ export function AppLayout(props: {
     reloadIndexInspector,
   } = indexInspector
 
+  const [isLlmSettingsOpen, setIsLlmSettingsOpen] = useState(false)
+
   const { launchCompanion } = useGuide()
 
   const handlePortalAction = (action: string) => {
@@ -457,6 +459,10 @@ export function AppLayout(props: {
       case 'openSearchPipelineVisualizer':
         setIsSearchPipelineVisualizerOpen(true)
         setCenterTab('search-pipeline-visualizer')
+        break
+      case 'openIndexVisualizer':
+        setIsIndexVisualizerOpen(true)
+        setCenterTab('index-visualizer')
         break
       case 'openTextToVector':
         textToVector.setShowTextToVectorTool(true)
@@ -531,6 +537,11 @@ export function AppLayout(props: {
           setIsSearchPipelineVisualizerOpen(true)
           setCenterTab('search-pipeline-visualizer')
         }}
+        onOpenIndexVisualizer={() => {
+          setIsIndexVisualizerOpen(true)
+          setCenterTab('index-visualizer')
+        }}
+        onOpenLlmSettings={() => setIsLlmSettingsOpen(true)}
       />
 
       <div className="app__grid" style={{ gridTemplateColumns }}>
@@ -701,6 +712,33 @@ export function AppLayout(props: {
                     e.stopPropagation()
                     setIsSearchPipelineVisualizerOpen(false)
                     if (centerTab === 'search-pipeline-visualizer') {
+                      setCenterTab('builder')
+                    }
+                  }}
+                  aria-label="Close tab"
+                  title="Close tab"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
+            {isIndexVisualizerOpen && (
+              <div className="tabWrapper">
+                <button
+                  type="button"
+                  className={'tab ' + (centerTab === 'index-visualizer' ? 'tab--active' : '')}
+                  onClick={() => setCenterTab('index-visualizer')}
+                >
+                  <span className="tab__label">📊 {t('indexVisualizer')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="tab__closeBtn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setIsIndexVisualizerOpen(false)
+                    if (centerTab === 'index-visualizer') {
                       setCenterTab('builder')
                     }
                   }}
@@ -1089,11 +1127,9 @@ export function AppLayout(props: {
                 setIndexName={setIndexName}
                 indexFieldNames={props.requestBuilderIndexFieldNames}
                 defaultIdFieldName={props.requestBuilderKeyFieldName}
-                defaultLlmEndpoint={textToVector.textToVectorEndpoint}
-                defaultLlmApiKey={textToVector.textToVectorApiKey}
-                defaultLlmAuthMode={textToVector.textToVectorAuthMode}
-                defaultLlmBearerToken={textToVector.textToVectorBearerToken}
+                sharedLlm={props.sharedLlm}
                 openIndexInspector={openIndexInspector}
+                onOpenLlmSettings={() => setIsLlmSettingsOpen(true)}
               />
             </div>
           )}
@@ -1178,6 +1214,21 @@ export function AppLayout(props: {
             </div>
           )}
 
+          {isIndexVisualizerOpen && (
+            <div className="tabPane" hidden={centerTab !== 'index-visualizer'}>
+              <IndexVisualizer
+                profile={activeProfile}
+                apiVersion={effectiveApiVersion}
+                indexName={indexName}
+                language={language}
+                availableIndexNames={availableIndexNames}
+                sharedLlm={props.sharedLlm}
+                onOpenLlmSettings={() => setIsLlmSettingsOpen(true)}
+                openIndexInspector={openIndexInspector}
+              />
+            </div>
+          )}
+
           {isQpsTesterOpen && (
             <div className="tabPane" hidden={centerTab !== 'qps-tester'}>
               <div className="pane__centerContent">
@@ -1208,6 +1259,7 @@ export function AppLayout(props: {
             centerTab !== 'skill-pipeline-builder' &&
             centerTab !== 'skill-editor' &&
             centerTab !== 'search-pipeline-visualizer' &&
+            centerTab !== 'index-visualizer' &&
             centerTab !== 'eval-dataset-generator' && (
               <div className="pane__centerContent">
                 <div className="resultGrid" style={{ gridTemplateColumns: `repeat(${resultViews.length}, minmax(0, 1fr))` }}>
@@ -1286,16 +1338,9 @@ export function AppLayout(props: {
         t={t}
         format={format}
         language={language}
-        textToVectorProvider={textToVector.textToVectorProvider}
-        setTextToVectorProvider={textToVector.setTextToVectorProvider}
-        textToVectorEndpoint={textToVector.textToVectorEndpoint}
-        setTextToVectorEndpoint={textToVector.setTextToVectorEndpoint}
-        textToVectorApiKey={textToVector.textToVectorApiKey}
-        setTextToVectorApiKey={textToVector.setTextToVectorApiKey}
-        textToVectorAuthMode={textToVector.textToVectorAuthMode}
-        setTextToVectorAuthMode={textToVector.setTextToVectorAuthMode}
-        textToVectorBearerToken={textToVector.textToVectorBearerToken}
-        setTextToVectorBearerToken={textToVector.setTextToVectorBearerToken}
+        sharedLlm={props.sharedLlm}
+        selectedLlmProfileId={textToVector.selectedLlmProfileId}
+        setSelectedLlmProfileId={textToVector.setSelectedLlmProfileId}
         textToVectorModel={textToVector.textToVectorModel}
         setTextToVectorModel={textToVector.setTextToVectorModel}
         textToVectorDimensions={textToVector.textToVectorDimensions}
@@ -1307,6 +1352,7 @@ export function AppLayout(props: {
         textToVectorResult={textToVector.textToVectorResult}
         onCopyVector={textToVector.onCopyVector}
         onPasteVectorToBuilder={onPasteVectorToBuilder}
+        onOpenLlmSettings={() => setIsLlmSettingsOpen(true)}
       />
 
       <JwtDecoderModal
@@ -1315,6 +1361,14 @@ export function AppLayout(props: {
         jwtDecoderResult={jwtDecoder.jwtDecoderResult}
         formatJwtEpochSeconds={jwtDecoder.formatJwtEpochSeconds}
         t={t}
+      />
+
+      <LlmSettingsModal
+        open={isLlmSettingsOpen}
+        onClose={() => setIsLlmSettingsOpen(false)}
+        t={t}
+        language={language}
+        sharedLlm={props.sharedLlm}
       />
 
       <IndexInspectorModal

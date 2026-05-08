@@ -43,6 +43,24 @@
   margin-bottom: 16px;
 }
 
+.app__error {
+  color: #e15759;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.app__warning {
+  color: #f0ad4e;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.app__success {
+  color: #59a14f;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 /* Generic hint text blocks (used by custom builders) */
 .section__hint {
   color: var(--muted);
@@ -1654,6 +1672,14 @@ summary.section__title {
   align-items: center;
   justify-content: center;
   border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.btn--danger-text {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.btn--danger-text:hover {
+  border-color: var(--danger);
 }
 
 .btn--search {
@@ -4677,6 +4703,78 @@ html[data-theme='light'] .rawJsonViewer {
 
 .modal-body {
   padding: 20px;
+}
+
+.modal-content--lg {
+  max-width: 680px;
+}
+
+/* LLM Profile list (Settings Modal) */
+.llmProfiles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.llmProfile {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.llmProfile__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: var(--panel2);
+  user-select: none;
+}
+
+.llmProfile__header:hover {
+  background: var(--btn-hover);
+}
+
+.llmProfile__chevron {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.llmProfile__name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.llmProfile__provider {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.llmProfile__badge {
+  font-size: 11px;
+  background: var(--accent);
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.llmProfile__spacer {
+  flex: 1;
+}
+
+.llmProfile__body {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* LLM Profile Selector (in-feature dropdown) */
+.llmSelector {
+  margin-bottom: 12px;
 }
 
 /* Builder list item styles */

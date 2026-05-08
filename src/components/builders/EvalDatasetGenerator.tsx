@@ -12,9 +12,10 @@ import type { ConnectionProfile, SearchApiVersion } from '../../lib/model'
 import type { Language } from '../../lib/translations'
 import { translations } from '../../lib/translations'
 import { toJsonl, toRaftJsonl } from '../../lib/evalDatasetGenerator'
-import { buildAadCliCommand, type LlmAuthMode } from '../../lib/llmAuth'
-import { LLM_PROVIDER_LABELS, LLM_PROVIDER_OPTIONS, PROVIDER_DEFAULTS, type LlmProviderType } from '../../lib/llmProvider'
+import { PROVIDER_DEFAULTS, LOCAL_PROVIDERS } from '../../lib/llmProvider'
 import { useEvalDatasetGeneration } from '../../hooks/useEvalDatasetGeneration'
+import type { SharedLlmConfig } from '../../hooks/useSharedLlmConfig'
+import { LlmProfileSelector } from './LlmProfileSelector'
 import {
   deleteEvalDataset,
   getEvalDataset,
@@ -62,12 +63,10 @@ export interface EvalDatasetGeneratorProps {
   indexFieldNames: string[]
   defaultIdFieldName: string | null
 
-  defaultLlmEndpoint?: string
-  defaultLlmApiKey?: string
-  defaultLlmAuthMode?: LlmAuthMode
-  defaultLlmBearerToken?: string
+  sharedLlm: SharedLlmConfig
 
   openIndexInspector: (name?: string) => void
+  onOpenLlmSettings: () => void
 }
 
 function downloadTextFile(filename: string, content: string) {
@@ -93,11 +92,9 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     setIndexName,
     indexFieldNames,
     defaultIdFieldName,
-    defaultLlmEndpoint,
-    defaultLlmApiKey,
-    defaultLlmAuthMode,
-    defaultLlmBearerToken,
+    sharedLlm,
     openIndexInspector,
+    onOpenLlmSettings,
   } = props
 
   // Persisted form is loaded asynchronously from IndexedDB after mount.
@@ -126,17 +123,9 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
   const [queryTypes, setQueryTypes] = useState<EvalQueryType[]>(['factoid', 'how-to'])
   const [domainDescription, setDomainDescription] = useState<string>('')
 
-  // LLM state. apiKey / bearerToken are persisted in IndexedDB to match the
-  // Connection profile (admin keys) behavior. Persisted values take
-  // precedence over the defaults inherited from the Connection.
-  const [llmProvider, setLlmProvider] = useState<LlmProviderType>('azure-openai')
-  const [llmEndpoint, setLlmEndpoint] = useState<string>(defaultLlmEndpoint ?? '')
-  const [llmAuthMode, setLlmAuthMode] = useState<LlmAuthMode>(defaultLlmAuthMode ?? 'apiKey')
-  const [llmApiKey, setLlmApiKey] = useState<string>(defaultLlmApiKey ?? '')
-  const [llmBearerToken, setLlmBearerToken] = useState<string>(defaultLlmBearerToken ?? '')
-  const [llmDeployment, setLlmDeployment] = useState<string>(DEFAULT_LLM_DEPLOYMENT)
-  const [llmApiVersion, setLlmApiVersion] = useState<string>(DEFAULT_LLM_API_VERSION)
-  const [cliCopied, setCliCopied] = useState<boolean>(false)
+  // LLM connection settings are shared across the app via sharedLlm.
+  // Only deployment and apiVersion have local defaults specific to this generator.
+  const [selectedLlmProfileId, setSelectedLlmProfileId] = useState<string>('')
 
   // Phase 2 quality filters
   const [enableGroundingCheck, setEnableGroundingCheck] = useState<boolean>(true)
@@ -229,13 +218,6 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         if (form.edgLanguage !== undefined) setEdgLanguage(form.edgLanguage)
         if (form.queryTypes !== undefined) setQueryTypes(form.queryTypes)
         if (form.domainDescription !== undefined) setDomainDescription(form.domainDescription)
-        if (form.llmProvider !== undefined) setLlmProvider(form.llmProvider)
-        if (form.llmEndpoint !== undefined) setLlmEndpoint(form.llmEndpoint)
-        if (form.llmAuthMode !== undefined) setLlmAuthMode(form.llmAuthMode)
-        if (form.llmApiKey !== undefined) setLlmApiKey(form.llmApiKey)
-        if (form.llmBearerToken !== undefined) setLlmBearerToken(form.llmBearerToken)
-        if (form.llmDeployment !== undefined) setLlmDeployment(form.llmDeployment)
-        if (form.llmApiVersion !== undefined) setLlmApiVersion(form.llmApiVersion)
         if (form.enableGroundingCheck !== undefined) setEnableGroundingCheck(form.enableGroundingCheck)
         if (form.groundingTopK !== undefined) setGroundingTopK(form.groundingTopK)
         if (form.enableSemanticDedup !== undefined) setEnableSemanticDedup(form.enableSemanticDedup)
@@ -309,13 +291,6 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         edgLanguage,
         queryTypes,
         domainDescription,
-        llmProvider,
-        llmEndpoint,
-        llmAuthMode,
-        llmApiKey,
-        llmBearerToken,
-        llmDeployment,
-        llmApiVersion,
         enableGroundingCheck,
         groundingTopK,
         enableSemanticDedup,
@@ -370,13 +345,6 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     edgLanguage,
     queryTypes,
     domainDescription,
-    llmProvider,
-    llmEndpoint,
-    llmAuthMode,
-    llmApiKey,
-    llmBearerToken,
-    llmDeployment,
-    llmApiVersion,
     enableGroundingCheck,
     groundingTopK,
     enableSemanticDedup,
@@ -465,12 +433,13 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     if (!indexName.trim()) return String(t('edgErrIndexName'))
     if (!keyField.trim()) return String(t('edgErrKeyField'))
     if (contentFields.length === 0) return String(t('edgErrContentFields'))
-    if (llmProvider !== 'openai' && !llmEndpoint.trim()) return String(t('edgErrLlmEndpoint'))
-    // OpenAI mode forces apiKey auth
-    const effectiveLlmAuthMode = llmProvider === 'openai' ? 'apiKey' : llmAuthMode
-    if (effectiveLlmAuthMode === 'apiKey' && !llmApiKey.trim()) return String(t('edgErrLlmApiKey'))
-    if (effectiveLlmAuthMode === 'bearer' && !llmBearerToken.trim()) return String(t('edgErrLlmBearerToken'))
-    if (!llmDeployment.trim()) return String(t('edgErrLlmDeployment'))
+    const llm = sharedLlm.resolve(selectedLlmProfileId)
+    const isLocal = LOCAL_PROVIDERS.has(llm.provider)
+    if (!isLocal && llm.provider !== 'openai' && !llm.endpoint.trim()) return String(t('edgErrLlmEndpoint'))
+    const effectiveLlmAuthMode = (llm.provider === 'openai' || isLocal) ? 'apiKey' : llm.authMode
+    if (!isLocal && effectiveLlmAuthMode === 'apiKey' && !llm.apiKey.trim()) return String(t('edgErrLlmApiKey'))
+    if (!isLocal && effectiveLlmAuthMode === 'bearer' && !llm.bearerToken.trim()) return String(t('edgErrLlmBearerToken'))
+    if (!llm.deployment.trim()) return String(t('edgErrLlmDeployment'))
     if (enableSemanticDedup && !embeddingDeployment.trim())
       return String(t('edgErrEmbeddingDeployment'))
     return null
@@ -480,6 +449,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     const v = validate()
     setValidationError(v)
     if (v) return
+    const resolvedLlm = sharedLlm.resolve(selectedLlmProfileId)
+    const resolvedIsLocal = LOCAL_PROVIDERS.has(resolvedLlm.provider)
     const config: EvalDatasetGenerationConfig = {
       indexName: indexName.trim(),
       keyField: keyField.trim(),
@@ -491,17 +462,20 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
       language: edgLanguage,
       queryTypes: queryTypes.length > 0 ? queryTypes : ['factoid'],
       domainDescription: domainDescription.trim() || undefined,
-      llmProvider,
-      llmEndpoint: llmProvider === 'openai'
+      llmProvider: resolvedLlm.provider,
+      llmEndpoint: resolvedLlm.provider === 'openai'
         ? PROVIDER_DEFAULTS.openai.endpoint
-        : llmEndpoint.trim(),
-      llmAuth:
-        (llmProvider === 'openai' ? 'apiKey' : llmAuthMode) === 'bearer'
-          ? { mode: 'bearer', bearerToken: llmBearerToken.trim() }
-          : { mode: 'apiKey', apiKey: llmApiKey.trim() },
-      llmDeployment: llmDeployment.trim(),
-      llmApiVersion: llmProvider === 'azure-openai'
-        ? (llmApiVersion.trim() || PROVIDER_DEFAULTS['azure-openai'].apiVersion)
+        : resolvedIsLocal
+          ? (resolvedLlm.endpoint.trim() || PROVIDER_DEFAULTS[resolvedLlm.provider].endpoint)
+          : resolvedLlm.endpoint.trim(),
+      llmAuth: resolvedIsLocal
+        ? { mode: 'apiKey', apiKey: 'none' }
+        : (resolvedLlm.provider === 'openai' ? 'apiKey' : resolvedLlm.authMode) === 'bearer'
+          ? { mode: 'bearer', bearerToken: resolvedLlm.bearerToken.trim() }
+          : { mode: 'apiKey', apiKey: resolvedLlm.apiKey.trim() },
+      llmDeployment: resolvedLlm.deployment.trim(),
+      llmApiVersion: resolvedLlm.provider === 'azure-openai'
+        ? (resolvedLlm.apiVersion.trim() || PROVIDER_DEFAULTS['azure-openai'].apiVersion)
         : '',
       enableGroundingCheck,
       groundingTopK: Math.max(1, Math.min(50, Math.floor(groundingTopK || DEFAULT_GROUNDING_TOP_K))),
@@ -581,16 +555,6 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     await start(config)
   }
 
-  async function onCopyCliCommand() {
-    const cmd = buildAadCliCommand()
-    try {
-      await navigator.clipboard.writeText(cmd)
-      setCliCopied(true)
-      window.setTimeout(() => setCliCopied(false), 1500)
-    } catch {
-      // ignore
-    }
-  }
 
   function onExport() {
     const jsonl = toJsonl(items)
@@ -852,117 +816,15 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
       {/* LLM --------------------------------------------------------- */}
       <div className="section">
         <div className="section__title"><i className="bi bi-robot icon--mr6" />{t('edgLlmTitle')}</div>
-        <div className="formGrid">
-          <label className="field">
-            <span className="field__label">{t('edgLlmProviderLabel')}</span>
-            <select
-              className="field__input"
-              value={llmProvider}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-                const v = e.target.value as LlmProviderType
-                setLlmProvider(v)
-                // Auto-fill endpoint for OpenAI
-                if (v === 'openai' && !llmEndpoint.trim()) {
-                  setLlmEndpoint(PROVIDER_DEFAULTS.openai.endpoint)
-                }
-                // Reset auth mode if provider doesn't support bearer
-                if (v === 'openai' && llmAuthMode === 'bearer') {
-                  setLlmAuthMode('apiKey')
-                }
-              }}
-            >
-              {LLM_PROVIDER_OPTIONS.map((p) => (
-                <option key={p} value={p}>
-                  {LLM_PROVIDER_LABELS[p][language === 'ja' ? 'ja' : 'en']}
-                </option>
-              ))}
-            </select>
-          </label>
-          {llmProvider !== 'openai' && (
-            <label className="field">
-              <span className="field__label">{t('edgLlmEndpointLabel')}</span>
-              <input
-                className="field__input"
-                value={llmEndpoint}
-                onChange={(e) => setLlmEndpoint(e.target.value)}
-                placeholder="https://YOUR-RESOURCE.openai.azure.com"
-              />
-            </label>
-          )}
-          {llmProvider !== 'openai' && (
-            <label className="field">
-              <span className="field__label">{t('llmAuthModeLabel')}</span>
-              <select
-                className="field__input"
-                value={llmAuthMode}
-                onChange={(e: ChangeEvent<HTMLSelectElement>) =>
-                  setLlmAuthMode(e.target.value === 'bearer' ? 'bearer' : 'apiKey')
-                }
-              >
-                <option value="apiKey">apiKey</option>
-                <option value="bearer">bearer (Entra ID)</option>
-              </select>
-            </label>
-          )}
-          {(llmProvider === 'openai' || llmAuthMode === 'apiKey') ? (
-            <label className="field">
-              <span className="field__label">{t('edgLlmApiKeyLabel')}</span>
-              <input
-                type="password"
-                className="field__input"
-                value={llmApiKey}
-                onChange={(e) => setLlmApiKey(e.target.value)}
-              />
-            </label>
-          ) : (
-            <label className="field">
-              <span className="field__label">{t('llmBearerTokenLabel')}</span>
-              <input
-                type="password"
-                className="field__input"
-                value={llmBearerToken}
-                onChange={(e) => setLlmBearerToken(e.target.value)}
-                placeholder={String(t('llmBearerTokenPlaceholder'))}
-              />
-            </label>
-          )}
-          <label className="field">
-            <span className="field__label">{t('edgLlmDeploymentLabel')}</span>
-            <input
-              className="field__input"
-              value={llmDeployment}
-              onChange={(e) => setLlmDeployment(e.target.value)}
-              placeholder="gpt-5.4-mini"
-            />
-          </label>
-          {llmProvider === 'azure-openai' && (
-            <label className="field">
-              <span className="field__label">{t('edgLlmApiVersionLabel')}</span>
-              <input
-                className="field__input"
-                value={llmApiVersion}
-                onChange={(e) => setLlmApiVersion(e.target.value)}
-                placeholder={PROVIDER_DEFAULTS['azure-openai'].apiVersion}
-              />
-            </label>
-          )}
-        </div>
-        {llmAuthMode === 'bearer' && llmProvider !== 'openai' && (
-          <div className="field__hint" style={{ marginTop: 8 }}>
-            <div>{t('aadCliHelperDesc')}</div>
-            <div className="aadCliHelper">
-              <code className="aadCliHelper__code">{buildAadCliCommand()}</code>
-              <button
-                type="button"
-                className="btn btn--icon"
-                onClick={() => void onCopyCliCommand()}
-                title={String(t('aadCliCopy'))}
-              >
-                <i className={cliCopied ? 'bi bi-check2' : 'bi bi-clipboard'}></i>
-              </button>
-            </div>
-          </div>
-        )}
+        <LlmProfileSelector
+          sharedLlm={sharedLlm}
+          selectedProfileId={selectedLlmProfileId}
+          onSelect={setSelectedLlmProfileId}
+          t={t}
+          language={language}
+          disabled={isRunning}
+          onOpenSettings={onOpenLlmSettings}
+        />
       </div>
 
       {/* Quality filters (Phase 2) ----------------------------------- */}

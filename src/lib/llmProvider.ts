@@ -2,10 +2,12 @@
  * Multi-provider LLM abstraction layer.
  *
  * Supports:
- * - `azure-openai` : Azure OpenAI Service — deployment-based URL with api-version.
- * - `openai`       : OpenAI platform (api.openai.com).
+ * - `azure-openai`  : Azure OpenAI Service — deployment-based URL with api-version.
+ * - `openai`        : OpenAI platform (api.openai.com).
+ * - `foundry-local` : Microsoft Foundry Local — on-device inference via OpenAI-compatible REST.
+ * - `lmstudio`      : LM Studio — local model hosting with OpenAI-compatible API.
  *
- * Both share the Chat Completions response shape, allowing a single
+ * All providers share the Chat Completions response shape, allowing a single
  * parsing path. The provider difference is URL format, auth header,
  * and whether `model` appears in the request body.
  */
@@ -15,7 +17,7 @@ import { LlmAuthError, isLlmAuthStatus } from './llmAuth'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-export type LlmProviderType = 'azure-openai' | 'openai'
+export type LlmProviderType = 'azure-openai' | 'openai' | 'foundry-local' | 'lmstudio'
 
 export interface LlmProviderConfig {
   provider: LlmProviderType
@@ -37,6 +39,8 @@ export function buildChatCompletionsUrl(config: LlmProviderConfig): string {
     case 'azure-openai':
       return `${base}/openai/deployments/${encodeURIComponent(config.model)}/chat/completions?api-version=${encodeURIComponent(config.apiVersion || '2024-10-21')}`
     case 'openai':
+    case 'foundry-local':
+    case 'lmstudio':
       return `${base}/v1/chat/completions`
   }
 }
@@ -47,6 +51,8 @@ export function buildEmbeddingsUrl(config: LlmProviderConfig): string {
     case 'azure-openai':
       return `${base}/openai/deployments/${encodeURIComponent(config.model)}/embeddings?api-version=${encodeURIComponent(config.apiVersion || '2024-10-21')}`
     case 'openai':
+    case 'foundry-local':
+    case 'lmstudio':
       return `${base}/v1/embeddings`
   }
 }
@@ -62,6 +68,12 @@ export function buildProviderAuthHeaders(
   auth: LlmAuth,
   provider: LlmProviderType,
 ): Record<string, string> {
+  // Local providers don't require authentication
+  if (LOCAL_PROVIDERS.has(provider)) {
+    const k = (auth.apiKey ?? '').trim() || 'none'
+    return { Authorization: `Bearer ${k}` }
+  }
+
   if (auth.mode === 'bearer') {
     const t = (auth.bearerToken ?? '').trim()
     if (!t) throw new Error('Bearer token is required for Entra ID authentication')
@@ -75,6 +87,8 @@ export function buildProviderAuthHeaders(
     case 'azure-openai':
       return { 'api-key': k }
     case 'openai':
+    case 'foundry-local':
+    case 'lmstudio':
       return { Authorization: `Bearer ${k}` }
   }
 }
@@ -118,6 +132,12 @@ export function buildEmbeddingsRequestBody(
 
 // ─── Chat Completions Call ──────────────────────────────────────────────────
 
+export interface LlmUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+}
+
 export interface CallLlmChatParams {
   config: LlmProviderConfig
   systemPrompt: string
@@ -125,10 +145,13 @@ export interface CallLlmChatParams {
   signal?: AbortSignal
   /** When false, omit `response_format: json_object`. Defaults to true. */
   jsonMode?: boolean
+  /** Called with token usage info when available in the response. */
+  onUsage?: (usage: LlmUsage) => void
 }
 
 interface ChatCompletionResponse {
   choices?: Array<{ message?: { content?: string } }>
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
 }
 
 const MAX_CONTENT_FILTER_RETRIES = 3
@@ -151,7 +174,7 @@ function isContentFilterError(status: number, body: string): boolean {
  * temperature to nudge the model past the filter.
  */
 export async function callLlmChat(params: CallLlmChatParams): Promise<string> {
-  const { config, systemPrompt, userPrompt, signal, jsonMode = true } = params
+  const { config, systemPrompt, userPrompt, signal, jsonMode = true, onUsage } = params
 
   if (!config.endpoint.trim()) throw new Error('LLM endpoint is required')
   if (!config.model.trim()) throw new Error('LLM model/deployment is required')
@@ -199,6 +222,13 @@ export async function callLlmChat(params: CallLlmChatParams): Promise<string> {
     const content = data?.choices?.[0]?.message?.content ?? ''
     if (!content) {
       throw new Error('LLM returned an empty completion')
+    }
+    if (onUsage && data.usage) {
+      onUsage({
+        promptTokens: data.usage.prompt_tokens ?? 0,
+        completionTokens: data.usage.completion_tokens ?? 0,
+        totalTokens: data.usage.total_tokens ?? 0,
+      })
     }
     return content
   }
@@ -280,12 +310,124 @@ export const PROVIDER_DEFAULTS: Record<
 > = {
   'azure-openai': { endpoint: '', apiVersion: '2024-10-21', authModes: ['apiKey', 'bearer'] },
   openai: { endpoint: 'https://api.openai.com', apiVersion: '', authModes: ['apiKey'] },
+  'foundry-local': { endpoint: 'http://localhost:5272', apiVersion: '', authModes: ['apiKey'] },
+  lmstudio: { endpoint: 'http://localhost:1234', apiVersion: '', authModes: ['apiKey'] },
 }
 
 export const LLM_PROVIDER_LABELS: Record<LlmProviderType, { ja: string; en: string }> = {
   'azure-openai': { ja: 'Azure OpenAI', en: 'Azure OpenAI' },
   openai: { ja: 'OpenAI', en: 'OpenAI' },
+  'foundry-local': { ja: 'Foundry Local', en: 'Foundry Local' },
+  lmstudio: { ja: 'LM Studio', en: 'LM Studio' },
 }
 
+/** Providers that skip auth entirely (local inference — no key needed). */
+export const LOCAL_PROVIDERS: ReadonlySet<LlmProviderType> = new Set(['foundry-local', 'lmstudio'])
+
 /** Ordered list for UI dropdown. */
-export const LLM_PROVIDER_OPTIONS: LlmProviderType[] = ['azure-openai', 'openai']
+export const LLM_PROVIDER_OPTIONS: LlmProviderType[] = ['azure-openai', 'openai', 'foundry-local', 'lmstudio']
+
+// ─── Model Context Window (Max Input Tokens) ───────────────────────────────
+
+/**
+ * Known model max input token limits.
+ * Source: https://learn.microsoft.com/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure
+ *
+ * Keys are lowercase model name fragments for fuzzy matching.
+ * Values are the max input tokens (not context window — output is excluded).
+ */
+export const MODEL_MAX_INPUT_TOKENS: Record<string, number> = {
+  // GPT-5.5
+  'gpt-5.5': 922_000,
+  // GPT-5.4 series
+  'gpt-5.4-mini': 272_000,
+  'gpt-5.4-nano': 272_000,
+  'gpt-5.4-pro': 1_050_000,
+  'gpt-5.4': 1_050_000,
+  // GPT-5.3
+  'gpt-5.3-codex': 272_000,
+  'gpt-5.3-chat': 111_616,
+  // GPT-5.2
+  'gpt-5.2-codex': 272_000,
+  'gpt-5.2-chat': 111_616,
+  'gpt-5.2': 272_000,
+  // GPT-5.1
+  'gpt-5.1-codex-max': 272_000,
+  'gpt-5.1-codex-mini': 272_000,
+  'gpt-5.1-codex': 272_000,
+  'gpt-5.1-chat': 111_616,
+  'gpt-5.1': 272_000,
+  // GPT-5
+  'gpt-5-pro': 272_000,
+  'gpt-5-codex': 272_000,
+  'gpt-5-chat': 128_000,
+  'gpt-5-mini': 272_000,
+  'gpt-5-nano': 272_000,
+  'gpt-5': 272_000,
+  // GPT-4.1 series (1M context, but limited to 300K for standard deployments)
+  'gpt-4.1-mini': 300_000,
+  'gpt-4.1-nano': 300_000,
+  'gpt-4.1': 300_000,
+  // o-series
+  'codex-mini': 200_000,
+  'o3-pro': 200_000,
+  'o4-mini': 200_000,
+  'o3-mini': 200_000,
+  'o3': 200_000,
+  'o1-mini': 128_000,
+  'o1': 200_000,
+  // GPT-4o series
+  'gpt-4o-mini': 128_000,
+  'gpt-4o': 128_000,
+  // GPT-4 Turbo
+  'gpt-4-turbo': 128_000,
+  'gpt-4-32k': 32_768,
+  'gpt-4': 8_192,
+  // GPT-3.5
+  'gpt-35-turbo': 16_385,
+  'gpt-3.5-turbo': 16_385,
+  // gpt-oss
+  'gpt-oss': 131_072,
+  // Local models (common defaults)
+  'phi-4': 16_384,
+  'phi-3.5-mini': 128_000,
+  'phi-3': 128_000,
+  'qwen2.5-0.5b': 32_768,
+  'qwen2.5-7b': 131_072,
+  'qwen2.5': 32_768,
+  'deepseek-v3': 65_536,
+  'deepseek-r1': 65_536,
+  'mistral': 32_768,
+  'llama-3': 128_000,
+}
+
+/** Default fallback when model is unknown. */
+export const DEFAULT_MAX_INPUT_TOKENS = 128_000
+
+/**
+ * Guess max input tokens from a model/deployment name.
+ * Matches the longest key that appears as a substring (case-insensitive).
+ * Returns null if no match found.
+ */
+export function guessMaxInputTokens(model: string): number | null {
+  if (!model) return null
+  const lower = model.toLowerCase()
+  let bestKey = ''
+  let bestVal: number | null = null
+  for (const [key, val] of Object.entries(MODEL_MAX_INPUT_TOKENS)) {
+    if (lower.includes(key) && key.length > bestKey.length) {
+      bestKey = key
+      bestVal = val
+    }
+  }
+  return bestVal
+}
+
+/**
+ * Resolve the effective max input tokens for a profile.
+ * Priority: explicit override > guessed from model name > default.
+ */
+export function resolveMaxInputTokens(model: string, override?: number): number {
+  if (override && override > 0) return override
+  return guessMaxInputTokens(model) ?? DEFAULT_MAX_INPUT_TOKENS
+}

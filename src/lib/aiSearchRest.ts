@@ -2231,6 +2231,77 @@ export async function createOrUpdateIndex(input: {
   };
 }
 
+/**
+ * Upload, merge, or delete documents in an index via the Index Documents REST API.
+ * POST https://[service].search.windows.net/indexes/[index]/docs/index?api-version=...
+ */
+export async function indexDocuments(input: {
+  profile: ConnectionProfile;
+  indexName: string;
+  apiVersion: SearchApiVersion;
+  body: JsonValue;
+  language?: Language;
+}): Promise<RestResult> {
+  const lang = getLang(input.language);
+  const endpoint = normalizeEndpoint(input.profile.endpoint);
+  const idxName = input.indexName.trim();
+  if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
+  if (!idxName) throw new Error(tr(lang, 'restErrorIndexNameUnset'));
+
+  let requestId = uuidv4();
+  const url = `${endpoint}/indexes/${encodeURIComponent(idxName)}/docs/index?api-version=${encodeURIComponent(input.apiVersion)}`;
+
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    'x-ms-client-request-id': requestId,
+    ...makeAuthHeaders(input.profile, lang),
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(input.body),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      status: 0,
+      requestId,
+      url,
+      error: { message: makeNetworkErrorMessage(lang, msg) },
+    };
+  }
+
+  requestId = getServiceRequestId(res) ?? requestId;
+
+  const parsed = await readJsonOrText(res);
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      requestId,
+      url,
+      error: {
+        message: extractErrorMessage(res.status, parsed),
+        response: parsed.json,
+        responseText: parsed.text,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    status: res.status,
+    requestId,
+    url,
+    response: parsed.json ?? null,
+    responseText: parsed.text,
+  };
+}
+
 export async function deleteIndex(input: {
   profile: ConnectionProfile;
   indexName: string;

@@ -16,7 +16,8 @@ function isToolTab(tab: CenterTab): boolean {
     tab === 'index-builder' ||
     tab === 'skill-pipeline-builder' ||
     tab === 'skill-editor' ||
-    tab === 'eval-dataset-generator'
+    tab === 'eval-dataset-generator' ||
+    tab === 'index-visualizer'
   )
 }
 
@@ -40,6 +41,7 @@ export function useExperimentTabRestore(params: {
   setIsVectorOptimizerOpen: Dispatch<SetStateAction<boolean>>
   setIsSkillEditorOpen: Dispatch<SetStateAction<boolean>>
   setIsEvalDatasetGeneratorOpen: Dispatch<SetStateAction<boolean>>
+  setIsIndexVisualizerOpen: Dispatch<SetStateAction<boolean>>
 }) {
   const {
     selectedExperimentId,
@@ -59,6 +61,7 @@ export function useExperimentTabRestore(params: {
     setIsVectorOptimizerOpen,
     setIsSkillEditorOpen,
     setIsEvalDatasetGeneratorOpen,
+    setIsIndexVisualizerOpen,
   } = params
 
   // Restore tool open flags only once on initial mount/boot.
@@ -125,6 +128,7 @@ export function useExperimentTabRestore(params: {
         setIsVectorOptimizerOpen(restored.isVectorOptimizerOpen ?? false)
         setIsSkillEditorOpen(restored.isSkillEditorOpen ?? false)
         setIsEvalDatasetGeneratorOpen(restored.isEvalDatasetGeneratorOpen ?? false)
+        setIsIndexVisualizerOpen(restored.isIndexVisualizerOpen ?? false)
       }
     } else {
       setSelectedRunIds([])
@@ -147,6 +151,7 @@ export function useExperimentTabRestore(params: {
     setIsVectorOptimizerOpen,
     setIsSkillEditorOpen,
     setIsEvalDatasetGeneratorOpen,
+    setIsIndexVisualizerOpen,
     setSelectedRun,
     setSelectedRunIds,
   ])
