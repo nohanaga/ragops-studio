@@ -19,6 +19,8 @@ import {
   fetchRepresentativeTexts,
   checkMetaIndexExists,
   fetchExistingSummaries,
+  fetchExistingMetaDocIds,
+  deleteMetaDocuments,
   generateMetaIndexName,
   type ClusterSummary,
   type TwoStageSearchResult,
@@ -294,9 +296,10 @@ export function useMetaIndex(input: {
         setMetaWarning(warnMsg)
       }
 
-      // 4. Create meta-index
+      // 4. Create or update meta-index (PUT — idempotent, updates schema if needed)
       setMetaPhase('creating-index')
       const newMetaName = generateMetaIndexName(sourceIndexName)
+
       const createResult = await createMetaIndex({
         profile,
         apiVersion,
@@ -306,6 +309,33 @@ export function useMetaIndex(input: {
       })
       if (!createResult.ok) {
         throw new Error(`Failed to create meta-index: ${createResult.error?.message || 'Unknown'}`)
+      }
+      if (ctrl.signal.aborted) return
+
+      // 4b. Remove stale documents whose cluster IDs are no longer present
+      // (e.g. previous run had k=5, now k=3 — delete cluster-3, cluster-4).
+      // This is done in-place to avoid the timing/eventual-consistency issues
+      // that occur when deleting and immediately recreating an index.
+      const newIds = new Set(summaries.map((s) => s.clusterId))
+      try {
+        const existingIds = await fetchExistingMetaDocIds({
+          profile,
+          apiVersion,
+          metaIndexName: newMetaName,
+          language,
+        })
+        const staleIds = existingIds.filter((id) => !newIds.has(id))
+        if (staleIds.length > 0) {
+          await deleteMetaDocuments({
+            profile,
+            apiVersion,
+            metaIndexName: newMetaName,
+            ids: staleIds,
+            language,
+          })
+        }
+      } catch {
+        // Stale-doc cleanup is best-effort; do not fail the whole operation.
       }
       if (ctrl.signal.aborted) return
 

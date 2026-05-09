@@ -42,6 +42,23 @@ const CLUSTER_LABEL_SCHEMA: JsonSchemaResponseFormat = {
   },
 }
 
+/**
+ * Truncate a string to fit within a UTF-8 byte limit.
+ *
+ * Azure AI Search rejects single terms whose UTF-8 encoding exceeds 32766 bytes.
+ * Multibyte text (e.g. Japanese, where each character is 3 bytes in UTF-8) hits
+ * this limit much sooner than character-count-based truncation suggests.
+ */
+function truncateUtf8Bytes(text: string, maxBytes: number): string {
+  if (!text) return text
+  const encoder = new TextEncoder()
+  const bytes = encoder.encode(text)
+  if (bytes.length <= maxBytes) return text
+  // Decode the first `maxBytes` bytes, ignoring any incomplete trailing sequence.
+  const decoder = new TextDecoder('utf-8', { fatal: false })
+  return decoder.decode(bytes.slice(0, maxBytes))
+}
+
 export interface ClusterSummary {
   clusterId: string
   label: string
@@ -325,6 +342,8 @@ export function buildMetaIndexSchema(
         name: 'centroidVector',
         type: 'Collection(Edm.Single)',
         searchable: true,
+        retrievable: true,
+        stored: true,
         dimensions: vectorDimensions,
         vectorSearchProfile: 'eflc-vector-profile',
       },
@@ -443,7 +462,53 @@ export async function deleteMetaIndex(input: {
 
 // ─── Document Upload to Meta-Index ──────────────────────────────────────────
 
-/** Upload cluster summaries as documents to the meta-index. */
+/** Fetch all existing document keys (id field) from the meta-index. */
+export async function fetchExistingMetaDocIds(input: {
+  profile: ConnectionProfile
+  apiVersion: SearchApiVersion
+  metaIndexName: string
+  language?: Language
+}): Promise<string[]> {
+  const result = await searchDocuments({
+    profile: input.profile,
+    indexName: input.metaIndexName,
+    apiVersion: input.apiVersion,
+    body: { search: '*', select: 'id', top: 1000 },
+    language: input.language,
+  })
+  if (!result.ok || !result.response) return []
+  const resp = result.response as Record<string, JsonValue>
+  const docs = resp.value as Array<Record<string, JsonValue>> | undefined
+  if (!docs) return []
+  return docs.map((d) => String(d.id ?? '')).filter((s) => s.length > 0)
+}
+
+/** Delete documents from the meta-index by their key (id) values. */
+export async function deleteMetaDocuments(input: {
+  profile: ConnectionProfile
+  apiVersion: SearchApiVersion
+  metaIndexName: string
+  ids: string[]
+  language?: Language
+}): Promise<RestResult | null> {
+  if (input.ids.length === 0) return null
+  const documents = input.ids.map((id) => ({ '@search.action': 'delete', id }))
+  return indexDocuments({
+    profile: input.profile,
+    indexName: input.metaIndexName,
+    apiVersion: input.apiVersion,
+    body: { value: documents },
+    language: input.language,
+  })
+}
+
+/**
+ * Upload cluster summaries as documents to the meta-index.
+ *
+ * Uses `upload` action (not `mergeOrUpload`) to ensure complete replacement of
+ * any existing document with the same key. Per-document failures are detected
+ * from the response body and reported as an error.
+ */
 export async function uploadMetaDocuments(input: {
   profile: ConnectionProfile
   apiVersion: SearchApiVersion
@@ -455,28 +520,57 @@ export async function uploadMetaDocuments(input: {
   const { profile, apiVersion, metaIndexName, summaries, metaConfig } = input
 
   const documents = summaries.map((s) => ({
-    '@search.action': 'mergeOrUpload',
+    '@search.action': 'upload',
     id: s.clusterId,
     clusterId: s.clusterId,
-    label: s.label,
-    summary: s.summary,
-    keywords: s.keywords,
+    label: truncateUtf8Bytes(s.label, 32_000),
+    summary: truncateUtf8Bytes(s.summary, 32_000),
+    keywords: s.keywords.map((k) => truncateUtf8Bytes(k, 32_000)),
     documentCount: s.documentCount,
     memberDocIds: s.memberDocIds.slice(0, 1000), // Limit for field size
     centroidVector: s.centroidVector,
-    representativeText: s.representativeText,
+    // Azure AI Search rejects single terms > 32766 UTF-8 bytes. Keep a safety margin.
+    representativeText: truncateUtf8Bytes(s.representativeText, 32_000),
     sourceIndex: metaConfig.sourceIndexName,
     vectorField: metaConfig.vectorField,
     createdAt: metaConfig.createdAt,
   }))
 
-  return indexDocuments({
+  const result = await indexDocuments({
     profile,
     indexName: metaIndexName,
     apiVersion,
     body: { value: documents },
     language: input.language,
   })
+
+  // Azure AI Search returns HTTP 200/207 even when individual documents fail.
+  // Inspect the response body and surface per-document failures.
+  if (result.ok && result.response) {
+    const resp = result.response as Record<string, JsonValue>
+    const value = resp.value as Array<Record<string, JsonValue>> | undefined
+    if (value) {
+      const failed = value.filter((v) => v.status !== true)
+      if (failed.length > 0) {
+        const sample = failed.slice(0, 3).map((f) =>
+          `${String(f.key ?? '?')}: ${String(f.errorMessage ?? f.statusCode ?? 'unknown')}`,
+        ).join('; ')
+        return {
+          ok: false,
+          status: result.status,
+          requestId: result.requestId,
+          clientRequestId: result.clientRequestId,
+          url: result.url,
+          error: {
+            message: `${failed.length}/${value.length} documents failed to index. Examples: ${sample}`,
+            response: result.response,
+          },
+        }
+      }
+    }
+  }
+
+  return result
 }
 
 // ─── 2-Stage Search ─────────────────────────────────────────────────────────
@@ -755,6 +849,7 @@ export async function fetchExistingSummaries(input: {
       search: '*',
       top: 100,
       orderby: 'documentCount desc',
+      select: 'id,clusterId,label,summary,keywords,documentCount,memberDocIds,centroidVector,representativeText,sourceIndex,vectorField,createdAt',
     },
     language: input.language,
   })

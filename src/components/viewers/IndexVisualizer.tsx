@@ -14,6 +14,7 @@ import { useMetaIndex } from '../../hooks/useMetaIndex'
 import { type JsonValue } from '../../lib/aiSearchRest'
 import type { ClusterSummary, MetaClusterTrace } from '../../lib/metaIndex'
 import type { ClusterGraphData } from '../../lib/clusterGraph'
+import { rebuildClusterGraphFromMeta } from '../../lib/clusterGraph'
 import type { SharedLlmConfig } from '../../hooks/useSharedLlmConfig'
 import { LlmProfileSelector } from '../builders/LlmProfileSelector'
 import { TipsBlock } from '../builders/TipsBlock'
@@ -55,6 +56,34 @@ function adjustChannel(c: number, factor: number): number {
   // factor > 0 → lighten, factor < 0 → darken
   if (factor >= 0) return Math.round(c + (255 - c) * factor)
   return Math.round(c * (1 + factor))
+}
+
+/**
+ * Map a normalized value t in [0, 1] to a heat color.
+ * Gradient: deep blue → cyan → green → yellow → red.
+ */
+function heatColor(t: number): string {
+  const x = Math.max(0, Math.min(1, t))
+  // 5 stops
+  const stops: [number, [number, number, number]][] = [
+    [0.0, [44, 90, 160]],   // deep blue
+    [0.25, [0, 170, 255]],  // cyan
+    [0.5, [0, 200, 120]],   // green
+    [0.75, [255, 221, 0]],  // yellow
+    [1.0, [255, 68, 68]],   // red
+  ]
+  for (let i = 1; i < stops.length; i++) {
+    if (x <= stops[i][0]) {
+      const [t0, c0] = stops[i - 1]
+      const [t1, c1] = stops[i]
+      const k = (x - t0) / (t1 - t0)
+      const r = Math.round(c0[0] + (c1[0] - c0[0]) * k)
+      const g = Math.round(c0[1] + (c1[1] - c0[1]) * k)
+      const b = Math.round(c0[2] + (c1[2] - c0[2]) * k)
+      return `rgb(${r},${g},${b})`
+    }
+  }
+  return 'rgb(255,68,68)'
 }
 
 /** Generate `count` shade variants from a base hex color. */
@@ -100,6 +129,7 @@ export function IndexVisualizer({
   const [metaContentFields, setMetaContentFields] = useState('')
   const [dataSourceLabel, setDataSourceLabel] = useState<{ type: 'file'; name: string } | null>(null)
   const [traceClusterId, setTraceClusterId] = useState<number | null>(null)
+  const [rebuiltGraph, setRebuiltGraph] = useState<ClusterGraphData | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   /** Export current visualization to a .ragvis.json file. */
@@ -506,6 +536,18 @@ export function IndexVisualizer({
           data={vis.data}
           language={language}
           clusterSummariesFromMeta={meta.clusterSummaries}
+          onBrowseCluster={(id) => { setBrowseClusterId(id); setBrowseClusterPage(0) }}
+        />
+      )}
+
+      {/* Rebuilt graph from meta-index (shown when no scan data) */}
+      {!vis.data?.graph && rebuiltGraph && (
+        <ClusterGraphView
+          graph={rebuiltGraph}
+          data={vis.data}
+          language={language}
+          clusterSummariesFromMeta={meta.clusterSummaries}
+          onBrowseCluster={(id) => { setBrowseClusterId(id); setBrowseClusterPage(0) }}
         />
       )}
 
@@ -688,6 +730,21 @@ export function IndexVisualizer({
             <i className="bi bi-arrow-repeat icon--mr6" />
             {t(language, 'ivMetaLoadOption')}
           </button>
+          {meta.clusterSummaries && meta.clusterSummaries.length > 0 && meta.clusterSummaries[0].centroidVector?.length > 0 && (
+            <button
+              type="button"
+              className="btn btn--secondary"
+              onClick={() => {
+                const g = rebuildClusterGraphFromMeta(meta.clusterSummaries!, vis.graphEdgeThreshold)
+                setRebuiltGraph(g)
+              }}
+              disabled={isMetaRunning}
+              title={t(language, 'ivGraphRebuildHint')}
+            >
+              <i className="bi bi-diagram-2 icon--mr6" />
+              {t(language, 'ivGraphRebuild')}
+            </button>
+          )}
           {meta.metaIndexExists && (
             <button
               type="button"
@@ -1588,299 +1645,449 @@ function escapeHtml(s: string): string {
 }
 
 // ============================================================================
-// Cluster Graph (Force-directed, Canvas-based) — Phase 4
+// Cluster Graph (Force-directed, interactive) — Phase 4
 // ============================================================================
 
-function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta }: {
+interface ForceGraphNode {
+  id: number
+  label: string
+  count: number
+  color: string
+}
+
+interface ForceGraphLink {
+  source: number
+  target: number
+  similarity: number
+}
+
+function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onBrowseCluster }: {
   graph: ClusterGraphData
-  data: VisualizationData
+  data?: VisualizationData | null
   language: Language
   clusterSummariesFromMeta?: ClusterSummary[] | null
+  onBrowseCluster?: (clusterId: number) => void
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const tooltipRef = useRef<HTMLDivElement>(null)
+  const graphContainerRef = useRef<HTMLDivElement>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fgRef = useRef<any>(null)
+  const [highlightedNodeId, setHighlightedNodeId] = useState<number | null>(null)
+  const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null)
+  const [linkDistance, setLinkDistance] = useState(120)
+  const [chargeStrength, setChargeStrength] = useState(-300)
+  const [edgeMinThreshold, setEdgeMinThreshold] = useState(0)
+  const [showEdgeLabels, setShowEdgeLabels] = useState(false)
+  const [enableParticles, setEnableParticles] = useState(true)
+  const [colorMode, setColorMode] = useState<'cluster' | 'count' | 'degree'>('cluster')
+  const [sizeMode, setSizeMode] = useState<'count' | 'uniform' | 'degree'>('count')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [layoutMode, setLayoutMode] = useState<'force' | 'radial'>('force')
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  // Animation pulse for selected node halo
+  const [pulse, setPulse] = useState(0)
 
   const { nodes, edges, bridges } = graph
 
-  // Build label map
-  const labelMap = useMemo(() => {
-    const map = new Map<number, string>()
+  // Build label map (and a richer summary lookup for the detail panel)
+  const summaryMap = useMemo(() => {
+    const map = new Map<number, ClusterSummary>()
     if (clusterSummariesFromMeta) {
-      for (let i = 0; i < clusterSummariesFromMeta.length; i++) {
-        map.set(i, clusterSummariesFromMeta[i].label)
-      }
+      clusterSummariesFromMeta.forEach((cs, i) => map.set(i, cs))
     }
-    return (id: number) => map.get(id) ?? `Cluster ${id}`
+    return map
   }, [clusterSummariesFromMeta])
 
-  // Compute bounds
-  const bounds = useMemo(() => {
-    if (nodes.length === 0) return { minX: -1, maxX: 1, minY: -1, maxY: 1 }
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-    for (const n of nodes) {
-      if (n.x < minX) minX = n.x
-      if (n.x > maxX) maxX = n.x
-      if (n.y < minY) minY = n.y
-      if (n.y > maxY) maxY = n.y
-    }
-    const padX = (maxX - minX) * 0.15 || 1
-    const padY = (maxY - minY) * 0.15 || 1
-    return { minX: minX - padX, maxX: maxX + padX, minY: minY - padY, maxY: maxY + padY }
-  }, [nodes])
+  const labelMap = useMemo(() => {
+    return (id: number) => summaryMap.get(id)?.label ?? `Cluster ${id}`
+  }, [summaryMap])
 
-  // Max count for radius scaling
+  // Filter edges by user threshold
+  const filteredEdges = useMemo(
+    () => edges.filter((e) => e.similarity >= edgeMinThreshold),
+    [edges, edgeMinThreshold],
+  )
+
+  // Node degree (based on filtered edges)
+  const degreeMap = useMemo(() => {
+    const m = new Map<number, number>()
+    for (const n of nodes) m.set(n.id, 0)
+    for (const e of filteredEdges) {
+      m.set(e.source, (m.get(e.source) ?? 0) + 1)
+      m.set(e.target, (m.get(e.target) ?? 0) + 1)
+    }
+    return m
+  }, [nodes, filteredEdges])
+
+  const maxDegree = useMemo(() => {
+    let m = 1
+    degreeMap.forEach((v) => { if (v > m) m = v })
+    return m
+  }, [degreeMap])
+
+  // Max count for size scaling
   const maxCount = useMemo(() => Math.max(...nodes.map((n) => n.count), 1), [nodes])
 
-  // Draw
-  useEffect(() => {
-    const canvas = canvasRef.current
-    const container = containerRef.current
-    if (!canvas || !container) return
-
-    const dpr = window.devicePixelRatio || 1
-    const width = container.clientWidth
-    const height = Math.min(width * 0.6, 500)
-    canvas.width = width * dpr
-    canvas.height = height * dpr
-    canvas.style.width = `${width}px`
-    canvas.style.height = `${height}px`
-
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.scale(dpr, dpr)
-    ctx.clearRect(0, 0, width, height)
-
-    // Resolve CSS variables for canvas
-    const computedStyle = getComputedStyle(container)
-    const graphBgTextSecondary = computedStyle.getPropertyValue('--muted').trim() || '#9fb0c0'
-    // Node labels are inside colored circles; always use white for contrast
-    const nodeTextColor = '#fff'
-    // Detect light theme for edge color: check bg luminance
-    const bgHex = computedStyle.getPropertyValue('--bg').trim()
-    const isLightBg = (() => {
-      if (!bgHex || !bgHex.startsWith('#')) return false
-      const [r, g, b] = hexToRgb(bgHex)
-      return (r * 299 + g * 587 + b * 114) / 1000 > 160
-    })()
-    const edgeBaseRgb = isLightBg ? '60, 60, 60' : '150, 150, 150'
-
-    // Fill canvas background
-    if (isLightBg) {
-      ctx.fillStyle = '#f0f2f5'
-      ctx.fillRect(0, 0, width, height)
+  // Search match set (case-insensitive substring)
+  const searchMatches = useMemo(() => {
+    const s = searchTerm.trim().toLowerCase()
+    if (!s) return null
+    const set = new Set<number>()
+    for (const n of nodes) {
+      if (labelMap(n.id).toLowerCase().includes(s)) set.add(n.id)
     }
+    return set
+  }, [searchTerm, nodes, labelMap])
 
-    const ml = 40, mr = 40, mt = 30, mb = 30
-    const pw = width - ml - mr
-    const ph = height - mt - mb
-    const { minX, maxX, minY, maxY } = bounds
-    const rangeX = maxX - minX
-    const rangeY = maxY - minY
-
-    const toScreenX = (x: number) => ml + ((x - minX) / rangeX) * pw
-    const toScreenY = (y: number) => mt + ph - ((y - minY) / rangeY) * ph
-
-    // Draw edges
-    for (const edge of edges) {
-      const src = nodes[edge.source]
-      const tgt = nodes[edge.target]
-      if (!src || !tgt) continue
-
-      const sx = toScreenX(src.x)
-      const sy = toScreenY(src.y)
-      const tx = toScreenX(tgt.x)
-      const ty = toScreenY(tgt.y)
-
-      // Edge width proportional to similarity
-      const lineWidth = 1 + edge.similarity * 4
-      const alpha = 0.3 + edge.similarity * 0.5
-
-      ctx.strokeStyle = `rgba(${edgeBaseRgb}, ${alpha})`
-      ctx.lineWidth = lineWidth
-      ctx.beginPath()
-      ctx.moveTo(sx, sy)
-      ctx.lineTo(tx, ty)
-      ctx.stroke()
-
-      // Similarity label at midpoint
-      const mx = (sx + tx) / 2
-      const my = (sy + ty) / 2
-      ctx.fillStyle = graphBgTextSecondary
-      ctx.font = '9px system-ui, sans-serif'
-      ctx.textAlign = 'center'
-      ctx.fillText(edge.similarity.toFixed(2), mx, my - 4)
+  // Color by mode
+  const colorOf = useCallback((id: number): string => {
+    if (colorMode === 'cluster') return CLUSTER_COLORS[id % CLUSTER_COLORS.length]
+    if (colorMode === 'count') {
+      const node = nodes.find((n) => n.id === id)
+      const t = node ? node.count / maxCount : 0
+      // Heat: blue → cyan → green → yellow → red
+      return heatColor(t)
     }
+    // degree
+    const t = (degreeMap.get(id) ?? 0) / maxDegree
+    return heatColor(t)
+  }, [colorMode, nodes, maxCount, degreeMap, maxDegree])
 
-    // Draw bridge node indicators (small dots on edges)
-    const bridgeCounts = new Map<string, number>()
+  // Size by mode
+  const sizeOf = useCallback((id: number): number => {
+    if (sizeMode === 'uniform') return 8
+    if (sizeMode === 'degree') {
+      const t = (degreeMap.get(id) ?? 0) / maxDegree
+      return 4 + Math.sqrt(t) * 20
+    }
+    const node = nodes.find((n) => n.id === id)
+    const t = node ? node.count / maxCount : 0
+    return 4 + Math.sqrt(t) * 20
+  }, [sizeMode, nodes, maxCount, degreeMap, maxDegree])
+
+  // Build graph data for force-graph (from filtered edges)
+  const graphData = useMemo(() => {
+    const fgNodes: ForceGraphNode[] = nodes.map((n) => ({
+      id: n.id,
+      label: labelMap(n.id),
+      count: n.count,
+      color: colorOf(n.id),
+    }))
+    const fgLinks: ForceGraphLink[] = filteredEdges.map((e) => ({
+      source: e.source,
+      target: e.target,
+      similarity: e.similarity,
+    }))
+    return { nodes: fgNodes, links: fgLinks }
+  }, [nodes, filteredEdges, labelMap, colorOf])
+
+  // Bridge count per edge (using all bridges, not filtered)
+  const bridgeCountMap = useMemo(() => {
+    const map = new Map<string, number>()
     for (const br of bridges) {
       const key = br.ownCluster < br.nearestCluster
         ? `${br.ownCluster}-${br.nearestCluster}`
         : `${br.nearestCluster}-${br.ownCluster}`
-      bridgeCounts.set(key, (bridgeCounts.get(key) ?? 0) + 1)
+      map.set(key, (map.get(key) ?? 0) + 1)
     }
-    for (const [key, count] of bridgeCounts) {
-      const [aStr, bStr] = key.split('-')
-      const a = nodes[parseInt(aStr)]
-      const b = nodes[parseInt(bStr)]
-      if (!a || !b) continue
-      const mx = (toScreenX(a.x) + toScreenX(b.x)) / 2
-      const my = (toScreenY(a.y) + toScreenY(b.y)) / 2
-      ctx.fillStyle = 'rgba(255, 200, 50, 0.7)'
-      ctx.font = '10px system-ui, sans-serif'
-      ctx.textAlign = 'center'
-      ctx.fillText(`🔗${count}`, mx, my + 10)
+    return map
+  }, [bridges])
+
+  // Highlighted (= hover OR selected)
+  const focusNodeId = highlightedNodeId ?? selectedNodeId
+
+  const focusNeighbors = useMemo(() => {
+    if (focusNodeId === null) return new Set<number>()
+    const set = new Set<number>()
+    for (const e of filteredEdges) {
+      if (e.source === focusNodeId) set.add(e.target)
+      if (e.target === focusNodeId) set.add(e.source)
     }
+    return set
+  }, [focusNodeId, filteredEdges])
 
-    // Draw nodes
-    for (const node of nodes) {
-      const sx = toScreenX(node.x)
-      const sy = toScreenY(node.y)
-      // Radius: min 12, max 40, proportional to sqrt(count)
-      const r = 12 + (Math.sqrt(node.count / maxCount)) * 28
-      const color = CLUSTER_COLORS[node.id % CLUSTER_COLORS.length]
-
-      // Filled circle
-      ctx.globalAlpha = 0.85
-      ctx.fillStyle = color
-      ctx.beginPath()
-      ctx.arc(sx, sy, r, 0, Math.PI * 2)
-      ctx.fill()
-
-      // Border
-      ctx.globalAlpha = 1
-      ctx.strokeStyle = color
-      ctx.lineWidth = 2
-      ctx.stroke()
-
-      // Label
-      ctx.fillStyle = nodeTextColor
-      ctx.font = `bold ${Math.max(10, Math.min(13, r * 0.5))}px system-ui, sans-serif`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      const label = labelMap(node.id)
-      // Truncate label to fit within node
-      const maxLabelLen = Math.floor(r / 3.5)
-      const displayLabel = label.length > maxLabelLen ? label.slice(0, maxLabelLen - 1) + '…' : label
-      ctx.fillText(displayLabel, sx, sy - 4)
-
-      // Count
-      ctx.font = '10px system-ui, sans-serif'
-      ctx.fillStyle = nodeTextColor
-      ctx.fillText(`${node.count}`, sx, sy + 10)
+  const focusLinks = useMemo(() => {
+    if (focusNodeId === null) return new Set<string>()
+    const set = new Set<string>()
+    for (const e of filteredEdges) {
+      if (e.source === focusNodeId || e.target === focusNodeId) {
+        set.add(`${e.source}-${e.target}`)
+      }
     }
+    return set
+  }, [focusNodeId, filteredEdges])
 
-    ctx.globalAlpha = 1
-  }, [nodes, edges, bridges, bounds, maxCount, labelMap])
+  // Graph statistics
+  const stats = useMemo(() => {
+    const n = nodes.length
+    const e = filteredEdges.length
+    const maxPossible = n > 1 ? (n * (n - 1)) / 2 : 1
+    const density = maxPossible > 0 ? e / maxPossible : 0
+    let sumSim = 0, maxSim = 0
+    for (const ed of filteredEdges) {
+      sumSim += ed.similarity
+      if (ed.similarity > maxSim) maxSim = ed.similarity
+    }
+    const avgSim = e > 0 ? sumSim / e : 0
+    let isolated = 0
+    degreeMap.forEach((d) => { if (d === 0) isolated++ })
+    return { n, e, density, avgSim, maxSim, isolated }
+  }, [nodes, filteredEdges, degreeMap])
 
-  // Tooltip on hover
+  // Pulse animation for selected node halo
   useEffect(() => {
-    const canvas = canvasRef.current
-    const container = containerRef.current
-    const tooltip = tooltipRef.current
-    if (!canvas || !container || !tooltip) return
+    if (selectedNodeId === null) return
+    let raf = 0
+    const tick = () => {
+      setPulse((p) => (p + 0.04) % (Math.PI * 2))
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [selectedNodeId])
 
-    const ml = 40, mr = 40, mt = 30, mb = 30
+  // Initialize and update force-graph
+  useEffect(() => {
+    const el = graphContainerRef.current
+    if (!el) return
 
-    const handleMouseMove = (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect()
-      const mx = e.clientX - rect.left
-      const my = e.clientY - rect.top
+    let cancelled = false
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let fgInstance: any = null
 
-      const pw = container.clientWidth - ml - mr
-      const ph = Math.min(container.clientWidth * 0.6, 500) - mt - mb
-      const { minX, maxX, minY, maxY } = bounds
-      const rangeX = maxX - minX
-      const rangeY = maxY - minY
+    import('force-graph').then((mod) => {
+      if (cancelled || !el) return
+      const ForceGraph = mod.default
 
-      // Check node hover
-      let hoveredNode: typeof nodes[0] | null = null
-      for (const node of nodes) {
-        const sx = ml + ((node.x - minX) / rangeX) * pw
-        const sy = mt + ph - ((node.y - minY) / rangeY) * ph
-        const r = 12 + (Math.sqrt(node.count / maxCount)) * 28
-        const dx = sx - mx
-        const dy = sy - my
-        if (Math.sqrt(dx * dx + dy * dy) <= r) {
-          hoveredNode = node
-          break
-        }
-      }
+      const computedStyle = getComputedStyle(el)
+      const bgHex = computedStyle.getPropertyValue('--bg').trim()
+      const isLightBg = (() => {
+        if (!bgHex || !bgHex.startsWith('#')) return false
+        const [r, g, b] = hexToRgb(bgHex)
+        return (r * 299 + g * 587 + b * 114) / 1000 > 160
+      })()
 
-      if (hoveredNode) {
-        const label = labelMap(hoveredNode.id)
-        // Find connected clusters
-        const connected = edges
-          .filter((e) => e.source === hoveredNode!.id || e.target === hoveredNode!.id)
-          .map((e) => {
-            const otherId = e.source === hoveredNode!.id ? e.target : e.source
-            return `${labelMap(otherId)} (${e.similarity.toFixed(3)})`
-          })
-        // Count bridge nodes
-        const bridgeCount = bridges.filter(
-          (b) => b.ownCluster === hoveredNode!.id || b.nearestCluster === hoveredNode!.id
-        ).length
+      const width = el.clientWidth || 600
+      const height = isFullscreen
+        ? Math.max(500, window.innerHeight - 160)
+        : Math.min(width * 0.65, 520)
 
-        tooltip.style.display = 'block'
-        tooltip.style.left = `${e.clientX - rect.left + 12}px`
-        tooltip.style.top = `${e.clientY - rect.top - 10}px`
-        tooltip.innerHTML = `<strong>${escapeHtml(label)}</strong><br/>` +
-          `${t(language, 'ivGraphNodeDocs')}: ${hoveredNode.count}<br/>` +
-          (connected.length > 0
-            ? `${t(language, 'ivGraphConnected')}:<br/>` +
-              connected.map((c) => `&nbsp;&nbsp;• ${escapeHtml(c)}`).join('<br/>')
-            : `<span style="opacity:0.6">${t(language, 'ivGraphNoConnections')}</span>`) +
-          (bridgeCount > 0 ? `<br/>${t(language, 'ivGraphBridgeCount')}: ${bridgeCount}` : '')
-      } else {
-        // Check edge hover
-        let hoveredEdge: typeof edges[0] | null = null
-        for (const edge of edges) {
-          const src = nodes[edge.source]
-          const tgt = nodes[edge.target]
-          if (!src || !tgt) continue
-          const sx = ml + ((src.x - minX) / rangeX) * pw
-          const sy = mt + ph - ((src.y - minY) / rangeY) * ph
-          const tx = ml + ((tgt.x - minX) / rangeX) * pw
-          const ty = mt + ph - ((tgt.y - minY) / rangeY) * ph
-          // Point-to-line-segment distance
-          const dist = pointToSegmentDist(mx, my, sx, sy, tx, ty)
-          if (dist < 8) {
-            hoveredEdge = edge
-            break
+      fgInstance = new ForceGraph(el)
+        .width(width)
+        .height(height)
+        .backgroundColor(isLightBg ? '#f0f2f5' : 'transparent')
+        .nodeId('id')
+        .nodeVal((node: any) => sizeOf(node.id)) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .nodeColor((node: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          const isFocus = focusNodeId === node.id
+          const isNeighbor = focusNeighbors.has(node.id)
+          const isMatch = searchMatches?.has(node.id)
+          if (focusNodeId === null && searchMatches === null) return node.color
+          if (isFocus || isNeighbor || isMatch) return node.color
+          return isLightBg ? 'rgba(180,180,180,0.35)' : 'rgba(100,100,100,0.35)'
+        })
+        .nodeCanvasObjectMode(() => 'after')
+        .nodeCanvasObject((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          if (node.x == null || node.y == null) return
+          const r = Math.sqrt(sizeOf(node.id)) * 2.2
+          const isSelected = selectedNodeId === node.id
+          const isHovered = highlightedNodeId === node.id
+
+          // Halo for selected node (pulse)
+          if (isSelected) {
+            const pulseR = r + 6 + Math.sin(pulse) * 4
+            ctx.beginPath()
+            ctx.arc(node.x, node.y, pulseR, 0, Math.PI * 2)
+            ctx.strokeStyle = node.color
+            ctx.lineWidth = 2 / globalScale
+            ctx.globalAlpha = 0.6
+            ctx.stroke()
+            ctx.globalAlpha = 1
+          } else if (isHovered) {
+            ctx.beginPath()
+            ctx.arc(node.x, node.y, r + 3, 0, Math.PI * 2)
+            ctx.strokeStyle = node.color
+            ctx.lineWidth = 1.5 / globalScale
+            ctx.globalAlpha = 0.5
+            ctx.stroke()
+            ctx.globalAlpha = 1
           }
-        }
 
-        if (hoveredEdge) {
-          tooltip.style.display = 'block'
-          tooltip.style.left = `${e.clientX - rect.left + 12}px`
-          tooltip.style.top = `${e.clientY - rect.top - 10}px`
-          tooltip.innerHTML =
-            `${escapeHtml(labelMap(hoveredEdge.source))} ↔ ${escapeHtml(labelMap(hoveredEdge.target))}<br/>` +
-            `${t(language, 'ivGraphSimilarity')}: ${hoveredEdge.similarity.toFixed(4)}`
-        } else {
-          tooltip.style.display = 'none'
-        }
+          const fontSize = Math.max(10, 14 / globalScale)
+          const label = node.label
+          ctx.font = `bold ${fontSize}px system-ui, sans-serif`
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'top'
+          const labelY = node.y + r + 2 / globalScale
+
+          const textWidth = ctx.measureText(label).width
+          const bgPadX = 3 / globalScale
+          const bgPadY = 1 / globalScale
+          ctx.fillStyle = isLightBg ? 'rgba(240,242,245,0.85)' : 'rgba(30,30,30,0.85)'
+          ctx.fillRect(node.x - textWidth / 2 - bgPadX, labelY - bgPadY, textWidth + bgPadX * 2, fontSize + bgPadY * 2)
+
+          ctx.fillStyle = isLightBg ? '#222' : '#eee'
+          ctx.fillText(label, node.x, labelY)
+
+          // Count inside the node
+          const countFontSize = Math.max(9, 12 / globalScale)
+          ctx.font = `${countFontSize}px system-ui, sans-serif`
+          ctx.textBaseline = 'middle'
+          ctx.fillStyle = '#fff'
+          ctx.fillText(`${node.count}`, node.x, node.y)
+        })
+        .linkWidth((link: any) => 1.5 + link.similarity * 6) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .linkColor((link: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          const src = typeof link.source === 'object' ? link.source.id : link.source
+          const tgt = typeof link.target === 'object' ? link.target.id : link.target
+          const key = `${src}-${tgt}`
+          if (focusNodeId !== null && !focusLinks.has(key)) {
+            return isLightBg ? 'rgba(180,180,180,0.12)' : 'rgba(100,100,100,0.12)'
+          }
+          const alpha = 0.3 + link.similarity * 0.5
+          return isLightBg ? `rgba(60,60,60,${alpha})` : `rgba(180,180,180,${alpha})`
+        })
+        .linkCanvasObjectMode(() => 'after')
+        .linkCanvasObject((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          const start = link.source
+          const end = link.target
+          if (typeof start !== 'object' || typeof end !== 'object') return
+          if (start.x == null || end.x == null) return
+          const mx = (start.x + end.x) / 2
+          const my = (start.y + end.y) / 2
+
+          // Bridge badge
+          const srcId = start.id
+          const tgtId = end.id
+          const bridgeKey = srcId < tgtId ? `${srcId}-${tgtId}` : `${tgtId}-${srcId}`
+          const bridgeCount = bridgeCountMap.get(bridgeKey)
+          if (bridgeCount && bridgeCount > 0) {
+            const r = 6 / globalScale
+            ctx.beginPath()
+            ctx.arc(mx, my, r, 0, Math.PI * 2)
+            ctx.fillStyle = '#f59f00'
+            ctx.fill()
+            ctx.strokeStyle = isLightBg ? '#fff' : '#1a1a1a'
+            ctx.lineWidth = 1 / globalScale
+            ctx.stroke()
+            ctx.fillStyle = '#1a1a1a'
+            ctx.font = `bold ${9 / globalScale}px system-ui`
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'middle'
+            ctx.fillText(String(bridgeCount), mx, my)
+          }
+
+          // Edge label (similarity)
+          if (showEdgeLabels) {
+            const labelText = link.similarity.toFixed(2)
+            const fs = 10 / globalScale
+            ctx.font = `${fs}px system-ui`
+            const w = ctx.measureText(labelText).width
+            const padX = 3 / globalScale
+            const padY = 1 / globalScale
+            const offset = bridgeCount ? 14 / globalScale : 0
+            ctx.fillStyle = isLightBg ? 'rgba(255,255,255,0.85)' : 'rgba(20,20,20,0.85)'
+            ctx.fillRect(mx - w / 2 - padX, my - fs / 2 - padY + offset, w + padX * 2, fs + padY * 2)
+            ctx.fillStyle = isLightBg ? '#333' : '#ddd'
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'middle'
+            ctx.fillText(labelText, mx, my + offset)
+          }
+        })
+        .linkLabel((link: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          const srcLabel = typeof link.source === 'object' ? link.source.label : `Cluster ${link.source}`
+          const tgtLabel = typeof link.target === 'object' ? link.target.label : `Cluster ${link.target}`
+          const srcId = typeof link.source === 'object' ? link.source.id : link.source
+          const tgtId = typeof link.target === 'object' ? link.target.id : link.target
+          const bridgeKey = srcId < tgtId ? `${srcId}-${tgtId}` : `${tgtId}-${srcId}`
+          const bridgeCount = bridgeCountMap.get(bridgeKey)
+          return `${escapeHtml(srcLabel)} ↔ ${escapeHtml(tgtLabel)}<br/>`
+            + `${t(language, 'ivGraphSimilarity')}: ${link.similarity.toFixed(4)}`
+            + (bridgeCount ? `<br/>🔗 Bridge: ${bridgeCount}` : '')
+        })
+        .linkDirectionalParticles((link: any) => enableParticles ? Math.ceil(link.similarity * 3) : 0) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .linkDirectionalParticleSpeed((link: any) => link.similarity * 0.006) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .linkDirectionalParticleWidth(2)
+        .linkDirectionalParticleColor((link: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          const src = typeof link.source === 'object' ? link.source : null
+          return src?.color ?? '#aaa'
+        })
+        .onNodeHover((node: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          setHighlightedNodeId(node ? node.id : null)
+          el.style.cursor = node ? 'pointer' : 'default'
+        })
+        .onNodeClick((node: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          setSelectedNodeId((prev) => (prev === node.id ? null : node.id))
+        })
+        .onBackgroundClick(() => {
+          setSelectedNodeId(null)
+        })
+        .onNodeDragEnd((node: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          node.fx = node.x
+          node.fy = node.y
+        })
+        .cooldownTime(3000)
+        .warmupTicks(30)
+        .graphData(graphData as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+      // Configure d3 forces
+      const linkForce = fgInstance.d3Force('link')
+      if (linkForce) linkForce.distance(linkDistance)
+      const chargeForce = fgInstance.d3Force('charge')
+      if (chargeForce) chargeForce.strength(chargeStrength)
+
+      // Apply radial layout if selected
+      if (layoutMode === 'radial') {
+        // Pin nodes evenly on a circle as initial positions
+        const cx = width / 2, cy = height / 2
+        const radius = Math.min(width, height) * 0.35
+        const fgNodes = fgInstance.graphData().nodes
+        fgNodes.forEach((n: any, i: number) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          const a = (i / fgNodes.length) * Math.PI * 2
+          n.fx = cx + Math.cos(a) * radius
+          n.fy = cy + Math.sin(a) * radius
+        })
+        fgInstance.d3ReheatSimulation()
       }
-    }
 
-    const handleMouseLeave = () => {
-      tooltip.style.display = 'none'
-    }
+      setTimeout(() => {
+        fgInstance?.zoomToFit(400, 40)
+      }, 500)
 
-    canvas.addEventListener('mousemove', handleMouseMove)
-    canvas.addEventListener('mouseleave', handleMouseLeave)
+      fgRef.current = fgInstance
+    })
+
     return () => {
-      canvas.removeEventListener('mousemove', handleMouseMove)
-      canvas.removeEventListener('mouseleave', handleMouseLeave)
+      cancelled = true
+      if (fgInstance) {
+        fgInstance._destructor()
+      }
+      fgRef.current = null
+      while (el.firstChild) el.removeChild(el.firstChild)
     }
-  }, [nodes, edges, bridges, bounds, maxCount, labelMap, language])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphData, bridgeCountMap, language, linkDistance, chargeStrength, layoutMode, isFullscreen])
 
-  // Related clusters table (graph traversal)
+  // Live re-render when visual modes / focus change (no full re-init)
+  useEffect(() => {
+    const fg = fgRef.current
+    if (!fg) return
+    fg.linkDirectionalParticles((link: any) => enableParticles ? Math.ceil(link.similarity * 3) : 0) // eslint-disable-line @typescript-eslint/no-explicit-any
+    // Trigger redraw
+    if (typeof fg._renderObjs === 'function') fg._renderObjs()
+  }, [enableParticles])
+
+  useEffect(() => {
+    // Force-graph caches state — easiest to call a renderer trigger
+    const fg = fgRef.current
+    if (!fg) return
+    if (typeof fg.refresh === 'function') fg.refresh()
+  }, [focusNodeId, focusNeighbors, focusLinks, searchMatches, selectedNodeId, highlightedNodeId, pulse, showEdgeLabels])
+
+  // Related clusters table (graph traversal, uses filteredEdges)
   const relatedClusters = useMemo(() => {
-    // For each cluster, gather its neighbors sorted by similarity
     return nodes.map((node) => {
-      const neighbors = edges
+      const neighbors = filteredEdges
         .filter((e) => e.source === node.id || e.target === node.id)
         .map((e) => ({
           clusterId: e.source === node.id ? e.target : e.source,
@@ -1889,10 +2096,40 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta }: {
         .sort((a, b) => b.similarity - a.similarity)
       return { id: node.id, label: labelMap(node.id), count: node.count, neighbors }
     })
-  }, [nodes, edges, labelMap])
+  }, [nodes, filteredEdges, labelMap])
+
+  // Selected cluster details
+  const selectedDetail = useMemo(() => {
+    if (selectedNodeId === null) return null
+    const node = nodes.find((n) => n.id === selectedNodeId)
+    if (!node) return null
+    const summary = summaryMap.get(selectedNodeId) ?? null
+    const neighbors = filteredEdges
+      .filter((e) => e.source === selectedNodeId || e.target === selectedNodeId)
+      .map((e) => ({
+        clusterId: e.source === selectedNodeId ? e.target : e.source,
+        similarity: e.similarity,
+      }))
+      .sort((a, b) => b.similarity - a.similarity)
+    const bridgeCount = bridges.filter(
+      (b) => b.ownCluster === selectedNodeId || b.nearestCluster === selectedNodeId,
+    ).length
+    return { node, summary, neighbors, bridgeCount, degree: degreeMap.get(selectedNodeId) ?? 0 }
+  }, [selectedNodeId, nodes, summaryMap, filteredEdges, bridges, degreeMap])
+
+  const exportPng = useCallback(() => {
+    const el = graphContainerRef.current
+    if (!el) return
+    const canvas = el.querySelector('canvas')
+    if (!canvas) return
+    const link = document.createElement('a')
+    link.download = `cluster-graph-${Date.now()}.png`
+    link.href = canvas.toDataURL('image/png')
+    link.click()
+  }, [])
 
   return (
-    <div className="section" style={{ marginTop: '16px' }}>
+    <div className="section" style={{ marginTop: '16px' }} ref={containerRef}>
       <div className="section__title">
         <i className="bi bi-diagram-2 icon--mr6" />
         {t(language, 'ivGraphTitle')}
@@ -1900,32 +2137,270 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta }: {
       <div className="app__hint">
         {t(language, 'ivGraphDescription')
           .replace('{nodes}', String(nodes.length))
-          .replace('{edges}', String(edges.length))
+          .replace('{edges}', String(filteredEdges.length))
           .replace('{bridges}', String(bridges.length))}
       </div>
 
-      {/* Canvas */}
-      <div ref={containerRef} style={{ position: 'relative', width: '100%', marginTop: '8px' }}>
-        <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
+      {/* Toolbar — Row 1: Action buttons */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', marginTop: '8px', fontSize: '12px' }}>
+        <button type="button" className="btn btn--sm" onClick={() => fgRef.current?.zoomToFit(400, 40)}
+          title={t(language, 'ivGraphZoomFit')}>
+          <i className="bi bi-arrows-fullscreen icon--mr4" />{t(language, 'ivGraphZoomFit')}
+        </button>
+        <button type="button" className="btn btn--sm" onClick={() => {
+          const fg = fgRef.current; if (!fg) return
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          fg.graphData().nodes.forEach((n: any) => { n.fx = undefined; n.fy = undefined })
+          fg.d3ReheatSimulation()
+        }} title={t(language, 'ivGraphReheat')}>
+          <i className="bi bi-arrow-clockwise icon--mr4" />{t(language, 'ivGraphReheat')}
+        </button>
+        <button type="button" className="btn btn--sm" onClick={() => {
+          const fg = fgRef.current; if (!fg) return
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          fg.graphData().nodes.forEach((n: any) => { n.fx = n.x; n.fy = n.y })
+        }} title={t(language, 'ivGraphPinAll')}>
+          <i className="bi bi-pin-angle-fill icon--mr4" />{t(language, 'ivGraphPinAll')}
+        </button>
+        <button type="button" className="btn btn--sm" onClick={() => {
+          const fg = fgRef.current; if (!fg) return
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          fg.graphData().nodes.forEach((n: any) => { n.fx = undefined; n.fy = undefined })
+          fg.d3ReheatSimulation()
+        }} title={t(language, 'ivGraphUnpinAll')}>
+          <i className="bi bi-pin-angle icon--mr4" />{t(language, 'ivGraphUnpinAll')}
+        </button>
+        <button type="button" className="btn btn--sm" onClick={exportPng} title={t(language, 'ivGraphExportPng')}>
+          <i className="bi bi-download icon--mr4" />{t(language, 'ivGraphExportPng')}
+        </button>
+        <button type="button" className="btn btn--sm" onClick={() => setIsFullscreen((v) => !v)}
+          title={isFullscreen ? t(language, 'ivGraphExitFullscreen') : t(language, 'ivGraphFullscreen')}>
+          <i className={`bi ${isFullscreen ? 'bi-fullscreen-exit' : 'bi-fullscreen'} icon--mr4`} />
+          {isFullscreen ? t(language, 'ivGraphExitFullscreen') : t(language, 'ivGraphFullscreen')}
+        </button>
+
+        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <i className="bi bi-search" />
+          <input
+            type="text"
+            placeholder={t(language, 'ivGraphSearchPlaceholder')}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{ padding: '2px 6px', fontSize: '12px', width: '150px' }}
+          />
+        </span>
+      </div>
+
+      {/* Toolbar — Row 2: Sliders */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', marginTop: '6px', fontSize: '12px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {t(language, 'ivGraphLinkDist')}
+          <input type="range" min={40} max={400} step={10} value={linkDistance}
+            onChange={(e) => setLinkDistance(Number(e.target.value))}
+            style={{ width: '80px' }} />
+          <span style={{ minWidth: '28px', textAlign: 'right' }}>{linkDistance}</span>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {t(language, 'ivGraphCharge')}
+          <input type="range" min={-800} max={-50} step={10} value={chargeStrength}
+            onChange={(e) => setChargeStrength(Number(e.target.value))}
+            style={{ width: '80px' }} />
+          <span style={{ minWidth: '36px', textAlign: 'right' }}>{chargeStrength}</span>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {t(language, 'ivGraphEdgeMin')}
+          <input type="range" min={0} max={1} step={0.01} value={edgeMinThreshold}
+            onChange={(e) => setEdgeMinThreshold(Number(e.target.value))}
+            style={{ width: '80px' }} />
+          <span style={{ minWidth: '32px', textAlign: 'right' }}>{edgeMinThreshold.toFixed(2)}</span>
+        </label>
+      </div>
+
+      {/* Toolbar — Row 3: Modes & toggles */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', marginTop: '6px', fontSize: '12px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {t(language, 'ivGraphColorMode')}:
+          <select value={colorMode} onChange={(e) => setColorMode(e.target.value as 'cluster' | 'count' | 'degree')}
+            style={{ padding: '2px 4px', fontSize: '12px' }}>
+            <option value="cluster">{t(language, 'ivGraphColorByCluster')}</option>
+            <option value="count">{t(language, 'ivGraphColorByCount')}</option>
+            <option value="degree">{t(language, 'ivGraphColorByDegree')}</option>
+          </select>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {t(language, 'ivGraphSizeMode')}:
+          <select value={sizeMode} onChange={(e) => setSizeMode(e.target.value as 'count' | 'uniform' | 'degree')}
+            style={{ padding: '2px 4px', fontSize: '12px' }}>
+            <option value="count">{t(language, 'ivGraphSizeByCount')}</option>
+            <option value="uniform">{t(language, 'ivGraphSizeUniform')}</option>
+            <option value="degree">{t(language, 'ivGraphSizeByDegree')}</option>
+          </select>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {t(language, 'ivGraphLayoutTitle')}:
+          <select value={layoutMode} onChange={(e) => setLayoutMode(e.target.value as 'force' | 'radial')}
+            style={{ padding: '2px 4px', fontSize: '12px' }}>
+            <option value="force">{t(language, 'ivGraphLayoutForce')}</option>
+            <option value="radial">{t(language, 'ivGraphLayoutRadial')}</option>
+          </select>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <input type="checkbox" checked={showEdgeLabels} onChange={(e) => setShowEdgeLabels(e.target.checked)} />
+          {t(language, 'ivGraphEdgeLabels')}
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <input type="checkbox" checked={enableParticles} onChange={(e) => setEnableParticles(e.target.checked)} />
+          {t(language, 'ivGraphParticles')}
+        </label>
+      </div>
+
+      {/* Force-directed graph + overlays */}
+      <div style={{ position: 'relative', marginTop: '8px' }}>
         <div
-          ref={tooltipRef}
+          ref={graphContainerRef}
           style={{
-            display: 'none',
-            position: 'absolute',
-            background: 'rgba(30, 30, 30, 0.92)',
-            color: '#f0f0f0',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            padding: '6px 10px',
+            width: '100%',
             borderRadius: '6px',
-            fontSize: '12px',
-            lineHeight: '1.4',
-            pointerEvents: 'none',
-            zIndex: 10,
-            maxWidth: '350px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-            backdropFilter: 'blur(4px)',
+            overflow: 'hidden',
+            border: '1px solid var(--border, #333)',
+            background: 'var(--panel, #1a1a1a)',
           }}
         />
+
+        {/* Stats overlay (top-left) */}
+        <div style={{
+          position: 'absolute', top: '8px', left: '8px',
+          background: 'rgba(20,20,20,0.75)', color: '#eee',
+          padding: '6px 10px', borderRadius: '4px', fontSize: '11px',
+          fontFamily: 'monospace', lineHeight: 1.5,
+          backdropFilter: 'blur(4px)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          pointerEvents: 'none',
+        }}>
+          <div>{t(language, 'ivGraphStatsNodes')}: <strong>{stats.n}</strong></div>
+          <div>{t(language, 'ivGraphStatsEdges')}: <strong>{stats.e}</strong></div>
+          <div>{t(language, 'ivGraphStatsDensity')}: <strong>{(stats.density * 100).toFixed(1)}%</strong></div>
+          <div>{t(language, 'ivGraphStatsAvgSim')}: <strong>{stats.avgSim.toFixed(3)}</strong></div>
+          <div>{t(language, 'ivGraphStatsMaxSim')}: <strong>{stats.maxSim.toFixed(3)}</strong></div>
+          {stats.isolated > 0 && (
+            <div style={{ color: '#f59f00' }}>{t(language, 'ivGraphStatsIsolated')}: <strong>{stats.isolated}</strong></div>
+          )}
+        </div>
+
+        {/* Selected node detail panel (top-right) */}
+        {selectedDetail && (
+          <div style={{
+            position: 'absolute', top: '8px', right: '8px',
+            width: 'min(320px, calc(100% - 24px))',
+            maxHeight: 'calc(100% - 24px)', overflow: 'auto',
+            background: 'rgba(20,20,20,0.92)', color: '#eee',
+            padding: '10px 12px', borderRadius: '6px', fontSize: '12px',
+            backdropFilter: 'blur(6px)',
+            border: `2px solid ${colorOf(selectedDetail.node.id)}`,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '6px' }}>
+              <div>
+                <div style={{ fontSize: '10px', opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {t(language, 'ivGraphSelectedTitle')}
+                </div>
+                <div style={{ fontWeight: 600, fontSize: '14px', marginTop: '2px' }}>
+                  <span style={{ color: colorOf(selectedDetail.node.id), marginRight: '6px' }}>●</span>
+                  {labelMap(selectedDetail.node.id)}
+                </div>
+              </div>
+              <button type="button" onClick={() => setSelectedNodeId(null)}
+                style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: '14px', padding: 0 }}
+                title={t(language, 'ivGraphSelectedClose')}>
+                <i className="bi bi-x-lg" />
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '12px', marginTop: '6px', fontSize: '11px', opacity: 0.85 }}>
+              <span>{t(language, 'ivGraphNodeDocs')}: <strong>{selectedDetail.node.count}</strong></span>
+              <span>{t(language, 'ivGraphSelectedDegree')}: <strong>{selectedDetail.degree}</strong></span>
+              {selectedDetail.bridgeCount > 0 && (
+                <span style={{ color: '#f59f00' }}>🔗 <strong>{selectedDetail.bridgeCount}</strong></span>
+              )}
+            </div>
+            {selectedDetail.summary?.summary && (
+              <div style={{ marginTop: '8px' }}>
+                <div style={{ fontSize: '10px', opacity: 0.6, textTransform: 'uppercase', marginBottom: '2px' }}>
+                  {t(language, 'ivGraphSelectedSummary')}
+                </div>
+                <div style={{ fontSize: '11px', lineHeight: 1.4 }}>{selectedDetail.summary.summary}</div>
+              </div>
+            )}
+            {selectedDetail.summary?.keywords && selectedDetail.summary.keywords.length > 0 && (
+              <div style={{ marginTop: '8px' }}>
+                <div style={{ fontSize: '10px', opacity: 0.6, textTransform: 'uppercase', marginBottom: '4px' }}>
+                  {t(language, 'ivGraphSelectedKeywords')}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {selectedDetail.summary.keywords.slice(0, 8).map((kw, i) => (
+                    <span key={i} style={{
+                      padding: '1px 6px', borderRadius: '3px', fontSize: '10px',
+                      background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
+                    }}>{kw}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {selectedDetail.neighbors.length > 0 && (
+              <div style={{ marginTop: '8px' }}>
+                <div style={{ fontSize: '10px', opacity: 0.6, textTransform: 'uppercase', marginBottom: '4px' }}>
+                  {t(language, 'ivGraphSelectedNeighbors')} ({selectedDetail.neighbors.length})
+                </div>
+                <div style={{ maxHeight: '120px', overflow: 'auto' }}>
+                  {selectedDetail.neighbors.slice(0, 10).map((n) => (
+                    <div key={n.clusterId}
+                      onClick={() => setSelectedNodeId(n.clusterId)}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '2px 4px', borderRadius: '3px', cursor: 'pointer', fontSize: '11px',
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}>
+                      <span>
+                        <span style={{ color: colorOf(n.clusterId), marginRight: '4px' }}>●</span>
+                        {labelMap(n.clusterId)}
+                      </span>
+                      <span style={{ opacity: 0.7, fontFamily: 'monospace' }}>{n.similarity.toFixed(3)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {onBrowseCluster && (
+              <button type="button" className="btn btn--sm btn--primary"
+                onClick={() => onBrowseCluster(selectedDetail.node.id)}
+                style={{ marginTop: '10px', width: '100%', fontSize: '11px' }}>
+                <i className="bi bi-list-ul icon--mr4" />
+                {t(language, 'ivGraphSelectedBrowseDocs')}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Color legend (bottom-left) — only for heat modes */}
+        {colorMode !== 'cluster' && (
+          <div style={{
+            position: 'absolute', bottom: '8px', left: '8px',
+            background: 'rgba(20,20,20,0.75)', color: '#eee',
+            padding: '4px 8px', borderRadius: '4px', fontSize: '10px',
+            fontFamily: 'monospace',
+            backdropFilter: 'blur(4px)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            display: 'flex', alignItems: 'center', gap: '6px',
+            pointerEvents: 'none',
+          }}>
+            <span>0</span>
+            <div style={{
+              width: '120px', height: '8px', borderRadius: '2px',
+              background: 'linear-gradient(to right, #2c5aa0, #00aaff, #00ff88, #ffdd00, #ff4444)',
+            }} />
+            <span>{colorMode === 'count' ? maxCount : maxDegree}</span>
+          </div>
+        )}
       </div>
 
       {/* Related Clusters Table */}
@@ -1945,7 +2420,13 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta }: {
             </thead>
             <tbody>
               {relatedClusters.map((rc) => (
-                <tr key={rc.id} style={{ borderBottom: '1px solid var(--color-border, #333)' }}>
+                <tr key={rc.id}
+                  onClick={() => setSelectedNodeId(rc.id)}
+                  style={{
+                    borderBottom: '1px solid var(--color-border, #333)',
+                    background: selectedNodeId === rc.id ? 'rgba(120,180,255,0.08)' : undefined,
+                    cursor: 'pointer',
+                  }}>
                   <td style={{ padding: '4px 8px' }}>
                     <span style={{ color: CLUSTER_COLORS[rc.id % CLUSTER_COLORS.length], marginRight: '6px' }}>●</span>
                     {rc.label}
@@ -1987,7 +2468,7 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta }: {
                 {bridges.slice(0, 10).map((br, idx) => (
                   <tr key={idx} style={{ borderBottom: '1px solid var(--color-border, #333)' }}>
                     <td style={{ padding: '4px 8px', fontFamily: 'monospace', fontSize: '11px' }}>
-                      {truncate(data.docs[br.docIndex]?.id ?? String(br.docIndex), 30)}
+                      {truncate(data?.docs[br.docIndex]?.id ?? String(br.docIndex), 30)}
                     </td>
                     <td style={{ padding: '4px 8px' }}>
                       <span style={{ color: CLUSTER_COLORS[br.ownCluster % CLUSTER_COLORS.length], marginRight: '4px' }}>●</span>
@@ -2014,19 +2495,6 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta }: {
       )}
     </div>
   )
-}
-
-/** Distance from point (px,py) to line segment (x1,y1)-(x2,y2). */
-function pointToSegmentDist(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
-  const dx = x2 - x1
-  const dy = y2 - y1
-  const lenSq = dx * dx + dy * dy
-  if (lenSq === 0) return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2)
-  let t = ((px - x1) * dx + (py - y1) * dy) / lenSq
-  t = Math.max(0, Math.min(1, t))
-  const projX = x1 + t * dx
-  const projY = y1 + t * dy
-  return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2)
 }
 
 // ============================================================================

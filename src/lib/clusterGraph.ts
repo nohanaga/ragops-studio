@@ -300,3 +300,24 @@ export function buildClusterGraph(
 
   return { nodes, edges, bridges }
 }
+
+/**
+ * Rebuild a lightweight ClusterGraphData from meta-index summaries.
+ *
+ * Uses centroid vectors stored in ClusterSummary to compute edges.
+ * Bridge nodes cannot be reconstructed (requires full document vectors).
+ */
+export function rebuildClusterGraphFromMeta(
+  summaries: { centroidVector: number[]; documentCount: number }[],
+  edgeThreshold = 0.5,
+): ClusterGraphData {
+  const centroids = summaries.map((s) =>
+    new Float32Array(s.centroidVector),
+  )
+  const counts = Array.from(summaries.map((s) => s.documentCount))
+
+  const edges = buildClusterEdges(centroids, edgeThreshold)
+  const nodes = forceDirectedLayout(counts, edges)
+
+  return { nodes, edges, bridges: [] }
+}
