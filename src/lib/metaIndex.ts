@@ -12,7 +12,7 @@ import type { ConnectionProfile, SearchApiVersion } from './model'
 import type { Language } from './translations'
 import type { LlmProviderConfig } from './llmProvider'
 import type { ClusterResult } from './clustering'
-import { callLlmChat, type LlmUsage } from './llmProvider'
+import { callLlmChat, extractJsonFromText, type LlmUsage, type JsonSchemaResponseFormat } from './llmProvider'
 import { countTokens, truncateToTokenLimit } from './tokenizer'
 import {
   createOrUpdateIndex,
@@ -26,6 +26,21 @@ import {
 } from './aiSearchRest'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
+
+/** JSON Schema for cluster label / summary / keywords LLM output. */
+const CLUSTER_LABEL_SCHEMA: JsonSchemaResponseFormat = {
+  name: 'cluster_label',
+  schema: {
+    type: 'object',
+    properties: {
+      label: { type: 'string' },
+      summary: { type: 'string' },
+      keywords: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['label', 'summary', 'keywords'],
+    additionalProperties: false,
+  },
+}
 
 export interface ClusterSummary {
   clusterId: string
@@ -217,6 +232,7 @@ export async function summarizeClusters(input: {
         userPrompt,
         signal,
         jsonMode: true,
+        jsonSchema: CLUSTER_LABEL_SCHEMA,
         onUsage: (usage: LlmUsage) => {
           promptTokens += usage.promptTokens
           completionTokens += usage.completionTokens
@@ -228,7 +244,7 @@ export async function summarizeClusters(input: {
       })
       traceResponse = response
 
-      const parsed = JSON.parse(response)
+      const parsed = JSON.parse(extractJsonFromText(response))
       label = String(parsed.label || label)
       summary = String(parsed.summary || '')
       keywords = Array.isArray(parsed.keywords) ? parsed.keywords.map(String) : []

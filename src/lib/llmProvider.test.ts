@@ -6,6 +6,8 @@ import {
   buildEmbeddingsRequestBody,
   buildEmbeddingsUrl,
   buildProviderAuthHeaders,
+  DEFAULT_LOCAL_MAX_TOKENS,
+  type JsonSchemaResponseFormat,
   type LlmProviderConfig,
 } from './llmProvider'
 
@@ -179,9 +181,109 @@ describe('buildChatRequestBody', () => {
     expect(body.response_format).toEqual({ type: 'json_object' })
   })
 
+  it('jsonMode adds response_format for openai', () => {
+    const body = buildChatRequestBody(cfg({ provider: 'openai' }), msgs, { jsonMode: true })
+    expect(body.response_format).toEqual({ type: 'json_object' })
+  })
+
+  it('jsonMode omits response_format for lmstudio (no schema)', () => {
+    const body = buildChatRequestBody(cfg({ provider: 'lmstudio' }), msgs, { jsonMode: true })
+    expect(body).not.toHaveProperty('response_format')
+  })
+
+  it('jsonMode omits response_format for foundry-local (unsupported)', () => {
+    const body = buildChatRequestBody(cfg({ provider: 'foundry-local' }), msgs, { jsonMode: true })
+    expect(body).not.toHaveProperty('response_format')
+  })
+
+  // ─── jsonSchema structured output ─────────────────────────────────────────
+
+  const testSchema: JsonSchemaResponseFormat = {
+    name: 'test_output',
+    schema: {
+      type: 'object',
+      properties: { value: { type: 'string' } },
+      required: ['value'],
+      additionalProperties: false,
+    },
+  }
+
+  it('jsonSchema: azure-openai uses json_schema response_format', () => {
+    const body = buildChatRequestBody(cfg(), msgs, { jsonMode: true, jsonSchema: testSchema })
+    expect(body.response_format).toEqual({
+      type: 'json_schema',
+      json_schema: { name: 'test_output', strict: true, schema: testSchema.schema },
+    })
+  })
+
+  it('jsonSchema: openai uses json_schema response_format', () => {
+    const body = buildChatRequestBody(cfg({ provider: 'openai' }), msgs, { jsonMode: true, jsonSchema: testSchema })
+    expect(body.response_format).toEqual({
+      type: 'json_schema',
+      json_schema: { name: 'test_output', strict: true, schema: testSchema.schema },
+    })
+  })
+
+  it('jsonSchema: lmstudio uses json_schema response_format', () => {
+    const body = buildChatRequestBody(cfg({ provider: 'lmstudio' }), msgs, { jsonMode: true, jsonSchema: testSchema })
+    expect(body.response_format).toEqual({
+      type: 'json_schema',
+      json_schema: { name: 'test_output', strict: true, schema: testSchema.schema },
+    })
+  })
+
+  it('jsonSchema: foundry-local still omits response_format', () => {
+    const body = buildChatRequestBody(cfg({ provider: 'foundry-local' }), msgs, { jsonMode: true, jsonSchema: testSchema })
+    expect(body).not.toHaveProperty('response_format')
+  })
+
+  it('jsonSchema without jsonMode still applies json_schema', () => {
+    const body = buildChatRequestBody(cfg(), msgs, { jsonSchema: testSchema })
+    expect(body.response_format).toEqual({
+      type: 'json_schema',
+      json_schema: { name: 'test_output', strict: true, schema: testSchema.schema },
+    })
+  })
+
+  it('jsonSchema respects strict: false', () => {
+    const relaxed = { ...testSchema, strict: false }
+    const body = buildChatRequestBody(cfg(), msgs, { jsonSchema: relaxed })
+    expect((body.response_format as Record<string, unknown>)).toEqual({
+      type: 'json_schema',
+      json_schema: { name: 'test_output', strict: false, schema: testSchema.schema },
+    })
+  })
+
   it('without jsonMode omits response_format', () => {
     const body = buildChatRequestBody(cfg(), msgs, { jsonMode: false })
     expect(body).not.toHaveProperty('response_format')
+  })
+
+  // ─── max_tokens ───────────────────────────────────────────────────────────
+
+  it('azure-openai: omits max_tokens by default', () => {
+    const body = buildChatRequestBody(cfg(), msgs)
+    expect(body).not.toHaveProperty('max_tokens')
+  })
+
+  it('explicit maxTokens sets max_tokens for any provider', () => {
+    const body = buildChatRequestBody(cfg(), msgs, { maxTokens: 2048 })
+    expect(body.max_tokens).toBe(2048)
+  })
+
+  it('lmstudio: auto-sets max_tokens to DEFAULT_LOCAL_MAX_TOKENS', () => {
+    const body = buildChatRequestBody(cfg({ provider: 'lmstudio' }), msgs)
+    expect(body.max_tokens).toBe(DEFAULT_LOCAL_MAX_TOKENS)
+  })
+
+  it('foundry-local: auto-sets max_tokens to DEFAULT_LOCAL_MAX_TOKENS', () => {
+    const body = buildChatRequestBody(cfg({ provider: 'foundry-local' }), msgs)
+    expect(body.max_tokens).toBe(DEFAULT_LOCAL_MAX_TOKENS)
+  })
+
+  it('lmstudio: explicit maxTokens overrides default', () => {
+    const body = buildChatRequestBody(cfg({ provider: 'lmstudio' }), msgs, { maxTokens: 8192 })
+    expect(body.max_tokens).toBe(8192)
   })
 })
 
@@ -209,7 +311,7 @@ describe('buildEmbeddingsRequestBody', () => {
 
 // ─── guessMaxInputTokens / resolveMaxInputTokens ────────────────────────────
 
-import { guessMaxInputTokens, resolveMaxInputTokens, DEFAULT_MAX_INPUT_TOKENS } from './llmProvider'
+import { guessMaxInputTokens, resolveMaxInputTokens, DEFAULT_MAX_INPUT_TOKENS, stripHarmonyTokens, extractJsonFromText } from './llmProvider'
 
 describe('guessMaxInputTokens', () => {
   it('matches exact model name', () => {
@@ -247,5 +349,65 @@ describe('resolveMaxInputTokens', () => {
   })
   it('ignores zero override', () => {
     expect(resolveMaxInputTokens('gpt-4o', 0)).toBe(128_000)
+  })
+})
+
+// ─── stripHarmonyTokens ─────────────────────────────────────────────────────
+
+describe('stripHarmonyTokens', () => {
+  it('strips channel/message/start/end tokens from gpt-oss output', () => {
+    const raw = '<|start|>assistant<|channel|>analysis<|message|>thinking...<|end|><|start|>assistant<|channel|>final<|message|>Hello world'
+    expect(stripHarmonyTokens(raw)).toBe('thinking...Hello world')
+  })
+
+  it('returns clean text unchanged', () => {
+    expect(stripHarmonyTokens('Hello world')).toBe('Hello world')
+  })
+
+  it('handles empty string', () => {
+    expect(stripHarmonyTokens('')).toBe('')
+  })
+
+  it('strips return and call tokens', () => {
+    expect(stripHarmonyTokens('answer<|return|>')).toBe('answer')
+    expect(stripHarmonyTokens('<|call|>func')).toBe('func')
+  })
+})
+
+// ─── extractJsonFromText ────────────────────────────────────────────────────
+
+describe('extractJsonFromText', () => {
+  it('returns valid JSON as-is', () => {
+    const json = '{"queries":[{"query":"test"}]}'
+    expect(extractJsonFromText(json)).toBe(json)
+  })
+
+  it('extracts JSON from markdown code fence', () => {
+    const input = 'Here is the result:\n```json\n{"answer": 42}\n```\nDone.'
+    expect(extractJsonFromText(input)).toBe('{"answer": 42}')
+  })
+
+  it('extracts JSON object from surrounding prose', () => {
+    const input = 'Sure! The answer is: {"query": "test"} as requested.'
+    expect(extractJsonFromText(input)).toBe('{"query": "test"}')
+  })
+
+  it('extracts JSON array from surrounding prose', () => {
+    const input = 'Results: [1, 2, 3] end.'
+    expect(extractJsonFromText(input)).toBe('[1, 2, 3]')
+  })
+
+  it('handles nested objects correctly', () => {
+    const input = 'Here: {"a": {"b": "c"}} done.'
+    expect(extractJsonFromText(input)).toBe('{"a": {"b": "c"}}')
+  })
+
+  it('handles strings containing braces', () => {
+    const input = 'Look: {"text": "a {b} c"} fin.'
+    expect(extractJsonFromText(input)).toBe('{"text": "a {b} c"}')
+  })
+
+  it('returns original when no JSON found', () => {
+    expect(extractJsonFromText('no json here')).toBe('no json here')
   })
 })

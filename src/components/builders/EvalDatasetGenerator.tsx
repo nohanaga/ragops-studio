@@ -43,9 +43,6 @@ type TranslationKey = keyof typeof translations.ja
 
 const QUERY_TYPE_OPTIONS: EvalQueryType[] = ['factoid', 'how-to', 'comparative', 'yes-no']
 
-const DEFAULT_LLM_API_VERSION = '2024-10-21'
-const DEFAULT_LLM_DEPLOYMENT = 'gpt-5.4-mini'
-const DEFAULT_EMBEDDING_DEPLOYMENT = 'text-embedding-3-large'
 const DEFAULT_GROUNDING_TOP_K = 10
 const DEFAULT_SEMANTIC_THRESHOLD = 0.92
 
@@ -131,7 +128,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
   const [enableGroundingCheck, setEnableGroundingCheck] = useState<boolean>(true)
   const [groundingTopK, setGroundingTopK] = useState<number>(DEFAULT_GROUNDING_TOP_K)
   const [enableSemanticDedup, setEnableSemanticDedup] = useState<boolean>(false)
-  const [embeddingDeployment, setEmbeddingDeployment] = useState<string>(DEFAULT_EMBEDDING_DEPLOYMENT)
+  const [selectedEmbeddingProfileId, setSelectedEmbeddingProfileId] = useState<string>('')
   const [semanticThreshold, setSemanticThreshold] = useState<number>(DEFAULT_SEMANTIC_THRESHOLD)
   const [showRejected, setShowRejected] = useState<boolean>(false)
 
@@ -221,7 +218,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         if (form.enableGroundingCheck !== undefined) setEnableGroundingCheck(form.enableGroundingCheck)
         if (form.groundingTopK !== undefined) setGroundingTopK(form.groundingTopK)
         if (form.enableSemanticDedup !== undefined) setEnableSemanticDedup(form.enableSemanticDedup)
-        if (form.embeddingDeployment !== undefined) setEmbeddingDeployment(form.embeddingDeployment)
+        if (form.embeddingProfileId !== undefined) setSelectedEmbeddingProfileId(form.embeddingProfileId)
         if (form.semanticThreshold !== undefined) setSemanticThreshold(form.semanticThreshold)
         if (form.showRejected !== undefined) setShowRejected(form.showRejected)
         if (form.enableRagasMode !== undefined) setEnableRagasMode(form.enableRagasMode)
@@ -294,7 +291,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         enableGroundingCheck,
         groundingTopK,
         enableSemanticDedup,
-        embeddingDeployment,
+        embeddingProfileId: selectedEmbeddingProfileId,
         semanticThreshold,
         showRejected,
         enableRagasMode,
@@ -348,7 +345,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     enableGroundingCheck,
     groundingTopK,
     enableSemanticDedup,
-    embeddingDeployment,
+    selectedEmbeddingProfileId,
     semanticThreshold,
     showRejected,
     enableRagasMode,
@@ -440,8 +437,10 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     if (!isLocal && effectiveLlmAuthMode === 'apiKey' && !llm.apiKey.trim()) return String(t('edgErrLlmApiKey'))
     if (!isLocal && effectiveLlmAuthMode === 'bearer' && !llm.bearerToken.trim()) return String(t('edgErrLlmBearerToken'))
     if (!llm.deployment.trim()) return String(t('edgErrLlmDeployment'))
-    if (enableSemanticDedup && !embeddingDeployment.trim())
-      return String(t('edgErrEmbeddingDeployment'))
+    if (enableSemanticDedup) {
+      const embLlm = sharedLlm.resolve(selectedEmbeddingProfileId)
+      if (!embLlm.deployment.trim()) return String(t('edgErrEmbeddingProfile'))
+    }
     return null
   }
 
@@ -480,7 +479,27 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
       enableGroundingCheck,
       groundingTopK: Math.max(1, Math.min(50, Math.floor(groundingTopK || DEFAULT_GROUNDING_TOP_K))),
       enableSemanticDedup,
-      embeddingDeployment: embeddingDeployment.trim() || undefined,
+      ...(enableSemanticDedup ? (() => {
+        const embLlm = sharedLlm.resolve(selectedEmbeddingProfileId)
+        const embIsLocal = LOCAL_PROVIDERS.has(embLlm.provider)
+        return {
+          embeddingProvider: embLlm.provider,
+          embeddingEndpoint: embLlm.provider === 'openai'
+            ? PROVIDER_DEFAULTS.openai.endpoint
+            : embIsLocal
+              ? (embLlm.endpoint.trim() || PROVIDER_DEFAULTS[embLlm.provider].endpoint)
+              : embLlm.endpoint.trim(),
+          embeddingAuth: embIsLocal
+            ? { mode: 'apiKey' as const, apiKey: 'none' }
+            : (embLlm.provider === 'openai' ? 'apiKey' : embLlm.authMode) === 'bearer'
+              ? { mode: 'bearer' as const, bearerToken: embLlm.bearerToken.trim() }
+              : { mode: 'apiKey' as const, apiKey: embLlm.apiKey.trim() },
+          embeddingDeployment: embLlm.deployment.trim() || undefined,
+          embeddingApiVersion: embLlm.provider === 'azure-openai'
+            ? (embLlm.apiVersion.trim() || PROVIDER_DEFAULTS['azure-openai'].apiVersion)
+            : '',
+        }
+      })() : {}),
       semanticDedupThreshold: Math.max(0, Math.min(1, semanticThreshold)),
       // Phase 3: Ragas-style scenario generation
       enableRagasMode,
@@ -824,6 +843,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
           language={language}
           disabled={isRunning}
           onOpenSettings={onOpenLlmSettings}
+          modelType="chat"
         />
       </div>
 
@@ -876,16 +896,18 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
             </span>
             <div className="field__hint">{t('edgSemanticDedupHint')}</div>
           </label>
-          <label className="field" data-guide-target="edg-embedding-deployment">
-            <span className="field__label">{t('edgEmbeddingDeploymentLabel')}</span>
-            <input
-              className="field__input"
-              value={embeddingDeployment}
+          <div className="field" data-guide-target="edg-embedding-deployment">
+            <LlmProfileSelector
+              sharedLlm={sharedLlm}
+              selectedProfileId={selectedEmbeddingProfileId}
+              onSelect={setSelectedEmbeddingProfileId}
+              t={t}
+              language={language}
               disabled={!enableSemanticDedup}
-              onChange={(e) => setEmbeddingDeployment(e.target.value)}
-              placeholder={DEFAULT_EMBEDDING_DEPLOYMENT}
+              onOpenSettings={onOpenLlmSettings}
+              modelType="embeddings"
             />
-          </label>
+          </div>
           <label className="field">
             <span className="field__label">
               {t('edgSemanticThresholdLabel')} ({semanticThreshold.toFixed(2)})
@@ -1275,7 +1297,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
             <div className="field__hint">{t('edgJudgeLlmHint')}</div>
           </label>
           {judgeLlmDeployment.trim() &&
-            judgeLlmDeployment.trim() === llmDeployment.trim() && (
+            judgeLlmDeployment.trim() === sharedLlm.resolve(selectedLlmProfileId).deployment.trim() && (
               <div className="notice notice--warning" style={{ gridColumn: '1 / -1' }} role="status" aria-live="polite">{t('edgJudgeSameModelWarning')}</div>
             )}
         </div>

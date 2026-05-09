@@ -44,7 +44,7 @@ export type PersistedEvalDatasetForm = {
   enableGroundingCheck?: boolean
   groundingTopK?: number
   enableSemanticDedup?: boolean
-  embeddingDeployment?: string
+  embeddingProfileId?: string
   semanticThreshold?: number
   showRejected?: boolean
 
@@ -168,7 +168,7 @@ function normalize(parsed: unknown): PersistedEvalDatasetForm | null {
     enableGroundingCheck: pickBoolean(parsed.enableGroundingCheck),
     groundingTopK: pickNumber(parsed.groundingTopK),
     enableSemanticDedup: pickBoolean(parsed.enableSemanticDedup),
-    embeddingDeployment: pickString(parsed.embeddingDeployment),
+    embeddingProfileId: pickString(parsed.embeddingProfileId),
     semanticThreshold: pickNumber(parsed.semanticThreshold),
     showRejected: pickBoolean(parsed.showRejected),
 

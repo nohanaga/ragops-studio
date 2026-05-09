@@ -5,13 +5,13 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 import type { ConnectionProfile, SearchApiVersion } from '../lib/model'
-import { searchDocuments, getIndexDefinition, type JsonValue } from '../lib/aiSearchRest'
+import { getIndexDefinition, type JsonValue } from '../lib/aiSearchRest'
 import type { Language } from '../lib/translations'
 import type { ClusterResult, HierarchicalClusterResult } from '../lib/clustering'
 import type { PcaResult, ReductionMethod } from '../lib/dimensionReduction'
 import type { WorkerRequest, WorkerMessage } from '../lib/visualizationWorker'
 import type { ClusterGraphData } from '../lib/clusterGraph'
-import { detectIndexStructure, scanVectorsSimple, scanVectorsAdaptive, type VectorSampleDoc } from '../lib/vectorSampling'
+import { detectIndexStructure, scanVectorsSimple, scanVectorsAdaptive } from '../lib/vectorSampling'
 import type { IndexStructureInfo } from '../types/evalDataset'
 
 export type VectorFieldInfo = {

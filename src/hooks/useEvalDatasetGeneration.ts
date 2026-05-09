@@ -484,13 +484,13 @@ export function useEvalDatasetGeneration(
             try {
               const queries = survivorIdx.map((i) => pipeline[i].query)
               const vectors = await embedTexts({
-                endpoint: config.llmEndpoint,
-                auth: config.llmAuth,
-                deployment: config.embeddingDeployment.trim(),
-                apiVersion: config.llmApiVersion,
+                endpoint: config.embeddingEndpoint || config.llmEndpoint,
+                auth: config.embeddingAuth || config.llmAuth,
+                deployment: config.embeddingDeployment!.trim(),
+                apiVersion: config.embeddingApiVersion ?? config.llmApiVersion,
                 inputs: queries,
                 signal: controller.signal,
-                provider: config.llmProvider,
+                provider: config.embeddingProvider || config.llmProvider,
               })
               setProgress((p) => ({ ...p, done: survivorIdx.length, total: survivorIdx.length }))
               const dropped = findSemanticDuplicates(vectors, config.semanticDedupThreshold)

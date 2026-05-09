@@ -92,6 +92,9 @@ export function LlmSettingsModal({ open, onClose, t, language, sharedLlm }: LlmS
                       {profile.name || profile.deployment || '(unnamed)'}
                     </span>
                     <span className="llmProfile__provider">{profile.provider}</span>
+                    <span className="llmProfile__modelType">
+                      {(profile.modelType ?? 'chat') === 'embeddings' ? 'Embeddings' : 'Chat'}
+                    </span>
                     {isDefault && (
                       <span className="llmProfile__badge">{t('llmProfileDefault')}</span>
                     )}

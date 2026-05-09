@@ -18,8 +18,6 @@ export function TextToVectorModal(props: {
   sharedLlm: SharedLlmConfig
   selectedLlmProfileId: string
   setSelectedLlmProfileId: (v: string) => void
-  textToVectorModel: string
-  setTextToVectorModel: (v: string) => void
   textToVectorDimensions: number | null
   setTextToVectorDimensions: (v: number | null) => void
   textToVectorInput: string
@@ -40,8 +38,6 @@ export function TextToVectorModal(props: {
     sharedLlm,
     selectedLlmProfileId,
     setSelectedLlmProfileId,
-    textToVectorModel,
-    setTextToVectorModel,
     textToVectorDimensions,
     setTextToVectorDimensions,
     textToVectorInput,
@@ -76,21 +72,8 @@ export function TextToVectorModal(props: {
             language={language}
             disabled={textToVectorLoading}
             onOpenSettings={onOpenLlmSettings}
+            modelType="embeddings"
           />
-
-          <label className="field field--mb16">
-            <span className="field__label">{t('textToVectorModelLabel')}</span>
-            <select
-              className="field__input"
-              value={textToVectorModel}
-              onChange={(e) => setTextToVectorModel(e.target.value)}
-              disabled={textToVectorLoading}
-            >
-              <option value="text-embedding-ada-002">text-embedding-ada-002</option>
-              <option value="text-embedding-3-small">text-embedding-3-small</option>
-              <option value="text-embedding-3-large">text-embedding-3-large</option>
-            </select>
-          </label>
 
           <label className="field field--mb16">
             <span className="field__label">{t('textToVectorDimensionsLabel')}</span>

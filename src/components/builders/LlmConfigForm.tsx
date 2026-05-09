@@ -6,7 +6,7 @@
  */
 
 import type { ChangeEvent } from 'react'
-import type { LlmModelProfile } from '../../lib/model'
+import type { LlmModelProfile, LlmModelType } from '../../lib/model'
 import type { TranslationKey } from '../../lib/translations'
 import type { LlmProviderType } from '../../lib/llmProvider'
 import { LLM_PROVIDER_LABELS, LLM_PROVIDER_OPTIONS, PROVIDER_DEFAULTS, LOCAL_PROVIDERS, guessMaxInputTokens } from '../../lib/llmProvider'
@@ -31,6 +31,19 @@ export function LlmConfigForm({ profile, onChange, language, t, disabled = false
 
   return (
     <div className="formGrid">
+      <label className="field">
+        <span className="field__label">{t('llmModelTypeLabel')}</span>
+        <select
+          className="field__input"
+          value={profile.modelType ?? 'chat'}
+          onChange={(e) => patch({ modelType: e.target.value as LlmModelType })}
+          disabled={disabled}
+        >
+          <option value="chat">{t('llmModelTypeChat')}</option>
+          <option value="embeddings">{t('llmModelTypeEmbeddings')}</option>
+        </select>
+      </label>
+
       <label className="field">
         <span className="field__label">{t('edgLlmProviderLabel')}</span>
         <select
@@ -122,7 +135,7 @@ export function LlmConfigForm({ profile, onChange, language, t, disabled = false
             className="field__input"
             value={profile.deployment}
             onChange={(e) => patch({ deployment: e.target.value })}
-            placeholder={isLocal ? (profile.provider === 'foundry-local' ? 'phi-3.5-mini' : 'loaded-model-name') : 'gpt-5.4-mini'}
+            placeholder={isLocal ? (profile.provider === 'foundry-local' ? 'phi-3.5-mini' : 'loaded-model-name') : ((profile.modelType ?? 'chat') === 'embeddings' ? 'text-embedding-3-large' : 'gpt-5.4-mini')}
             disabled={disabled}
           />
         </label>
@@ -141,18 +154,20 @@ export function LlmConfigForm({ profile, onChange, language, t, disabled = false
         </label>
       )}
 
-      <label className="field">
-        <span className="field__label">{t('llmMaxInputTokensLabel')}</span>
-        <input
-          type="number"
-          className="field__input"
-          value={profile.maxInputTokens || ''}
-          onChange={(e) => patch({ maxInputTokens: e.target.value ? Number(e.target.value) : undefined })}
-          placeholder={String(guessMaxInputTokens(profile.deployment) ?? 128000)}
-          disabled={disabled}
-        />
-        <span className="field__hint">{t('llmMaxInputTokensHint')}</span>
-      </label>
+      {(profile.modelType ?? 'chat') === 'chat' && (
+        <label className="field">
+          <span className="field__label">{t('llmMaxInputTokensLabel')}</span>
+          <input
+            type="number"
+            className="field__input"
+            value={profile.maxInputTokens || ''}
+            onChange={(e) => patch({ maxInputTokens: e.target.value ? Number(e.target.value) : undefined })}
+            placeholder={String(guessMaxInputTokens(profile.deployment) ?? 128000)}
+            disabled={disabled}
+          />
+          <span className="field__hint">{t('llmMaxInputTokensHint')}</span>
+        </label>
+      )}
     </div>
   )
 }

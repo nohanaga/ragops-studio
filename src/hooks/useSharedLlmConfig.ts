@@ -9,7 +9,7 @@
  * on first access so existing users keep their settings.
  */
 
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useSettings } from '../contexts'
 import type { LlmProviderConfig, LlmProviderType } from '../lib/llmProvider'
 import { PROVIDER_DEFAULTS, LOCAL_PROVIDERS } from '../lib/llmProvider'
@@ -189,25 +189,27 @@ export function useSharedLlmConfig(): SharedLlmConfig {
   const defaultProfileId: string = settings?.defaultLlmProfileId ?? profiles[0]?.id ?? ''
 
   // One-time migration from legacy flat fields
-  if (settings && !migratedRef.current) {
-    const migration = migrateLegacyFields(settings)
-    if (migration) {
-      migratedRef.current = true
-      void patchSettings({
-        llmProfiles: migration.profiles,
-        defaultLlmProfileId: migration.defaultId,
-        llmProvider: undefined,
-        openAiEndpoint: undefined,
-        openAiApiKey: undefined,
-        openAiAuthMode: undefined,
-        openAiBearerToken: undefined,
-        llmDeployment: undefined,
-        llmApiVersion: undefined,
-      })
-    } else {
-      migratedRef.current = true
+  useEffect(() => {
+    if (settings && !migratedRef.current) {
+      const migration = migrateLegacyFields(settings)
+      if (migration) {
+        migratedRef.current = true
+        void patchSettings({
+          llmProfiles: migration.profiles,
+          defaultLlmProfileId: migration.defaultId,
+          llmProvider: undefined,
+          openAiEndpoint: undefined,
+          openAiApiKey: undefined,
+          openAiAuthMode: undefined,
+          openAiBearerToken: undefined,
+          llmDeployment: undefined,
+          llmApiVersion: undefined,
+        })
+      } else {
+        migratedRef.current = true
+      }
     }
-  }
+  }, [settings, patchSettings])
 
   const resolve = useCallback(
     (profileId?: string) => resolveProfile(profiles, defaultProfileId, profileId),

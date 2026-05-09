@@ -12,6 +12,9 @@ import type { LlmProviderType } from './llmProvider'
  * Users can define multiple profiles (e.g. "GPT-4o", "GPT-4.1-mini") and
  * select one per feature.  Stored in AppSettings.llmProfiles.
  */
+/** Model category. `'chat'` for Chat Completions, `'embeddings'` for Embeddings. */
+export type LlmModelType = 'chat' | 'embeddings'
+
 export interface LlmModelProfile {
   /** Unique ID (UUID). */
   id: string
@@ -26,6 +29,8 @@ export interface LlmModelProfile {
   apiVersion: string
   /** Max input tokens override. When undefined/0, auto-detected from model name. */
   maxInputTokens?: number
+  /** Model category. Defaults to `'chat'` when undefined (backward compat). */
+  modelType?: LlmModelType
 }
 
 export type AuthType = 'apiKey' | 'bearer';

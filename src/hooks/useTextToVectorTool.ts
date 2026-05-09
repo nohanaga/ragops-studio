@@ -18,7 +18,6 @@ export function useTextToVectorTool(args: { t: Translator; sharedLlm: SharedLlmC
 
   const [showTextToVectorTool, setShowTextToVectorTool] = useState<boolean>(false)
   const [textToVectorInput, setTextToVectorInput] = useState<string>('')
-  const [textToVectorModel, setTextToVectorModel] = useState<string>('text-embedding-3-large')
   const [textToVectorDimensions, setTextToVectorDimensions] = useState<number | null>(null)
   const [textToVectorResult, setTextToVectorResult] = useState<number[] | null>(null)
   const [textToVectorLoading, setTextToVectorLoading] = useState<boolean>(false)
@@ -30,6 +29,10 @@ export function useTextToVectorTool(args: { t: Translator; sharedLlm: SharedLlmC
       return
     }
     const llm = sharedLlm.resolve(selectedLlmProfileId)
+    if (!llm.deployment.trim()) {
+      alert(String(t('textToVectorAlertEnterEndpoint')))
+      return
+    }
     const effectiveEndpoint = llm.effectiveEndpoint
     if (!effectiveEndpoint) {
       alert(String(t('textToVectorAlertEnterEndpoint')))
@@ -50,14 +53,15 @@ export function useTextToVectorTool(args: { t: Translator; sharedLlm: SharedLlmC
 
     try {
       const auth = llm.buildAuth()
+      const deploymentName = llm.deployment.trim()
 
       const config = {
         provider: llm.provider,
         endpoint: effectiveEndpoint,
         auth,
-        model: textToVectorModel,
+        model: deploymentName,
         apiVersion: llm.provider === 'azure-openai'
-          ? PROVIDER_DEFAULTS['azure-openai'].apiVersion
+          ? (llm.apiVersion.trim() || PROVIDER_DEFAULTS['azure-openai'].apiVersion)
           : '',
       }
 
@@ -69,7 +73,7 @@ export function useTextToVectorTool(args: { t: Translator; sharedLlm: SharedLlmC
 
       const body: Record<string, unknown> = {
         input: textToVectorInput,
-        ...(llm.provider !== 'azure-openai' ? { model: textToVectorModel } : {}),
+        ...(llm.provider !== 'azure-openai' ? { model: deploymentName } : {}),
         ...(typeof textToVectorDimensions === 'number' &&
         Number.isFinite(textToVectorDimensions) &&
         textToVectorDimensions > 0
@@ -102,7 +106,7 @@ export function useTextToVectorTool(args: { t: Translator; sharedLlm: SharedLlmC
     } finally {
       setTextToVectorLoading(false)
     }
-  }, [t, sharedLlm, selectedLlmProfileId, textToVectorDimensions, textToVectorInput, textToVectorModel])
+  }, [t, sharedLlm, selectedLlmProfileId, textToVectorDimensions, textToVectorInput])
 
   const onCopyVector = useCallback(async () => {
     if (!textToVectorResult) return
@@ -116,8 +120,6 @@ export function useTextToVectorTool(args: { t: Translator; sharedLlm: SharedLlmC
     setShowTextToVectorTool,
     textToVectorInput,
     setTextToVectorInput,
-    textToVectorModel,
-    setTextToVectorModel,
     textToVectorDimensions,
     setTextToVectorDimensions,
     textToVectorResult,

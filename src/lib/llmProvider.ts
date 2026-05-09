@@ -93,12 +93,104 @@ export function buildProviderAuthHeaders(
   }
 }
 
+// ─── Harmony Token Utilities (gpt-oss models) ──────────────────────────────
+
+/**
+ * Regex to strip Harmony special tokens that leak from gpt-oss models
+ * served via Foundry Local or older vLLM.
+ *
+ * Harmony format uses tokens like:
+ *   <|start|>, <|end|>, <|return|>,
+ *   <|channel|>analysis, <|channel|>commentary, <|channel|>final,
+ *   <|message|>, <|call|>
+ *
+ * This regex removes them so the caller gets clean content.
+ */
+const HARMONY_TOKEN_RE =
+  /<\|(?:start|end|return|call|channel|message)\|>(?:analysis|commentary|final|assistant)?/gi
+
+/**
+ * Remove Harmony special tokens from a model response string.
+ * Returns the cleaned string, trimmed.
+ */
+export function stripHarmonyTokens(text: string): string {
+  return text.replace(HARMONY_TOKEN_RE, '').trim()
+}
+
+// ─── JSON Extraction Utility ────────────────────────────────────────────────
+
+/**
+ * Extract a JSON object/array from a string that may contain surrounding prose.
+ *
+ * Small models (Phi-4, Mistral) often wrap JSON in markdown fences or
+ * natural-language preamble. This helper finds the outermost `{…}` or `[…]`
+ * and returns that substring, or the original string if nothing is found.
+ */
+export function extractJsonFromText(text: string): string {
+  const trimmed = text.trim()
+
+  // Fast path: already starts with { or [
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return trimmed
+
+  // Strip markdown code fences
+  const fenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/)
+  if (fenceMatch) {
+    const inner = fenceMatch[1].trim()
+    if (inner.startsWith('{') || inner.startsWith('[')) return inner
+  }
+
+  // Find first { or [ and match to last } or ]
+  const objStart = trimmed.indexOf('{')
+  const arrStart = trimmed.indexOf('[')
+  const start = objStart >= 0 && (arrStart < 0 || objStart < arrStart) ? objStart : arrStart
+  if (start < 0) return trimmed
+
+  const open = trimmed[start]
+  const close = open === '{' ? '}' : ']'
+  let depth = 0
+  let inStr = false
+  let escape = false
+  for (let i = start; i < trimmed.length; i++) {
+    const ch = trimmed[i]
+    if (escape) { escape = false; continue }
+    if (ch === '\\') { escape = true; continue }
+    if (ch === '"') { inStr = !inStr; continue }
+    if (inStr) continue
+    if (ch === open) depth++
+    else if (ch === close) { depth--; if (depth === 0) return trimmed.slice(start, i + 1) }
+  }
+
+  // Fallback: return from the first brace onward
+  return trimmed.slice(start)
+}
+
 // ─── Request Body Builder ───────────────────────────────────────────────────
+
+/**
+ * JSON Schema descriptor for structured output.
+ * Supported by Azure OpenAI, OpenAI, and LM Studio.
+ * Not supported by Foundry Local (falls back to extractJsonFromText).
+ */
+export interface JsonSchemaResponseFormat {
+  /** A short identifier for this schema (e.g. `"cluster_label"`). */
+  name: string
+  /** A valid JSON Schema object. */
+  schema: Record<string, unknown>
+  /** Enforce strict schema adherence. Defaults to `true`. */
+  strict?: boolean
+}
+
+/** Providers that support `response_format: { type: 'json_schema' }`. */
+const JSON_SCHEMA_PROVIDERS: ReadonlySet<LlmProviderType> = new Set([
+  'azure-openai',
+  'openai',
+  'lmstudio',
+])
 
 export function buildChatRequestBody(
   config: LlmProviderConfig,
   messages: Array<{ role: string; content: string }>,
-  options: { temperature?: number; jsonMode?: boolean } = {},
+  options: { temperature?: number; maxTokens?: number; jsonMode?: boolean; jsonSchema?: JsonSchemaResponseFormat } = {},
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
     messages,
@@ -110,7 +202,33 @@ export function buildChatRequestBody(
     body.model = config.model
   }
 
-  if (options.jsonMode) {
+  // max_tokens: explicit limit on completion length.
+  // Local providers (LM Studio, Foundry Local) often default to a very low
+  // value (e.g. ~100–300 tokens), which truncates structured JSON output.
+  // Always send max_tokens when provided; use a sensible default for local
+  // providers to prevent silent truncation.
+  if (options.maxTokens && options.maxTokens > 0) {
+    body.max_tokens = options.maxTokens
+  } else if (LOCAL_PROVIDERS.has(config.provider)) {
+    body.max_tokens = DEFAULT_LOCAL_MAX_TOKENS
+  }
+
+  // Structured output via JSON Schema — preferred when a schema is supplied.
+  // LM Studio enforces the schema at the grammar/sampling level (llama.cpp /
+  // Outlines), guaranteeing well-formed JSON without post-processing.
+  if (options.jsonSchema && JSON_SCHEMA_PROVIDERS.has(config.provider)) {
+    body.response_format = {
+      type: 'json_schema',
+      json_schema: {
+        name: options.jsonSchema.name,
+        strict: options.jsonSchema.strict ?? true,
+        schema: options.jsonSchema.schema,
+      },
+    }
+  } else if (options.jsonMode && !LOCAL_PROVIDERS.has(config.provider)) {
+    // Fallback: simple json_object mode for Azure OpenAI / OpenAI when no
+    // explicit schema is provided. Local providers skip response_format
+    // entirely; JSON extraction is handled by extractJsonFromText().
     body.response_format = { type: 'json_object' }
   }
 
@@ -145,12 +263,19 @@ export interface CallLlmChatParams {
   signal?: AbortSignal
   /** When false, omit `response_format: json_object`. Defaults to true. */
   jsonMode?: boolean
+  /** When supplied, use structured output with JSON Schema instead of plain json_object. */
+  jsonSchema?: JsonSchemaResponseFormat
+  /** Max completion tokens. Sent as `max_tokens` in the request body. */
+  maxTokens?: number
   /** Called with token usage info when available in the response. */
   onUsage?: (usage: LlmUsage) => void
 }
 
 interface ChatCompletionResponse {
-  choices?: Array<{ message?: { content?: string } }>
+  choices?: Array<{
+    message?: { content?: string }
+    finish_reason?: string
+  }>
   usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
 }
 
@@ -174,7 +299,7 @@ function isContentFilterError(status: number, body: string): boolean {
  * temperature to nudge the model past the filter.
  */
 export async function callLlmChat(params: CallLlmChatParams): Promise<string> {
-  const { config, systemPrompt, userPrompt, signal, jsonMode = true, onUsage } = params
+  const { config, systemPrompt, userPrompt, signal, jsonMode = true, jsonSchema, maxTokens, onUsage } = params
 
   if (!config.endpoint.trim()) throw new Error('LLM endpoint is required')
   if (!config.model.trim()) throw new Error('LLM model/deployment is required')
@@ -195,15 +320,31 @@ export async function callLlmChat(params: CallLlmChatParams): Promise<string> {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      { temperature, jsonMode },
+      { temperature, maxTokens, jsonMode, jsonSchema },
     )
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders },
-      signal,
-      body: JSON.stringify(body),
-    })
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        signal,
+        body: JSON.stringify(body),
+      })
+    } catch (fetchErr) {
+      // Network error or CORS preflight failure.
+      // For local providers, give an actionable hint about CORS settings.
+      if (LOCAL_PROVIDERS.has(config.provider)) {
+        const label = LLM_PROVIDER_LABELS[config.provider]?.en ?? config.provider
+        throw new Error(
+          `Failed to connect to ${label} at ${config.endpoint}. ` +
+          `Please verify: (1) the server is running, (2) the endpoint URL is correct, ` +
+          `(3) CORS is enabled in the server settings. ` +
+          `Original error: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`,
+        )
+      }
+      throw fetchErr
+    }
 
     if (!res.ok) {
       const errorText = await res.text().catch(() => '')
@@ -219,7 +360,32 @@ export async function callLlmChat(params: CallLlmChatParams): Promise<string> {
     }
 
     const data = (await res.json()) as ChatCompletionResponse
-    const content = data?.choices?.[0]?.message?.content ?? ''
+    const choice = data?.choices?.[0]
+    let content = choice?.message?.content ?? ''
+
+    // Detect output truncation: if the model stopped because it hit the
+    // max_tokens limit, the response is incomplete. This is a common issue
+    // with local providers where the default completion limit is very low.
+    const finishReason = choice?.finish_reason
+    if (finishReason === 'length' && jsonMode) {
+      const provider = LOCAL_PROVIDERS.has(config.provider)
+        ? (LLM_PROVIDER_LABELS[config.provider]?.en ?? config.provider)
+        : config.provider
+      throw new Error(
+        `LLM response was truncated (finish_reason: "length"). ` +
+        `The output hit the max_tokens limit before completing the JSON. ` +
+        `Provider: ${provider}. ` +
+        `Increase "Context Length" in the server settings or reduce the input size.`,
+      )
+    }
+
+    // Strip Harmony special tokens that may leak from gpt-oss models
+    // served via Foundry Local or older vLLM versions.
+    if (content && HARMONY_TOKEN_RE.test(content)) {
+      HARMONY_TOKEN_RE.lastIndex = 0
+      content = stripHarmonyTokens(content)
+    }
+
     if (!content) {
       throw new Error('LLM returned an empty completion')
     }
@@ -276,12 +442,26 @@ export async function callLlmEmbeddings(params: CallLlmEmbeddingsParams): Promis
     const batch = inputs.slice(start, start + EMBED_BATCH_SIZE)
     const body = buildEmbeddingsRequestBody(config, batch)
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders },
-      signal,
-      body: JSON.stringify(body),
-    })
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        signal,
+        body: JSON.stringify(body),
+      })
+    } catch (fetchErr) {
+      if (LOCAL_PROVIDERS.has(config.provider)) {
+        const label = LLM_PROVIDER_LABELS[config.provider]?.en ?? config.provider
+        throw new Error(
+          `Failed to connect to ${label} at ${config.endpoint}. ` +
+          `Please verify: (1) the server is running, (2) the endpoint URL is correct, ` +
+          `(3) CORS is enabled in the server settings. ` +
+          `Original error: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`,
+        )
+      }
+      throw fetchErr
+    }
 
     if (!res.ok) {
       const errorText = await res.text().catch(() => '')
@@ -323,6 +503,14 @@ export const LLM_PROVIDER_LABELS: Record<LlmProviderType, { ja: string; en: stri
 
 /** Providers that skip auth entirely (local inference — no key needed). */
 export const LOCAL_PROVIDERS: ReadonlySet<LlmProviderType> = new Set(['foundry-local', 'lmstudio'])
+
+/**
+ * Default max_tokens for local providers.
+ * LM Studio and Foundry Local often default to a very small completion limit,
+ * causing structured JSON output to be truncated. 4096 is generous enough for
+ * the JSON responses used in this application.
+ */
+export const DEFAULT_LOCAL_MAX_TOKENS = 4096
 
 /** Ordered list for UI dropdown. */
 export const LLM_PROVIDER_OPTIONS: LlmProviderType[] = ['azure-openai', 'openai', 'foundry-local', 'lmstudio']
