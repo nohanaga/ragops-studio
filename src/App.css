@@ -220,6 +220,29 @@
   opacity: 0.55;
   text-decoration: line-through;
 }
+
+/* Virtual-scrolled body (div-based rows matching table column widths) */
+.edgResults__virtualBody {
+  border-top: 1px solid var(--border);
+}
+.edgVirtualRow {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+}
+.edgVirtualCell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 8px;
+  font-size: 13px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.edgVirtualCell.edgCell--wrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .edgResults__showRejected {
   font-size: 12px;
   font-weight: normal;
@@ -4750,8 +4773,21 @@ html[data-theme='light'] .rawJsonViewer {
 }
 
 .llmProfile__provider {
-  font-size: 12px;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  background: var(--panel3, #e9ecef);
   color: var(--text-secondary);
+}
+
+.llmProfile__modelType {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  background: var(--info-bg, #d1ecf1);
+  color: var(--info-text, #0c5460);
 }
 
 .llmProfile__badge {

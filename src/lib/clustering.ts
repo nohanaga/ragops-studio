@@ -104,7 +104,7 @@ export function kMeans(vectors: Float32Array[], k: number, maxIter = 50, seed = 
   const rng = seededRng(seed)
   let centroids = kMeansPPInit(vectors, clampedK, rng)
   const labels = new Uint16Array(n)
-  let counts = new Array<number>(clampedK).fill(0)
+  const counts = new Array<number>(clampedK).fill(0)
   let inertia = 0
 
   for (let iter = 0; iter < maxIter; iter++) {

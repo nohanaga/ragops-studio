@@ -7,8 +7,9 @@
  * query previews so the user can actually read the ground truth excerpt.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import { memo, useCallback, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import { List as VirtualList, type RowComponentProps } from 'react-window'
 
 import type { translations } from '../../lib/translations'
 import type { GeneratedQAItem, TraceEvent } from '../../types'
@@ -43,6 +44,12 @@ type ColDef = {
 
 const MIN_COL_WIDTH = 60
 const MAX_COL_WIDTH = 1000
+/** Switch to virtualized rendering when row count exceeds this threshold. */
+const VIRTUAL_ROW_THRESHOLD = 100
+/** Fixed row height used by the virtual list (px). */
+const VIRTUAL_ROW_HEIGHT = 36
+/** Height of the virtual list viewport (px). */
+const VIRTUAL_LIST_HEIGHT = 440
 
 const CONTENT_PREVIEW_MAX_CHARS = 200
 
@@ -58,6 +65,114 @@ function previewFor(it: GeneratedQAItem, docTextById: Record<string, string>): s
   }
   return collapsed
 }
+
+/** Memoized table row — prevents re-render when parent state (e.g. resizer drag) changes. */
+const EdgResultsRow = memo(function EdgResultsRow({
+  item,
+  idx,
+  columns,
+  onTraceClick,
+}: {
+  item: GeneratedQAItem
+  idx: number
+  columns: ColDef[]
+  onTraceClick: (item: GeneratedQAItem) => void
+}) {
+  return (
+    <tr className={item.rejected ? 'edgResults__row--rejected' : undefined}>
+      {columns.map((c) => {
+        const classNames: string[] = []
+        if (c.mono) classNames.push('edgMono')
+        if (c.wrap) classNames.push('edgCell--wrap')
+        const content = c.render(item, idx)
+        const titleStr = c.titleFn
+          ? c.titleFn(item)
+          : typeof content === 'string' ? content : undefined
+        // Trace column: render as clickable button
+        if (c.key === 'trace' && (item.trace?.length ?? 0) > 0) {
+          return (
+            <td key={c.key} className="edgMono">
+              <button
+                type="button"
+                className="btn btn--xs edgTraceBtn"
+                onClick={() => onTraceClick(item)}
+              >
+                {item.trace!.length} steps
+              </button>
+            </td>
+          )
+        }
+        return (
+          <td
+            key={c.key}
+            className={classNames.length ? classNames.join(' ') : undefined}
+            title={titleStr}
+          >
+            {content}
+          </td>
+        )
+      })}
+    </tr>
+  )
+})
+
+/** Props forwarded to virtual row renderer via rowProps. */
+interface VirtualRowData {
+  rows: GeneratedQAItem[]
+  columns: ColDef[]
+  effectiveWidths: Record<string, number>
+  onTraceClick: (item: GeneratedQAItem) => void
+}
+
+/** Row renderer for react-window virtual list. Uses flex layout matching column widths. */
+const EdgVirtualRow = memo(function EdgVirtualRow({ index, style, rows, columns, effectiveWidths, onTraceClick }: RowComponentProps<VirtualRowData>) {
+  const item = rows[index]
+  if (!item) return null
+  return (
+    <div
+      style={style}
+      className={'edgVirtualRow' + (item.rejected ? ' edgResults__row--rejected' : '')}
+    >
+      {columns.map((c) => {
+        const cellStyle: CSSProperties = {
+          width: effectiveWidths[c.key],
+          minWidth: effectiveWidths[c.key],
+          maxWidth: effectiveWidths[c.key],
+        }
+        const classNames: string[] = ['edgVirtualCell']
+        if (c.mono) classNames.push('edgMono')
+        if (c.wrap) classNames.push('edgCell--wrap')
+        const content = c.render(item, index)
+        const titleStr = c.titleFn
+          ? c.titleFn(item)
+          : typeof content === 'string' ? content : undefined
+        if (c.key === 'trace' && (item.trace?.length ?? 0) > 0) {
+          return (
+            <div key={c.key} className="edgVirtualCell edgMono" style={cellStyle}>
+              <button
+                type="button"
+                className="btn btn--xs edgTraceBtn"
+                onClick={() => onTraceClick(item)}
+              >
+                {item.trace!.length} steps
+              </button>
+            </div>
+          )
+        }
+        return (
+          <div
+            key={c.key}
+            className={classNames.join(' ')}
+            style={cellStyle}
+            title={titleStr}
+          >
+            {content}
+          </div>
+        )
+      })}
+    </div>
+  )
+})
 
 export function EdgResultsTable(props: EdgResultsTableProps) {
   const {
@@ -341,6 +456,18 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
   const rows = items.filter((it) => showRejected || !it.rejected)
   const [traceModalItem, setTraceModalItem] = useState<GeneratedQAItem | null>(null)
 
+  const useVirtual = rows.length > VIRTUAL_ROW_THRESHOLD
+
+  const virtualRowData = useMemo<VirtualRowData>(
+    () => ({ rows, columns, effectiveWidths, onTraceClick: setTraceModalItem }),
+    [rows, columns, effectiveWidths],
+  )
+
+  const renderVirtualRow = useCallback(
+    (props: RowComponentProps<VirtualRowData>) => <EdgVirtualRow {...props} />,
+    [],
+  )
+
   return (
     <div className="edgResults__tableWrap">
       <table className="spvTable edgResults__table" ref={tableRef}>
@@ -367,48 +494,31 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
             ))}
           </tr>
         </thead>
-        <tbody>
-          {rows.map((it, idx) => (
-            <tr
-              key={idx}
-              className={it.rejected ? 'edgResults__row--rejected' : undefined}
-            >
-              {columns.map((c) => {
-                const classNames: string[] = []
-                if (c.mono) classNames.push('edgMono')
-                if (c.wrap) classNames.push('edgCell--wrap')
-                const content = c.render(it, idx)
-                const titleStr = c.titleFn
-                  ? c.titleFn(it)
-                  : typeof content === 'string' ? content : undefined
-                // Trace column: render as clickable button
-                if (c.key === 'trace' && (it.trace?.length ?? 0) > 0) {
-                  return (
-                    <td key={c.key} className="edgMono">
-                      <button
-                        type="button"
-                        className="btn btn--xs edgTraceBtn"
-                        onClick={() => setTraceModalItem(it)}
-                      >
-                        {it.trace!.length} steps
-                      </button>
-                    </td>
-                  )
-                }
-                return (
-                  <td
-                    key={c.key}
-                    className={classNames.length ? classNames.join(' ') : undefined}
-                    title={titleStr}
-                  >
-                    {content}
-                  </td>
-                )
-              })}
-            </tr>
-          ))}
-        </tbody>
+        {!useVirtual && (
+          <tbody>
+            {rows.map((it, idx) => (
+              <EdgResultsRow
+                key={idx}
+                item={it}
+                idx={idx}
+                columns={columns}
+                onTraceClick={setTraceModalItem}
+              />
+            ))}
+          </tbody>
+        )}
       </table>
+
+      {useVirtual && (
+        <VirtualList
+          rowComponent={renderVirtualRow}
+          rowCount={rows.length}
+          rowHeight={VIRTUAL_ROW_HEIGHT}
+          rowProps={virtualRowData}
+          className="edgResults__virtualBody"
+          defaultHeight={VIRTUAL_LIST_HEIGHT}
+        />
+      )}
 
       {/* Trace Modal */}
       {traceModalItem && (

@@ -16,6 +16,7 @@ import type { ClusterSummary, MetaClusterTrace } from '../../lib/metaIndex'
 import type { ClusterGraphData } from '../../lib/clusterGraph'
 import type { SharedLlmConfig } from '../../hooks/useSharedLlmConfig'
 import { LlmProfileSelector } from '../builders/LlmProfileSelector'
+import { TipsBlock } from '../builders/TipsBlock'
 import {
   buildSnapshot,
   restoreFromSnapshot,
@@ -604,6 +605,7 @@ export function IndexVisualizer({
             language={language}
             disabled={isMetaRunning}
             onOpenSettings={onOpenLlmSettings}
+            modelType="chat"
           />
         </div>
 
@@ -924,6 +926,48 @@ export function IndexVisualizer({
         {meta.searchResult && (
           <TwoStageSearchResults result={meta.searchResult} language={language} />
         )}
+      </div>
+
+      {/* ================================================================ */}
+      {/* Tips: theory / technology / known limitations */}
+      {/* ================================================================ */}
+      <div className="section">
+        <details>
+          <summary className="section__title" style={{ cursor: 'pointer' }}>
+            <i className="bi bi-info-circle icon--mr6"></i>
+            {t(language, 'ivTipsTitle')}
+          </summary>
+          <div className="edgTips">
+            <div className="edgTips__lead">
+              <TipsBlock text={String(t(language, 'ivTipsLead'))} />
+            </div>
+
+            <div className="edgTips__group">
+              <div className="edgTips__groupTitle">{t(language, 'ivTipsWhatItDoesH')}</div>
+              <TipsBlock text={String(t(language, 'ivTipsWhatItDoes'))} />
+            </div>
+
+            <div className="edgTips__group">
+              <div className="edgTips__groupTitle">{t(language, 'ivTipsTechH')}</div>
+              <TipsBlock text={String(t(language, 'ivTipsTech'))} />
+            </div>
+
+            <div className="edgTips__group">
+              <div className="edgTips__groupTitle">{t(language, 'ivTipsTheoryH')}</div>
+              <TipsBlock text={String(t(language, 'ivTipsTheory'))} />
+            </div>
+
+            <div className="edgTips__group">
+              <div className="edgTips__groupTitle">{t(language, 'ivTipsLimitsH')}</div>
+              <TipsBlock text={String(t(language, 'ivTipsLimits'))} />
+            </div>
+
+            <div className="edgTips__group">
+              <div className="edgTips__groupTitle">{t(language, 'ivTipsRecH')}</div>
+              <TipsBlock text={String(t(language, 'ivTipsRec'))} />
+            </div>
+          </div>
+        </details>
       </div>
     </div>
   )

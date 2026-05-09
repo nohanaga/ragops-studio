@@ -8,7 +8,7 @@
  * - Sanitize highlight HTML before injecting into the DOM
  */
 
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { ResultView, LabMode, LatestResponse } from '../../types'
 import type { Language, TranslationKey } from '../../lib/translations'
@@ -64,7 +64,7 @@ function TruncTextInline(props: { text: string; collapsedChars?: number; t: (key
   )
 }
 
-function LazyDetails(props: { className?: string; summaryText: string; render: () => ReactNode }) {
+const LazyDetails = memo(function LazyDetails(props: { className?: string; summaryText: string; render: () => ReactNode }) {
   const [open, setOpen] = useState(false)
   return (
     <details className={props.className} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
@@ -75,7 +75,7 @@ function LazyDetails(props: { className?: string; summaryText: string; render: (
       {open ? props.render() : null}
     </details>
   )
-}
+})
 
 type ResultViewPanelProps = {
   view: ResultView

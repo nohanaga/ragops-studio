@@ -1,92 +1,51 @@
 /**
  * Pyodide-based local Python runner.
  *
- * Loads Pyodide (WebAssembly Python) from CDN on first use and executes
- * Custom Skill `process()` functions directly in the browser — no server needed.
+ * Loads Pyodide (WebAssembly Python) in a **Web Worker** so the main thread
+ * stays responsive during the ~20 MB WASM download and Python execution.
  *
- * The runner wraps user code execution with stdout/stderr capture and
- * produces a SimulateResponse compatible with the Cloud Runtime format.
+ * The public API (`runSkillLocally`, `isPyodideReady`) is unchanged from the
+ * previous main-thread version; only the execution location has moved.
  */
 
 import type { SimulateResponse } from './skillRuntime'
 import type { SkillPayload } from './skillValidator'
+import type { PyodideWorkerRequest, PyodideWorkerOutbound } from './pyodideWorker'
 
 // ---------------------------------------------------------------------------
-// Pyodide types (minimal subset used here)
+// Worker singleton
 // ---------------------------------------------------------------------------
 
-interface PyodideInterface {
-  runPython(code: string): unknown
-  runPythonAsync(code: string): Promise<unknown>
-  loadPackagesFromImports(code: string): Promise<void>
-  globals: { get(key: string): unknown }
-}
+let worker: Worker | null = null
+let workerReady = false
+let requestId = 0
 
-type LoadPyodideFn = (opts: { indexURL: string }) => Promise<PyodideInterface>
+function getWorker(): Worker {
+  if (worker) return worker
 
-declare global {
-  interface Window {
-    loadPyodide?: LoadPyodideFn
-  }
-}
+  worker = new Worker(new URL('./pyodideWorker.ts', import.meta.url), { type: 'module' })
 
-// ---------------------------------------------------------------------------
-// Singleton
-// ---------------------------------------------------------------------------
-
-const PYODIDE_CDN = 'https://cdn.jsdelivr.net/pyodide/v0.27.5/full/'
-
-let pyodideInstance: PyodideInterface | null = null
-let loadingPromise: Promise<PyodideInterface> | null = null
-
-/**
- * Load Pyodide lazily. The ~20 MB WASM bundle is fetched once and cached
- * by the browser.
- */
-export async function ensurePyodide(): Promise<PyodideInterface> {
-  if (pyodideInstance) return pyodideInstance
-
-  if (loadingPromise) return loadingPromise
-
-  loadingPromise = (async () => {
-    // Inject the CDN script if not already present
-    if (!window.loadPyodide) {
-      await new Promise<void>((resolve, reject) => {
-        const script = document.createElement('script')
-        script.src = `${PYODIDE_CDN}pyodide.js`
-        script.onload = () => resolve()
-        script.onerror = () => reject(new Error('Failed to load Pyodide script from CDN'))
-        document.head.appendChild(script)
-      })
+  // Listen for the one-time "ready" status broadcast
+  worker.addEventListener('message', (e: MessageEvent<PyodideWorkerOutbound>) => {
+    if (e.data.type === 'status' && e.data.ready) {
+      workerReady = true
     }
+  })
 
-    const loadPyodide = window.loadPyodide
-    if (!loadPyodide) throw new Error('loadPyodide is not available')
-
-    const py = await loadPyodide({ indexURL: PYODIDE_CDN })
-    pyodideInstance = py
-    return py
-  })()
-
-  try {
-    return await loadingPromise
-  } catch (err) {
-    loadingPromise = null
-    throw err
-  }
+  return worker
 }
+
+// ---------------------------------------------------------------------------
+// Public API (unchanged signatures)
+// ---------------------------------------------------------------------------
 
 /**
  * Check whether Pyodide is already loaded (avoids showing "loading" states
  * when the WASM is already cached).
  */
 export function isPyodideReady(): boolean {
-  return pyodideInstance !== null
+  return workerReady
 }
-
-// ---------------------------------------------------------------------------
-// Local execution
-// ---------------------------------------------------------------------------
 
 /**
  * Execute a Python Custom Skill locally using Pyodide.
@@ -95,116 +54,46 @@ export function isPyodideReady(): boolean {
  * Each record in the payload is processed individually, mirroring the
  * Cloud Runtime behaviour.
  */
-export async function runSkillLocally(
+export function runSkillLocally(
   skillCode: string,
   input: SkillPayload,
 ): Promise<SimulateResponse> {
-  let py: PyodideInterface
-  try {
-    py = await ensurePyodide()
-  } catch (err) {
-    return {
-      success: false,
-      error: `Pyodide load error: ${err instanceof Error ? err.message : String(err)}`,
-    }
-  }
+  return new Promise<SimulateResponse>((resolve) => {
+    const w = getWorker()
+    const id = ++requestId
 
-  // Wrapper that:
-  //  1. Captures stdout/stderr
-  //  2. Runs the user code to define `process`
-  //  3. Calls `process()` for each record
-  //  4. Returns JSON-serialised results
-  const wrapper = `
-import sys, io, json, traceback
+    const handler = (e: MessageEvent<PyodideWorkerOutbound>) => {
+      if (e.data.type !== 'result') return
+      if (e.data.id !== id) return
 
-_stdout = io.StringIO()
-_stderr = io.StringIO()
-sys.stdout = _stdout
-sys.stderr = _stderr
+      w.removeEventListener('message', handler)
 
-_records = json.loads(_INPUT_JSON)["values"]
-_output_values = []
-_has_error = False
-
-try:
-    _ns = {"__builtins__": __builtins__}
-    exec(_USER_CODE, _ns)
-    _process = _ns.get("process")
-    if not callable(_process):
-        raise RuntimeError("Skill code must define a callable process(input: dict) -> dict function.")
-
-    for _rec in _records:
-        _result = {"recordId": _rec["recordId"], "data": {}, "errors": [], "warnings": []}
-        try:
-            _out = _process(_rec["data"])
-            if isinstance(_out, dict):
-                _result["data"] = _out
-            else:
-                _result["errors"].append({"message": f"process() must return a dict, got {type(_out).__name__}"})
-        except Exception:
-            _result["errors"].append({"message": traceback.format_exc()})
-        _output_values.append(_result)
-except Exception:
-    _has_error = True
-    _output_values = [{"error": traceback.format_exc()}]
-
-sys.stdout = sys.__stdout__
-sys.stderr = sys.__stderr__
-
-_RESULT_JSON = json.dumps({
-    "hasError": _has_error,
-    "values": _output_values,
-    "logs": _stdout.getvalue() + _stderr.getvalue()
-})
-`
-
-  const startMs = performance.now()
-
-  try {
-    // Auto-detect and load any packages referenced by import statements
-    // (e.g. numpy, pandas). Pyodide built-in packages are loaded from CDN WASM.
-    await py.loadPackagesFromImports(skillCode)
-
-    // Inject user code and input as Python string literals
-    const escapedCode = JSON.stringify(skillCode)
-    const escapedInput = JSON.stringify(input)
-
-    py.runPython(`_USER_CODE = ${escapedCode}`)
-    py.runPython(`_INPUT_JSON = ${JSON.stringify(escapedInput)}`)
-    py.runPython(wrapper)
-
-    const resultRaw = py.globals.get('_RESULT_JSON') as string
-    const parsed: {
-      hasError: boolean
-      values: Array<Record<string, unknown>>
-      logs: string
-    } = JSON.parse(resultRaw)
-
-    const elapsedMs = Math.round((performance.now() - startMs) * 100) / 100
-
-    if (parsed.hasError) {
-      const errMsg =
-        (parsed.values[0] as { error?: string })?.error ?? 'Unknown execution error'
-      return {
-        success: false,
-        error: errMsg,
-        executionTimeMs: elapsedMs,
-        logs: parsed.logs || undefined,
+      const d = e.data
+      if (d.success) {
+        resolve({
+          success: true,
+          output: d.output as SkillPayload,
+          executionTimeMs: d.executionTimeMs,
+          logs: d.logs,
+        })
+      } else {
+        resolve({
+          success: false,
+          error: d.error,
+          executionTimeMs: d.executionTimeMs,
+          logs: d.logs,
+        })
       }
     }
 
-    return {
-      success: true,
-      output: { values: parsed.values as unknown as SkillPayload['values'] },
-      executionTimeMs: elapsedMs,
-      logs: parsed.logs || undefined,
+    w.addEventListener('message', handler)
+
+    const req: PyodideWorkerRequest = {
+      type: 'run',
+      id,
+      skillCode,
+      inputJson: JSON.stringify(input),
     }
-  } catch (err) {
-    const elapsedMs = Math.round((performance.now() - startMs) * 100) / 100
-    return {
-      success: false,
-      error: `Pyodide execution error: ${err instanceof Error ? err.message : String(err)}`,
-      executionTimeMs: elapsedMs,
-    }
-  }
+    w.postMessage(req)
+  })
 }
