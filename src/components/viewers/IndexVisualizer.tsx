@@ -18,6 +18,7 @@ import { rebuildClusterGraphFromMeta } from '../../lib/clusterGraph'
 import type { SharedLlmConfig } from '../../hooks/useSharedLlmConfig'
 import { LlmProfileSelector } from '../builders/LlmProfileSelector'
 import { TipsBlock } from '../builders/TipsBlock'
+import { IvPipelineFlow } from './IvPipelineFlow'
 import {
   buildSnapshot,
   restoreFromSnapshot,
@@ -1001,7 +1002,7 @@ export function IndexVisualizer({
 
             <div className="edgTips__group">
               <div className="edgTips__groupTitle">{t(language, 'ivTipsWhatItDoesH')}</div>
-              <TipsBlock text={String(t(language, 'ivTipsWhatItDoes'))} />
+              <IvPipelineFlow language={language} />
             </div>
 
             <div className="edgTips__group">
