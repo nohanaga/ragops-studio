@@ -16,8 +16,9 @@ interface PyodideInterface {
   globals: { get(key: string): unknown }
 }
 
-declare function importScripts(...urls: string[]): void
-declare function loadPyodide(opts: { indexURL: string }): Promise<PyodideInterface>
+interface PyodideModule {
+  loadPyodide(opts: { indexURL: string }): Promise<PyodideInterface>
+}
 
 // ---------------------------------------------------------------------------
 // Message protocol
@@ -61,7 +62,7 @@ async function ensureInit(): Promise<void> {
   if (initPromise) return initPromise
 
   initPromise = (async () => {
-    importScripts(`${PYODIDE_CDN}pyodide.js`)
+    const { loadPyodide } = await import(/* @vite-ignore */ `${PYODIDE_CDN}pyodide.mjs`) as PyodideModule
     py = await loadPyodide({ indexURL: PYODIDE_CDN })
     const msg: PyodideWorkerStatusMessage = { type: 'status', ready: true }
     self.postMessage(msg)
