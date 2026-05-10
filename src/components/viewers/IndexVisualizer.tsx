@@ -12,8 +12,8 @@ import { useIndexVisualization, type ScannedDoc, type VisualizationData } from '
 import type { ReductionMethod } from '../../lib/dimensionReduction'
 import { useMetaIndex } from '../../hooks/useMetaIndex'
 import { type JsonValue } from '../../lib/aiSearchRest'
-import type { ClusterSummary, MetaClusterTrace } from '../../lib/metaIndex'
-import type { ClusterGraphData } from '../../lib/clusterGraph'
+import type { ClusterSummary, ClusterSummaryMode, MetaClusterTrace } from '../../lib/metaIndex'
+import type { ClusterEdge, ClusterGraphData, EdgeConfidence, EdgeReason } from '../../lib/clusterGraph'
 import { rebuildClusterGraphFromMeta } from '../../lib/clusterGraph'
 import type { SharedLlmConfig } from '../../hooks/useSharedLlmConfig'
 import { LlmProfileSelector } from '../builders/LlmProfileSelector'
@@ -127,6 +127,7 @@ export function IndexVisualizer({
   const [browseClusterPage, setBrowseClusterPage] = useState(0)
   const [saveLoadMessage, setSaveLoadMessage] = useState<string | null>(null)
   const [metaAction, setMetaAction] = useState<'overwrite' | 'create-new'>('overwrite')
+  const [summaryMode, setSummaryMode] = useState<ClusterSummaryMode>('v1')
   const [metaContentFields, setMetaContentFields] = useState('')
   const [dataSourceLabel, setDataSourceLabel] = useState<{ type: 'file'; name: string } | null>(null)
   const [traceClusterId, setTraceClusterId] = useState<number | null>(null)
@@ -329,7 +330,7 @@ export function IndexVisualizer({
             <div className="field__hint">{t(language, 'ivAdaptiveSamplingHint')}</div>
             {vis.indexStructure && (
               <div
-                className={vis.indexStructure.type === 'unknown' ? 'app__warning' : 'field__hint'}
+                className={vis.indexStructure.type === 'unknown' ? 'notice notice--warning' : 'field__hint'}
                 style={{ marginTop: '4px' }}
               >
                 {vis.indexStructure.type === 'chunked'
@@ -476,7 +477,7 @@ export function IndexVisualizer({
 
         {/* Error */}
         {vis.error && (
-          <div className="app__error" style={{ marginTop: '8px' }}>
+          <div className="notice notice--error" style={{ marginTop: '8px' }}>
             {vis.error}
           </div>
         )}
@@ -584,7 +585,7 @@ export function IndexVisualizer({
         </div>
 
         {saveLoadMessage && (
-          <div className="app__success" style={{ marginTop: '6px' }}>
+          <div className="notice notice--success" style={{ marginTop: '6px' }}>
             {saveLoadMessage}
           </div>
         )}
@@ -652,6 +653,41 @@ export function IndexVisualizer({
           />
         </div>
 
+        {/* Summary Mode */}
+        <div style={{ marginTop: '12px' }}>
+          <div className="section__subtitle" style={{ marginBottom: '4px' }}>
+            {t(language, 'ivMetaSummaryModeTitle')}
+          </div>
+          <div style={{ display: 'grid', gap: '6px', fontSize: '13px' }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', cursor: isMetaRunning ? 'default' : 'pointer' }}>
+              <input
+                type="radio"
+                name="summaryMode"
+                checked={summaryMode === 'v1'}
+                onChange={() => setSummaryMode('v1')}
+                disabled={isMetaRunning}
+              />
+              <span>
+                <strong>{t(language, 'ivMetaSummaryModeV1')}</strong>
+                <span style={{ display: 'block', opacity: 0.7 }}>{t(language, 'ivMetaSummaryModeV1Hint')}</span>
+              </span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', cursor: isMetaRunning ? 'default' : 'pointer' }}>
+              <input
+                type="radio"
+                name="summaryMode"
+                checked={summaryMode === 'v2'}
+                onChange={() => setSummaryMode('v2')}
+                disabled={isMetaRunning}
+              />
+              <span>
+                <strong>{t(language, 'ivMetaSummaryModeV2')}</strong>
+                <span style={{ display: 'block', opacity: 0.7 }}>{t(language, 'ivMetaSummaryModeV2Hint')}</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
         {/* Meta-index action choice when it already exists */}
         {meta.metaIndexExists && !isMetaRunning && (
           <div style={{ marginTop: '12px' }}>
@@ -711,6 +747,7 @@ export function IndexVisualizer({
                 vis.data.docs,
                 vis.data.cluster,
                 fields.length > 0 ? fields : undefined,
+                summaryMode,
               )
             }}
             disabled={!canGenerateMeta}
@@ -803,7 +840,7 @@ export function IndexVisualizer({
           </div>
         )}
         {meta.metaPhase === 'done' && !meta.metaWarning && (
-          <div className="app__success" style={{ marginTop: '8px' }}>
+          <div className="notice notice--success" style={{ marginTop: '8px' }}>
             ✅ {t(language, 'ivMetaPhaseDone')}
             {meta.metaTokenUsage.total > 0 && (
               <span style={{ marginLeft: '8px', fontSize: '11px', opacity: 0.7 }}>
@@ -813,12 +850,12 @@ export function IndexVisualizer({
           </div>
         )}
         {meta.metaPhase === 'done' && meta.metaWarning && (
-          <div className="app__warning" style={{ marginTop: '8px', whiteSpace: 'pre-wrap' }}>
+          <div className="notice notice--warning" style={{ marginTop: '8px', whiteSpace: 'pre-wrap' }}>
             {meta.metaWarning}
           </div>
         )}
         {meta.metaError && (
-          <div className="app__error" style={{ marginTop: '8px' }}>
+          <div className="notice notice--error" style={{ marginTop: '8px' }}>
             {meta.metaError}
           </div>
         )}
@@ -853,6 +890,11 @@ export function IndexVisualizer({
                   <div style={{ fontWeight: 600, marginBottom: '2px' }}>
                     <span style={{ color: CLUSTER_COLORS[idx % CLUSTER_COLORS.length], marginRight: '6px' }}>●</span>
                     {cs.label}
+                    {cs.summaryVersion === 'v2' && (
+                      <span style={{ marginLeft: '6px', fontSize: '10px', opacity: 0.65 }}>
+                        EFLC v2
+                      </span>
+                    )}
                     <span style={{ fontWeight: 400, marginLeft: '8px', opacity: 0.7 }}>
                       ({cs.documentCount} docs)
                     </span>
@@ -863,6 +905,29 @@ export function IndexVisualizer({
                   {cs.keywords.length > 0 && (
                     <div style={{ fontSize: '11px', opacity: 0.6 }}>
                       {cs.keywords.join(', ')}
+                    </div>
+                  )}
+                  {cs.facetLabels && cs.facetLabels.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                      {cs.facetLabels.slice(0, 5).map((facet) => (
+                        <span
+                          key={facet}
+                          style={{
+                            border: '1px solid var(--border, rgba(128,128,128,.3))',
+                            borderRadius: '999px',
+                            padding: '1px 6px',
+                            fontSize: '10px',
+                            opacity: 0.78,
+                          }}
+                        >
+                          {facet}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {cs.inclusionCriteria && cs.inclusionCriteria.length > 0 && (
+                    <div style={{ fontSize: '11px', opacity: 0.65, marginTop: '5px' }}>
+                      {t(language, 'ivMetaInclusionCriteria')}: {cs.inclusionCriteria.slice(0, 2).join(' / ')}
                     </div>
                   )}
                   {cs.memberDocIds && cs.memberDocIds.length > 0 && (
@@ -975,7 +1040,7 @@ export function IndexVisualizer({
         )}
 
         {meta.searchError && (
-          <div className="app__error" style={{ marginTop: '8px' }}>
+          <div className="notice notice--error" style={{ marginTop: '8px' }}>
             {meta.searchError}
           </div>
         )}
@@ -1554,7 +1619,7 @@ function MetaTraceModal({ trace, language, onClose }: {
 
           {/* Error indicator */}
           {trace.error && (
-            <div className="app__error" style={{ marginBottom: '12px' }}>
+            <div className="notice notice--error" style={{ marginBottom: '12px' }}>
               <i className="bi bi-exclamation-triangle icon--mr6" />
               {trace.error}
             </div>
@@ -1660,6 +1725,92 @@ interface ForceGraphLink {
   source: number
   target: number
   similarity: number
+  confidence?: EdgeConfidence
+  relationKind?: 'explained' | 'candidate'
+  reasons?: EdgeReason[]
+  sharedFacets?: string[]
+  sharedKeywords?: string[]
+  bridgeDocIndices?: number[]
+  scoreBreakdown?: ClusterEdge['scoreBreakdown']
+}
+
+type EdgeSimilarityBand = 'very-high' | 'high' | 'medium' | 'low'
+
+function graphEdgeKey(source: number, target: number): string {
+  return source < target ? `${source}-${target}` : `${target}-${source}`
+}
+
+function linkEndpointId(endpoint: unknown): number {
+  return typeof endpoint === 'object' && endpoint !== null && 'id' in endpoint
+    ? Number((endpoint as { id: unknown }).id)
+    : Number(endpoint)
+}
+
+function edgeConfidenceLabel(language: Language, confidence?: EdgeConfidence): string {
+  if (confidence === 'high') return t(language, 'ivGraphEdgeConfidenceHigh')
+  if (confidence === 'medium') return t(language, 'ivGraphEdgeConfidenceMedium')
+  return t(language, 'ivGraphEdgeConfidenceLow')
+}
+
+function edgeRelationLabel(language: Language, edge: Pick<ClusterEdge, 'relationKind' | 'confidence'>): string {
+  return edge.relationKind === 'explained' || edge.confidence === 'high' || edge.confidence === 'medium'
+    ? t(language, 'ivGraphRelationExplained')
+    : t(language, 'ivGraphRelationCandidate')
+}
+
+function edgeReasonText(reason: EdgeReason, language: Language): string {
+  if (language === 'ja') {
+    if (reason.kind === 'centroid') return `重心類似度 ${reason.detail}`
+    if (reason.kind === 'bridge-documents') return `境界文書 ${reason.detail} 件`
+    if (reason.kind === 'shared-facet') return `共通ファセット: ${reason.detail}`
+    if (reason.kind === 'shared-keyword') return `共通キーワード: ${reason.detail}`
+    return `意味署名の重なり ${reason.detail}`
+  }
+  if (reason.kind === 'centroid') return `Centroid similarity ${reason.detail}`
+  if (reason.kind === 'bridge-documents') return `${reason.detail} bridge documents`
+  if (reason.kind === 'shared-facet') return `Shared facets: ${reason.detail}`
+  if (reason.kind === 'shared-keyword') return `Shared keywords: ${reason.detail}`
+  return `Signature overlap ${reason.detail}`
+}
+
+function edgeSimilarityBand(similarity: number): EdgeSimilarityBand {
+  if (similarity >= 0.9) return 'very-high'
+  if (similarity >= 0.78) return 'high'
+  if (similarity >= 0.64) return 'medium'
+  return 'low'
+}
+
+function edgeSimilarityBandLabel(language: Language, similarity: number): string {
+  const band = edgeSimilarityBand(similarity)
+  if (band === 'very-high') return t(language, 'ivGraphSimilarityVeryHigh')
+  if (band === 'high') return t(language, 'ivGraphSimilarityHigh')
+  if (band === 'medium') return t(language, 'ivGraphSimilarityMedium')
+  return t(language, 'ivGraphSimilarityLow')
+}
+
+function edgeWidthForSimilarity(similarity: number): number {
+  const normalized = Math.max(0, Math.min(1, similarity))
+  return 0.8 + normalized * 3.4
+}
+
+function edgeLineDashForSimilarity(similarity: number): number[] | null {
+  const band = edgeSimilarityBand(similarity)
+  if (band === 'very-high' || band === 'high') return null
+  if (band === 'medium') return [9, 5]
+  return [3, 6]
+}
+
+function edgeOpacityForSimilarity(similarity: number): number {
+  const normalized = Math.max(0, Math.min(1, similarity))
+  return 0.32 + normalized * 0.58
+}
+
+function edgeColorForConfidence(confidence?: EdgeConfidence, isLightBg = false, opacity = 1): string {
+  const clampedOpacity = Math.max(0.1, Math.min(1, opacity))
+  if (confidence === 'high') return `rgba(53,199,164,${clampedOpacity})`
+  if (confidence === 'medium') return `rgba(91,157,255,${clampedOpacity})`
+  const alpha = isLightBg ? clampedOpacity * 0.5 : clampedOpacity * 0.42
+  return isLightBg ? `rgba(90,90,90,${alpha})` : `rgba(190,190,190,${alpha})`
 }
 
 function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onBrowseCluster }: {
@@ -1675,6 +1826,7 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
   const fgRef = useRef<any>(null)
   const [highlightedNodeId, setHighlightedNodeId] = useState<number | null>(null)
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null)
+  const [selectedEdgeKey, setSelectedEdgeKey] = useState<string | null>(null)
   const [linkDistance, setLinkDistance] = useState(120)
   const [chargeStrength, setChargeStrength] = useState(-300)
   const [edgeMinThreshold, setEdgeMinThreshold] = useState(0)
@@ -1708,6 +1860,12 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
     () => edges.filter((e) => e.similarity >= edgeMinThreshold),
     [edges, edgeMinThreshold],
   )
+
+  const edgeByKey = useMemo(() => {
+    const map = new Map<string, ClusterEdge>()
+    for (const edge of filteredEdges) map.set(graphEdgeKey(edge.source, edge.target), edge)
+    return map
+  }, [filteredEdges])
 
   // Node degree (based on filtered edges)
   const degreeMap = useMemo(() => {
@@ -1778,6 +1936,13 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
       source: e.source,
       target: e.target,
       similarity: e.similarity,
+      confidence: e.confidence,
+      relationKind: e.relationKind,
+      reasons: e.reasons,
+      sharedFacets: e.sharedFacets,
+      sharedKeywords: e.sharedKeywords,
+      bridgeDocIndices: e.bridgeDocIndices,
+      scoreBreakdown: e.scoreBreakdown,
     }))
     return { nodes: fgNodes, links: fgLinks }
   }, [nodes, filteredEdges, labelMap, colorOf])
@@ -1808,15 +1973,16 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
   }, [focusNodeId, filteredEdges])
 
   const focusLinks = useMemo(() => {
-    if (focusNodeId === null) return new Set<string>()
     const set = new Set<string>()
+    if (selectedEdgeKey) set.add(selectedEdgeKey)
+    if (focusNodeId === null) return set
     for (const e of filteredEdges) {
       if (e.source === focusNodeId || e.target === focusNodeId) {
-        set.add(`${e.source}-${e.target}`)
+        set.add(graphEdgeKey(e.source, e.target))
       }
     }
     return set
-  }, [focusNodeId, filteredEdges])
+  }, [focusNodeId, filteredEdges, selectedEdgeKey])
 
   // Graph statistics
   const stats = useMemo(() => {
@@ -1937,17 +2103,17 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
           ctx.fillStyle = '#fff'
           ctx.fillText(`${node.count}`, node.x, node.y)
         })
-        .linkWidth((link: any) => 1.5 + link.similarity * 6) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .linkWidth((link: any) => edgeWidthForSimilarity(link.similarity)) // eslint-disable-line @typescript-eslint/no-explicit-any
         .linkColor((link: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
           const src = typeof link.source === 'object' ? link.source.id : link.source
           const tgt = typeof link.target === 'object' ? link.target.id : link.target
-          const key = `${src}-${tgt}`
-          if (focusNodeId !== null && !focusLinks.has(key)) {
+          const key = graphEdgeKey(src, tgt)
+          if ((focusNodeId !== null || selectedEdgeKey !== null) && !focusLinks.has(key)) {
             return isLightBg ? 'rgba(180,180,180,0.12)' : 'rgba(100,100,100,0.12)'
           }
-          const alpha = 0.3 + link.similarity * 0.5
-          return isLightBg ? `rgba(60,60,60,${alpha})` : `rgba(180,180,180,${alpha})`
+          return edgeColorForConfidence(link.confidence, isLightBg, edgeOpacityForSimilarity(link.similarity))
         })
+        .linkLineDash((link: any) => edgeLineDashForSimilarity(link.similarity)) // eslint-disable-line @typescript-eslint/no-explicit-any
         .linkCanvasObjectMode(() => 'after')
         .linkCanvasObject((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => { // eslint-disable-line @typescript-eslint/no-explicit-any
           const start = link.source
@@ -1960,8 +2126,22 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
           // Bridge badge
           const srcId = start.id
           const tgtId = end.id
-          const bridgeKey = srcId < tgtId ? `${srcId}-${tgtId}` : `${tgtId}-${srcId}`
+          const bridgeKey = graphEdgeKey(srcId, tgtId)
           const bridgeCount = bridgeCountMap.get(bridgeKey)
+          const isSelectedEdge = selectedEdgeKey === bridgeKey
+          if (isSelectedEdge) {
+            ctx.save()
+            ctx.beginPath()
+            ctx.moveTo(start.x, start.y)
+            ctx.lineTo(end.x, end.y)
+            ctx.strokeStyle = edgeColorForConfidence(link.confidence, isLightBg, 1)
+            ctx.lineWidth = (edgeWidthForSimilarity(link.similarity) + 2) / globalScale
+            ctx.globalAlpha = 0.55
+            ctx.setLineDash(edgeLineDashForSimilarity(link.similarity)?.map((segment) => segment / globalScale) ?? [])
+            ctx.stroke()
+            ctx.setLineDash([])
+            ctx.restore()
+          }
           if (bridgeCount && bridgeCount > 0) {
             const r = 6 / globalScale
             ctx.beginPath()
@@ -2000,13 +2180,20 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
           const tgtLabel = typeof link.target === 'object' ? link.target.label : `Cluster ${link.target}`
           const srcId = typeof link.source === 'object' ? link.source.id : link.source
           const tgtId = typeof link.target === 'object' ? link.target.id : link.target
-          const bridgeKey = srcId < tgtId ? `${srcId}-${tgtId}` : `${tgtId}-${srcId}`
+          const bridgeKey = graphEdgeKey(srcId, tgtId)
           const bridgeCount = bridgeCountMap.get(bridgeKey)
+          const reasons = Array.isArray(link.reasons)
+            ? link.reasons.slice(0, 4).map((reason: EdgeReason) => escapeHtml(edgeReasonText(reason, language))).join('<br/>')
+            : ''
           return `${escapeHtml(srcLabel)} ↔ ${escapeHtml(tgtLabel)}<br/>`
+            + `${escapeHtml(t(language, 'ivGraphEdgeRelation'))}: ${escapeHtml(edgeRelationLabel(language, link))}<br/>`
+            + `${escapeHtml(t(language, 'ivGraphEdgeConfidence'))}: ${escapeHtml(edgeConfidenceLabel(language, link.confidence))}<br/>`
             + `${t(language, 'ivGraphSimilarity')}: ${link.similarity.toFixed(4)}`
-            + (bridgeCount ? `<br/>🔗 Bridge: ${bridgeCount}` : '')
+            + `<br/>${escapeHtml(t(language, 'ivGraphEdgeSimilarityBand'))}: ${escapeHtml(edgeSimilarityBandLabel(language, link.similarity))}`
+            + (bridgeCount ? `<br/>${escapeHtml(t(language, 'ivGraphEdgeBridgeDocs'))}: ${bridgeCount}` : '')
+            + (reasons ? `<br/><br/>${reasons}` : '')
         })
-        .linkDirectionalParticles((link: any) => enableParticles ? Math.ceil(link.similarity * 3) : 0) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .linkDirectionalParticles((link: any) => enableParticles && link.confidence !== 'low' ? Math.ceil(link.similarity * 3) : 0) // eslint-disable-line @typescript-eslint/no-explicit-any
         .linkDirectionalParticleSpeed((link: any) => link.similarity * 0.006) // eslint-disable-line @typescript-eslint/no-explicit-any
         .linkDirectionalParticleWidth(2)
         .linkDirectionalParticleColor((link: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -2018,10 +2205,21 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
           el.style.cursor = node ? 'pointer' : 'default'
         })
         .onNodeClick((node: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          setSelectedEdgeKey(null)
           setSelectedNodeId((prev) => (prev === node.id ? null : node.id))
+        })
+        .onLinkClick((link: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          const source = linkEndpointId(link.source)
+          const target = linkEndpointId(link.target)
+          setSelectedNodeId(null)
+          setSelectedEdgeKey((prev) => {
+            const next = graphEdgeKey(source, target)
+            return prev === next ? null : next
+          })
         })
         .onBackgroundClick(() => {
           setSelectedNodeId(null)
+          setSelectedEdgeKey(null)
         })
         .onNodeDragEnd((node: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
           node.fx = node.x
@@ -2083,7 +2281,7 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
     const fg = fgRef.current
     if (!fg) return
     if (typeof fg.refresh === 'function') fg.refresh()
-  }, [focusNodeId, focusNeighbors, focusLinks, searchMatches, selectedNodeId, highlightedNodeId, pulse, showEdgeLabels])
+  }, [focusNodeId, focusNeighbors, focusLinks, searchMatches, selectedNodeId, selectedEdgeKey, highlightedNodeId, pulse, showEdgeLabels])
 
   // Related clusters table (graph traversal, uses filteredEdges)
   const relatedClusters = useMemo(() => {
@@ -2093,6 +2291,7 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
         .map((e) => ({
           clusterId: e.source === node.id ? e.target : e.source,
           similarity: e.similarity,
+          edge: e,
         }))
         .sort((a, b) => b.similarity - a.similarity)
       return { id: node.id, label: labelMap(node.id), count: node.count, neighbors }
@@ -2110,6 +2309,7 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
       .map((e) => ({
         clusterId: e.source === selectedNodeId ? e.target : e.source,
         similarity: e.similarity,
+        edge: e,
       }))
       .sort((a, b) => b.similarity - a.similarity)
     const bridgeCount = bridges.filter(
@@ -2117,6 +2317,26 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
     ).length
     return { node, summary, neighbors, bridgeCount, degree: degreeMap.get(selectedNodeId) ?? 0 }
   }, [selectedNodeId, nodes, summaryMap, filteredEdges, bridges, degreeMap])
+
+  const selectedEdgeDetail = useMemo(() => {
+    if (!selectedEdgeKey) return null
+    const edge = edgeByKey.get(selectedEdgeKey)
+    if (!edge) return null
+    const sourceNode = nodes.find((node) => node.id === edge.source)
+    const targetNode = nodes.find((node) => node.id === edge.target)
+    const bridgeDocs = (edge.bridgeDocIndices ?? [])
+      .map((docIndex) => data?.docs?.[docIndex])
+      .filter((doc): doc is NonNullable<typeof doc> => Boolean(doc))
+      .slice(0, 5)
+    return {
+      edge,
+      sourceLabel: labelMap(edge.source),
+      targetLabel: labelMap(edge.target),
+      sourceCount: sourceNode?.count ?? 0,
+      targetCount: targetNode?.count ?? 0,
+      bridgeDocs,
+    }
+  }, [selectedEdgeKey, edgeByKey, nodes, data, labelMap])
 
   const exportPng = useCallback(() => {
     const el = graphContainerRef.current
@@ -2354,18 +2574,24 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
                 <div style={{ maxHeight: '120px', overflow: 'auto' }}>
                   {selectedDetail.neighbors.slice(0, 10).map((n) => (
                     <div key={n.clusterId}
-                      onClick={() => setSelectedNodeId(n.clusterId)}
+                      onClick={() => {
+                        setSelectedNodeId(null)
+                        setSelectedEdgeKey(graphEdgeKey(selectedDetail.node.id, n.clusterId))
+                      }}
                       style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        padding: '2px 4px', borderRadius: '3px', cursor: 'pointer', fontSize: '11px',
+                        display: 'grid', gridTemplateColumns: '1fr auto', gap: '6px', alignItems: 'center',
+                        padding: '3px 4px', borderRadius: '3px', cursor: 'pointer', fontSize: '11px',
                       }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)' }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}>
-                      <span>
+                      <span style={{ minWidth: 0 }}>
                         <span style={{ color: colorOf(n.clusterId), marginRight: '4px' }}>●</span>
-                        {labelMap(n.clusterId)}
+                        <span>{labelMap(n.clusterId)}</span>
+                        <span style={{ display: 'block', opacity: 0.55, fontSize: '10px', marginLeft: '14px' }}>
+                          {edgeRelationLabel(language, n.edge)} / {edgeConfidenceLabel(language, n.edge.confidence)}
+                        </span>
                       </span>
-                      <span style={{ opacity: 0.7, fontFamily: 'monospace' }}>{n.similarity.toFixed(3)}</span>
+                      <span style={{ opacity: 0.7, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{n.similarity.toFixed(3)}</span>
                     </div>
                   ))}
                 </div>
@@ -2378,6 +2604,104 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
                 <i className="bi bi-list-ul icon--mr4" />
                 {t(language, 'ivGraphSelectedBrowseDocs')}
               </button>
+            )}
+          </div>
+        )}
+
+        {/* Selected edge detail panel (top-right) */}
+        {selectedEdgeDetail && (
+          <div style={{
+            position: 'absolute', top: '8px', right: '8px',
+            width: 'min(360px, calc(100% - 24px))',
+            maxHeight: 'calc(100% - 24px)', overflow: 'auto',
+            background: 'rgba(20,20,20,0.94)', color: '#eee',
+            padding: '10px 12px', borderRadius: '6px', fontSize: '12px',
+            backdropFilter: 'blur(6px)',
+            border: `2px solid ${edgeColorForConfidence(selectedEdgeDetail.edge.confidence)}`,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+              <div>
+                <div style={{ fontSize: '10px', opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {t(language, 'ivGraphSelectedEdgeTitle')}
+                </div>
+                <div style={{ fontWeight: 650, fontSize: '13px', marginTop: '3px', lineHeight: 1.35 }}>
+                  {selectedEdgeDetail.sourceLabel} ↔ {selectedEdgeDetail.targetLabel}
+                </div>
+              </div>
+              <button type="button" onClick={() => setSelectedEdgeKey(null)}
+                style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: '14px', padding: 0 }}
+                title={t(language, 'ivGraphSelectedClose')}>
+                <i className="bi bi-x-lg" />
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 10px', marginTop: '8px', fontSize: '11px' }}>
+              <div>{t(language, 'ivGraphSimilarity')}: <strong>{selectedEdgeDetail.edge.similarity.toFixed(3)}</strong></div>
+              <div>{t(language, 'ivGraphEdgeSimilarityBand')}: <strong>{edgeSimilarityBandLabel(language, selectedEdgeDetail.edge.similarity)}</strong></div>
+              <div>{t(language, 'ivGraphEdgeConfidence')}: <strong>{edgeConfidenceLabel(language, selectedEdgeDetail.edge.confidence)}</strong></div>
+              <div>{t(language, 'ivGraphEdgeRelation')}: <strong>{edgeRelationLabel(language, selectedEdgeDetail.edge)}</strong></div>
+              <div>{t(language, 'ivGraphNodeDocs')}: <strong>{selectedEdgeDetail.sourceCount} / {selectedEdgeDetail.targetCount}</strong></div>
+            </div>
+
+            {selectedEdgeDetail.edge.relationKind === 'candidate' && (
+              <div style={{ marginTop: '8px', padding: '6px 8px', borderRadius: '4px', background: 'rgba(245,159,0,0.12)', border: '1px solid rgba(245,159,0,0.35)', fontSize: '11px', lineHeight: 1.4 }}>
+                {t(language, 'ivGraphEdgeCentroidOnly')}
+              </div>
+            )}
+
+            {selectedEdgeDetail.edge.reasons && selectedEdgeDetail.edge.reasons.length > 0 && (
+              <div style={{ marginTop: '8px' }}>
+                <div style={{ fontSize: '10px', opacity: 0.6, textTransform: 'uppercase', marginBottom: '4px' }}>
+                  {t(language, 'ivGraphEdgeReasons')}
+                </div>
+                <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '11px', lineHeight: 1.45 }}>
+                  {selectedEdgeDetail.edge.reasons.slice(0, 6).map((reason, index) => (
+                    <li key={`${reason.kind}-${index}`}>{edgeReasonText(reason, language)}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {selectedEdgeDetail.edge.sharedFacets && selectedEdgeDetail.edge.sharedFacets.length > 0 && (
+              <div style={{ marginTop: '8px' }}>
+                <div style={{ fontSize: '10px', opacity: 0.6, textTransform: 'uppercase', marginBottom: '4px' }}>
+                  {t(language, 'ivGraphEdgeSharedFacets')}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {selectedEdgeDetail.edge.sharedFacets.slice(0, 6).map((facet) => (
+                    <span key={facet} style={{ padding: '1px 6px', borderRadius: '3px', fontSize: '10px', background: 'rgba(53,199,164,0.12)', border: '1px solid rgba(53,199,164,0.28)' }}>{facet}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {selectedEdgeDetail.edge.sharedKeywords && selectedEdgeDetail.edge.sharedKeywords.length > 0 && (
+              <div style={{ marginTop: '8px' }}>
+                <div style={{ fontSize: '10px', opacity: 0.6, textTransform: 'uppercase', marginBottom: '4px' }}>
+                  {t(language, 'ivGraphEdgeSharedKeywords')}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {selectedEdgeDetail.edge.sharedKeywords.slice(0, 8).map((keyword) => (
+                    <span key={keyword} style={{ padding: '1px 6px', borderRadius: '3px', fontSize: '10px', background: 'rgba(91,157,255,0.12)', border: '1px solid rgba(91,157,255,0.28)' }}>{keyword}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {selectedEdgeDetail.bridgeDocs.length > 0 && (
+              <div style={{ marginTop: '8px' }}>
+                <div style={{ fontSize: '10px', opacity: 0.6, textTransform: 'uppercase', marginBottom: '4px' }}>
+                  {t(language, 'ivGraphEdgeBridgeDocs')}
+                </div>
+                <div style={{ display: 'grid', gap: '3px', fontSize: '11px', lineHeight: 1.35 }}>
+                  {selectedEdgeDetail.bridgeDocs.map((doc) => (
+                    <div key={doc.id} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={doc.title || doc.id}>
+                      {doc.title || doc.id}
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -2422,7 +2746,10 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
             <tbody>
               {relatedClusters.map((rc) => (
                 <tr key={rc.id}
-                  onClick={() => setSelectedNodeId(rc.id)}
+                  onClick={() => {
+                    setSelectedEdgeKey(null)
+                    setSelectedNodeId(rc.id)
+                  }}
                   style={{
                     borderBottom: '1px solid var(--color-border, #333)',
                     background: selectedNodeId === rc.id ? 'rgba(120,180,255,0.08)' : undefined,
@@ -2435,7 +2762,7 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
                   <td style={{ padding: '4px 8px', textAlign: 'right' }}>{rc.count}</td>
                   <td style={{ padding: '4px 8px', fontSize: '11px' }}>
                     {rc.neighbors.length > 0
-                      ? rc.neighbors.map((n) => `${labelMap(n.clusterId)} (${n.similarity.toFixed(3)})`).join(', ')
+                      ? rc.neighbors.map((n) => `${labelMap(n.clusterId)} (${n.similarity.toFixed(3)}, ${edgeConfidenceLabel(language, n.edge.confidence)})`).join(', ')
                       : <span style={{ opacity: 0.5 }}>—</span>}
                   </td>
                 </tr>

@@ -12,6 +12,7 @@ import type { ScannedDoc } from './useIndexVisualization'
 import type { ResolvedLlmProfile } from './useSharedLlmConfig'
 import {
   summarizeClusters,
+  summarizeClustersV2,
   createMetaIndex,
   uploadMetaDocuments,
   deleteMetaIndex,
@@ -23,6 +24,7 @@ import {
   deleteMetaDocuments,
   generateMetaIndexName,
   type ClusterSummary,
+  type ClusterSummaryMode,
   type TwoStageSearchResult,
   type SummarizeProgress,
   type MetaIndexConfig,
@@ -30,6 +32,7 @@ import {
 } from '../lib/metaIndex'
 import { getIndexDefinition, type JsonValue } from '../lib/aiSearchRest'
 import { resolveMaxInputTokens } from '../lib/llmProvider'
+import { selectCentroidEvidence, selectRoleAwareEvidence } from '../lib/clusterEvidence'
 
 export type MetaIndexPhase =
   | 'idle'
@@ -175,6 +178,7 @@ export function useMetaIndex(input: {
     docs: ScannedDoc[],
     clusters: ClusterResult,
     contentFields?: string[],
+    summaryMode: ClusterSummaryMode = 'v1',
   ) => {
     if (!profile) return
 
@@ -218,34 +222,22 @@ export function useMetaIndex(input: {
             return textField ? [String(textField.name)] : []
           })()
 
-      // 2. Fetch representative texts for top docs per cluster
-      // Fetch generously — summarizeClusters will use greedy token-budget fill
+      // 2. Fetch representative texts. v1 fetches centroid-top plus role-aware
+      // spread samples; v2 fetches bounded role-aware evidence.
       const effectiveMaxTokens = resolveMaxInputTokens(llmConfig.deployment, llmConfig.maxInputTokens)
       const repPerCluster = Math.min(500, Math.max(10, Math.floor(effectiveMaxTokens * 0.75 / 30)))
       const repDocIds: string[] = []
       const k = clusters.centroids.length
       for (let c = 0; c < k; c++) {
-        const memberIndices: number[] = []
-        for (let i = 0; i < docs.length; i++) {
-          if (clusters.labels[i] === c) memberIndices.push(i)
+        if (summaryMode === 'v2') {
+          const evidence = selectRoleAwareEvidence({ clusterId: c, clusters, docs, maxCount: Math.min(32, repPerCluster) })
+          repDocIds.push(...evidence.map((item) => item.docId))
+        } else {
+          const centroidEvidence = selectCentroidEvidence({ clusterId: c, clusters, docs, maxCount: repPerCluster })
+          const spreadEvidence = selectRoleAwareEvidence({ clusterId: c, clusters, docs, maxCount: Math.min(48, repPerCluster) })
+          repDocIds.push(...centroidEvidence.map((item) => item.docId), ...spreadEvidence.map((item) => item.docId))
         }
-        const centroid = clusters.centroids[c]
-        const withDist = memberIndices.map((idx) => {
-          const v = docs[idx].vector
-          let dot = 0, normA = 0, normB = 0
-          for (let d = 0; d < v.length; d++) {
-            dot += v[d] * centroid[d]
-            normA += v[d] * v[d]
-            normB += centroid[d] * centroid[d]
-          }
-          const sim = (Math.sqrt(normA) * Math.sqrt(normB)) === 0 ? 0 : dot / (Math.sqrt(normA) * Math.sqrt(normB))
-          return { idx, sim }
-        })
-        withDist.sort((a, b) => b.sim - a.sim)
-        const topN = withDist.slice(0, Math.min(repPerCluster, memberIndices.length)).map((x) => docs[x.idx].id)
-        repDocIds.push(...topN)
       }
-
       let representativeTexts = new Map<string, string>()
       if (resolvedTextFields.length > 0) {
         representativeTexts = await fetchRepresentativeTexts({
@@ -264,16 +256,27 @@ export function useMetaIndex(input: {
       // 3. Summarize clusters with LLM
       setMetaPhase('summarizing')
       const llm = llmConfig.buildLlmProviderConfig()
-      const summarizeResult = await summarizeClusters({
-        clusters,
-        docs,
-        representativeTexts,
-        llmConfig: llm,
-        language,
-        maxInputTokens: effectiveMaxTokens,
-        signal: ctrl.signal,
-        onProgress: setSummarizeProgress,
-      })
+      const summarizeResult = summaryMode === 'v2'
+        ? await summarizeClustersV2({
+            clusters,
+            docs,
+            representativeTexts,
+            llmConfig: llm,
+            language,
+            maxInputTokens: effectiveMaxTokens,
+            signal: ctrl.signal,
+            onProgress: setSummarizeProgress,
+          })
+        : await summarizeClusters({
+            clusters,
+            docs,
+            representativeTexts,
+            llmConfig: llm,
+            language,
+            maxInputTokens: effectiveMaxTokens,
+            signal: ctrl.signal,
+            onProgress: setSummarizeProgress,
+          })
       if (ctrl.signal.aborted) return
       const summaries = summarizeResult.summaries
       setClusterSummaries(summaries)
@@ -346,7 +349,7 @@ export function useMetaIndex(input: {
         vectorField,
         vectorDimensions,
         clusterCount: k,
-        algorithm: 'kmeans',
+        algorithm: summaryMode === 'v2' ? 'eflc-v2-kmeans' : 'eflc-v1-kmeans',
         createdAt: new Date().toISOString(),
       }
       const uploadResult = await uploadMetaDocuments({

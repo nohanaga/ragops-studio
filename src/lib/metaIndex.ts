@@ -14,6 +14,7 @@ import type { LlmProviderConfig } from './llmProvider'
 import type { ClusterResult } from './clustering'
 import { callLlmChat, extractJsonFromText, type LlmUsage, type JsonSchemaResponseFormat } from './llmProvider'
 import { countTokens, truncateToTokenLimit } from './tokenizer'
+import { selectRoleAwareEvidence, type ClusterEvidenceCandidate } from './clusterEvidence'
 import {
   createOrUpdateIndex,
   searchDocuments,
@@ -38,6 +39,38 @@ const CLUSTER_LABEL_SCHEMA: JsonSchemaResponseFormat = {
       keywords: { type: 'array', items: { type: 'string' } },
     },
     required: ['label', 'summary', 'keywords'],
+    additionalProperties: false,
+  },
+}
+
+const CLUSTER_SIGNATURE_SCHEMA: JsonSchemaResponseFormat = {
+  name: 'cluster_signature',
+  schema: {
+    type: 'object',
+    properties: {
+      primaryLabel: { type: 'string' },
+      shortSummary: { type: 'string' },
+      facets: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            label: { type: 'string' },
+            summary: { type: 'string' },
+            keywords: { type: 'array', items: { type: 'string' } },
+            supportRatio: { type: 'number' },
+            representativeDocIds: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['label', 'summary', 'keywords', 'supportRatio', 'representativeDocIds'],
+          additionalProperties: false,
+        },
+      },
+      inclusionCriteria: { type: 'array', items: { type: 'string' } },
+      exclusionCriteria: { type: 'array', items: { type: 'string' } },
+      evidenceDocIds: { type: 'array', items: { type: 'string' } },
+      splitCandidate: { type: 'boolean' },
+    },
+    required: ['primaryLabel', 'shortSummary', 'facets', 'inclusionCriteria', 'exclusionCriteria', 'evidenceDocIds', 'splitCandidate'],
     additionalProperties: false,
   },
 }
@@ -68,7 +101,42 @@ export interface ClusterSummary {
   memberDocIds: string[]
   centroidVector: number[]
   representativeText: string
+  summaryVersion?: 'v1' | 'v2'
+  facetLabels?: string[]
+  facetSummaries?: string[]
+  inclusionCriteria?: string[]
+  exclusionCriteria?: string[]
+  signatureJson?: string
+  qualityJson?: string
 }
+
+export interface ClusterFacet {
+  label: string
+  summary: string
+  keywords: string[]
+  supportRatio: number
+  representativeDocIds: string[]
+}
+
+export interface ClusterSemanticSignature {
+  primaryLabel: string
+  shortSummary: string
+  facets: ClusterFacet[]
+  inclusionCriteria: string[]
+  exclusionCriteria: string[]
+  evidenceDocIds: string[]
+  splitCandidate: boolean
+}
+
+export interface ClusterSignatureQuality {
+  specificityScore: number
+  genericityScore: number
+  splitScore: number
+  needsRepair: boolean
+  repairReason?: string
+}
+
+export type ClusterSummaryMode = 'v1' | 'v2'
 
 /** Per-cluster LLM trace for debugging meta-index generation. */
 export interface MetaClusterTrace {
@@ -195,14 +263,32 @@ export async function summarizeClusters(input: {
     })
     withDist.sort((a, b) => b.sim - a.sim)
 
-    // Greedy token-budget fill: iterate docs in centroid-proximity order,
-    // add each doc's full text until the token budget is exhausted.
+    // Greedy token-budget fill: start with role-aware evidence to avoid centroid
+    // monopoly, then backfill with centroid-proximity order for v1 compatibility.
     const candidateCount = Math.min(withDist.length, maxRepresentativeCount)
+    const roleAwareIndices = selectRoleAwareEvidence({
+      clusterId: c,
+      clusters,
+      docs,
+      maxCount: Math.min(48, candidateCount),
+    }).map((item) => item.index)
+    const orderedCandidateIndices: number[] = []
+    const seenCandidateIndices = new Set<number>()
+    for (const idx of roleAwareIndices) {
+      if (seenCandidateIndices.has(idx)) continue
+      seenCandidateIndices.add(idx)
+      orderedCandidateIndices.push(idx)
+    }
+    for (const item of withDist.slice(0, candidateCount)) {
+      if (seenCandidateIndices.has(item.idx)) continue
+      seenCandidateIndices.add(item.idx)
+      orderedCandidateIndices.push(item.idx)
+    }
+
     const topIndices: number[] = []
     const repTexts: string[] = []
     let usedTokens = 0
-    for (let i = 0; i < candidateCount; i++) {
-      const idx = withDist[i].idx
+    for (const idx of orderedCandidateIndices) {
       const doc = docs[idx]
       const text = representativeTexts.get(doc.id) || doc.title
       if (!text) continue
@@ -225,12 +311,12 @@ export async function summarizeClusters(input: {
 
     // Call LLM for summarization
     const systemPrompt = language === 'ja'
-      ? `あなたはドキュメントクラスタの分析者です。代表的な文書群から、クラスタ全体を簡潔に表すラベル、要約、キーワードを生成してください。出力は必ずJSON形式で返してください。`
-      : `You are a document cluster analyst. Generate a concise label, summary, and keywords that represent the entire cluster based on representative documents. Always respond in JSON format.`
+      ? `あなたはドキュメントクラスタの分析者です。代表文書はクラスタ全体のサンプルにすぎません。単一の人物・企業・作品・団体をクラスタ全体の主題にしてよいのは、それが複数の代表文書で明確に反復し、クラスタ全体を代表すると判断できる場合だけです。そうでない場合は、個別名ではなく上位カテゴリ、共通テーマ、文書タイプでラベル化してください。出力は必ずJSON形式で返してください。`
+      : `You are a document cluster analyst. Representative documents are only samples of the full cluster. Use a single person, company, work, or organization as the cluster topic only when it clearly repeats across multiple representative documents and represents the whole cluster. Otherwise label the cluster by a broader category, shared theme, or document type. Always respond in JSON format.`
 
     const userPrompt = language === 'ja'
-      ? `以下はドキュメントクラスタの代表的な${repTexts.length}件の文書です。\n\n${repTexts.map((t, i) => `### 文書${i + 1}\n${t}`).join('\n\n')}\n\n以下のJSON形式で出力してください:\n{"label": "クラスタを表す短いラベル（10語以内）", "summary": "クラスタの概要（200文字以内）", "keywords": ["キーワード1", "キーワード2", "キーワード3", "キーワード4", "キーワード5"]}`
-      : `Below are ${repTexts.length} representative documents from a cluster.\n\n${repTexts.map((t, i) => `### Document ${i + 1}\n${t}`).join('\n\n')}\n\nRespond in the following JSON format:\n{"label": "Short label for this cluster (max 10 words)", "summary": "Cluster overview (max 200 chars)", "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"]}`
+      ? `クラスタ全体の文書数: ${memberIndices.length}\n代表文書数: ${repTexts.length}\n\n以下はドキュメントクラスタの代表文書です。\n\n${repTexts.map((t, i) => `### 文書${i + 1}\n${t}`).join('\n\n')}\n\n制約:\n- label / summary / keywords はクラスタ全体を表すこと。\n- 代表文書の一部に出るだけの人物名・企業名・作品名を label にしない。\n- 固有名を label に使う場合は、summary でその固有名がクラスタ全体を代表する根拠を説明できる場合に限る。\n- サンプルが多様なら、より広い共通テーマでまとめる。\n\n以下のJSON形式で出力してください:\n{"label": "クラスタを表す短いラベル（10語以内）", "summary": "クラスタの概要（200文字以内）", "keywords": ["キーワード1", "キーワード2", "キーワード3", "キーワード4", "キーワード5"]}`
+      : `Total documents in cluster: ${memberIndices.length}\nRepresentative documents: ${repTexts.length}\n\nBelow are representative documents from the cluster.\n\n${repTexts.map((t, i) => `### Document ${i + 1}\n${t}`).join('\n\n')}\n\nConstraints:\n- label / summary / keywords must describe the whole cluster.\n- Do not make a person, company, work, or organization the label when it appears only in part of the samples.\n- Use a proper name as the label only when the summary can justify that it represents the whole cluster.\n- If the samples are diverse, use a broader shared theme.\n\nRespond in the following JSON format:\n{"label": "Short label for this cluster (max 10 words)", "summary": "Cluster overview (max 200 chars)", "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"]}`
 
     let label = `Cluster ${c}`
     let summary = ''
@@ -311,6 +397,325 @@ export async function summarizeClusters(input: {
   return { summaries, llmFailureCount, llmErrors, promptTokens, completionTokens, totalTokens, traces }
 }
 
+export async function summarizeClustersV2(input: {
+  clusters: ClusterResult
+  docs: Array<{ id: string; title: string; vector: Float32Array }>
+  representativeTexts: Map<string, string>
+  llmConfig: LlmProviderConfig
+  language: Language
+  maxInputTokens?: number
+  maxEvidenceDocs?: number
+  signal?: AbortSignal
+  onProgress?: (progress: SummarizeProgress) => void
+}): Promise<{ summaries: ClusterSummary[]; llmFailureCount: number; llmErrors: string[]; promptTokens: number; completionTokens: number; totalTokens: number; traces: MetaClusterTrace[] }> {
+  const {
+    clusters,
+    docs,
+    representativeTexts,
+    llmConfig,
+    language,
+    maxInputTokens = 128_000,
+    maxEvidenceDocs = 24,
+    signal,
+    onProgress,
+  } = input
+
+  const boundedContentTokenBudget = Math.min(18_000, Math.floor(maxInputTokens * 0.25))
+
+  const summaries: ClusterSummary[] = []
+  let llmFailureCount = 0
+  const llmErrors: string[] = []
+  let promptTokens = 0
+  let completionTokens = 0
+  let totalTokens = 0
+  const traces: MetaClusterTrace[] = []
+
+  for (let clusterId = 0; clusterId < clusters.centroids.length; clusterId++) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+
+    const memberIndices = collectMemberIndices(clusters, clusterId, docs.length)
+    const memberDocIds = memberIndices.map((docIndex) => docs[docIndex].id)
+    const evidence = selectRoleAwareEvidence({ clusterId, clusters, docs, maxCount: maxEvidenceDocs })
+    const evidenceDocIds = evidence.map((item) => item.docId)
+    const evidenceBlocks = buildEvidenceBlocks({ evidence, docs, representativeTexts, tokenBudget: boundedContentTokenBudget })
+    const siblingContexts = buildSiblingContexts({ clusterId, clusters, language })
+    const evidenceStats = buildEvidenceStats({ memberCount: memberIndices.length, evidenceBlocks })
+
+    const systemPrompt = language === 'ja'
+      ? 'あなたは高カーディナリティな検索インデックスのクラスタ分析者です。与えられた role-aware evidence と兄弟クラスタとの差分を使い、クラスタを検索・探索に使える意味署名としてJSONで生成してください。証拠にない概念は追加しないでください。汎用的なラベルを避け、兄弟クラスタと区別できる表現にしてください。'
+      : 'You are a cluster analyst for high-cardinality search indexes. Use the role-aware evidence documents and sibling contrasts to generate a search-ready semantic signature as JSON. Do not add concepts unsupported by evidence. Avoid generic labels and make this cluster distinguishable from siblings.'
+    const userPrompt = language === 'ja'
+      ? buildJapaneseV2Prompt({ evidenceBlocks, siblingContexts, evidenceStats })
+      : buildEnglishV2Prompt({ evidenceBlocks, siblingContexts, evidenceStats })
+
+    let signature = fallbackSignature({ clusterId, memberCount: memberIndices.length, evidenceBlocks, evidenceDocIds, language })
+    let traceResponse: string | null = null
+    let traceError: string | null = null
+    let tracePromptTokens = 0
+    let traceCompletionTokens = 0
+    let traceTotalTokens = 0
+    const traceStart = performance.now()
+
+    try {
+      const response = await callLlmChat({
+        config: llmConfig,
+        systemPrompt,
+        userPrompt,
+        signal,
+        jsonMode: true,
+        jsonSchema: CLUSTER_SIGNATURE_SCHEMA,
+        onUsage: (usage: LlmUsage) => {
+          promptTokens += usage.promptTokens
+          completionTokens += usage.completionTokens
+          totalTokens += usage.totalTokens
+          tracePromptTokens = usage.promptTokens
+          traceCompletionTokens = usage.completionTokens
+          traceTotalTokens = usage.totalTokens
+        },
+      })
+      traceResponse = response
+      signature = normalizeSignature(JSON.parse(extractJsonFromText(response)), signature)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err
+      llmFailureCount++
+      const errMsg = err instanceof Error ? err.message : String(err)
+      llmErrors.push(errMsg)
+      traceError = errMsg
+    }
+
+    const quality = scoreSignature({ signature })
+    const keywords = uniqueStrings([
+      ...signature.facets.flatMap((facet) => facet.keywords),
+      ...signature.facets.map((facet) => facet.label),
+    ]).slice(0, 16)
+
+    traces.push({
+      clusterId,
+      label: signature.primaryLabel,
+      systemPrompt,
+      userPrompt,
+      response: traceResponse,
+      error: traceError,
+      promptTokens: tracePromptTokens,
+      completionTokens: traceCompletionTokens,
+      totalTokens: traceTotalTokens,
+      durationMs: Math.round(performance.now() - traceStart),
+      representativeDocIds: evidenceDocIds,
+    })
+
+    onProgress?.({ current: clusterId + 1, total: clusters.centroids.length, currentLabel: signature.primaryLabel })
+
+    summaries.push({
+      clusterId: `cluster-${clusterId}`,
+      label: signature.primaryLabel,
+      summary: signature.shortSummary,
+      keywords,
+      documentCount: memberIndices.length,
+      memberDocIds,
+      centroidVector: Array.from(clusters.centroids[clusterId]),
+      representativeText: truncateToTokenLimit(evidenceBlocks.map((block) => block.text).join('\n---\n'), Math.min(boundedContentTokenBudget, 12_500)),
+      summaryVersion: 'v2',
+      facetLabels: signature.facets.map((facet) => facet.label),
+      facetSummaries: signature.facets.map((facet) => facet.summary),
+      inclusionCriteria: signature.inclusionCriteria,
+      exclusionCriteria: signature.exclusionCriteria,
+      signatureJson: JSON.stringify(signature),
+      qualityJson: JSON.stringify(quality),
+    })
+  }
+
+  return { summaries, llmFailureCount, llmErrors, promptTokens, completionTokens, totalTokens, traces }
+}
+
+function collectMemberIndices(clusters: ClusterResult, clusterId: number, docCount: number): number[] {
+  const indices: number[] = []
+  for (let docIndex = 0; docIndex < docCount; docIndex++) {
+    if (clusters.labels[docIndex] === clusterId) indices.push(docIndex)
+  }
+  return indices
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const value of values) {
+    const normalized = value.trim()
+    if (!normalized || seen.has(normalized.toLowerCase())) continue
+    seen.add(normalized.toLowerCase())
+    result.push(normalized)
+  }
+  return result
+}
+
+function buildEvidenceBlocks(input: {
+  evidence: ClusterEvidenceCandidate[]
+  docs: Array<{ id: string; title: string; vector: Float32Array }>
+  representativeTexts: Map<string, string>
+  tokenBudget: number
+}): Array<{ role: string; docId: string; title: string; text: string }> {
+  const blocks: Array<{ role: string; docId: string; title: string; text: string }> = []
+  let usedTokens = 0
+  for (const item of input.evidence) {
+    const doc = input.docs[item.index]
+    const rawText = input.representativeTexts.get(doc.id) || doc.title
+    const remaining = input.tokenBudget - usedTokens
+    if (remaining <= 0) break
+    const text = truncateToTokenLimit(rawText, Math.min(remaining, 900))
+    const tokens = countTokens(text)
+    if (tokens <= 0) continue
+    blocks.push({ role: item.role, docId: doc.id, title: doc.title, text })
+    usedTokens += tokens
+  }
+  return blocks
+}
+
+function buildSiblingContexts(input: {
+  clusterId: number
+  clusters: ClusterResult
+  language: Language
+}): string[] {
+  const centroid = input.clusters.centroids[input.clusterId]
+  return input.clusters.centroids
+    .map((candidateCentroid, candidateClusterId) => ({
+      candidateClusterId,
+      similarity: candidateClusterId === input.clusterId ? -Infinity : cosineForPrompt(centroid, candidateCentroid),
+    }))
+    .sort((left, right) => right.similarity - left.similarity)
+    .slice(0, 3)
+    .map(({ candidateClusterId, similarity }) => {
+      return input.language === 'ja'
+        ? `cluster-${candidateClusterId}: centroid 類似度 ${similarity.toFixed(3)}, 文書数 ${input.clusters.counts[candidateClusterId] ?? 0}`
+        : `cluster-${candidateClusterId}: centroid similarity ${similarity.toFixed(3)}, documents ${input.clusters.counts[candidateClusterId] ?? 0}`
+    })
+}
+
+function cosineForPrompt(leftVector: ArrayLike<number>, rightVector: ArrayLike<number>): number {
+  let dot = 0
+  let leftNorm = 0
+  let rightNorm = 0
+  for (let dimIndex = 0; dimIndex < leftVector.length; dimIndex++) {
+    dot += leftVector[dimIndex] * rightVector[dimIndex]
+    leftNorm += leftVector[dimIndex] * leftVector[dimIndex]
+    rightNorm += rightVector[dimIndex] * rightVector[dimIndex]
+  }
+  const denominator = Math.sqrt(leftNorm) * Math.sqrt(rightNorm)
+  return denominator === 0 ? 0 : dot / denominator
+}
+
+function buildEvidenceStats(input: {
+  memberCount: number
+  evidenceBlocks: Array<{ role: string; docId: string; title: string; text: string }>
+}): { memberCount: number; evidenceCount: number; roleCounts: Record<string, number>; distinctTitleCount: number } {
+  const roleCounts: Record<string, number> = {}
+  const titles = new Set<string>()
+  for (const block of input.evidenceBlocks) {
+    roleCounts[block.role] = (roleCounts[block.role] ?? 0) + 1
+    const title = block.title.trim().toLowerCase()
+    if (title) titles.add(title)
+  }
+  return {
+    memberCount: input.memberCount,
+    evidenceCount: input.evidenceBlocks.length,
+    roleCounts,
+    distinctTitleCount: titles.size,
+  }
+}
+
+function buildJapaneseV2Prompt(input: {
+  evidenceBlocks: Array<{ role: string; docId: string; title: string; text: string }>
+  siblingContexts: string[]
+  evidenceStats: { memberCount: number; evidenceCount: number; roleCounts: Record<string, number>; distinctTitleCount: number }
+}): string {
+  return `以下のクラスタについて、EFLC v2 の ClusterSemanticSignature を生成してください。\n\n` +
+    `## クラスタ規模と evidence 分布\n- クラスタ全体の文書数: ${input.evidenceStats.memberCount}\n- evidence 文書数: ${input.evidenceStats.evidenceCount}\n- evidence role 分布: ${Object.entries(input.evidenceStats.roleCounts).map(([role, count]) => `${role}=${count}`).join(', ') || 'N/A'}\n- evidence の distinct title 数: ${input.evidenceStats.distinctTitleCount}\n\n` +
+    `## 近接する兄弟クラスタ (混同防止)\n${input.siblingContexts.join('\n') || 'N/A'}\n\n` +
+    `## 証拠文書\n${input.evidenceBlocks.map((block, index) => `### Evidence ${index + 1} [${block.role}] ${block.docId}\nTitle: ${block.title}\n${block.text}`).join('\n\n')}\n\n` +
+    `## 出力要件\n- primaryLabel は具体的で、兄弟クラスタと区別できる短い日本語にする。\n- primaryLabel / shortSummary / facets は、クラスタ全体の ${input.evidenceStats.memberCount} 件を表す前提で作る。\n- 単一の人物・企業・作品・団体を primaryLabel にしてよいのは、複数 role の evidence で反復し、クラスタ全体を代表すると説明できる場合だけ。\n- evidence の一部だけに出る固有名は facet または representativeDocIds 側に留め、クラスタ全体のラベルにしない。\n- facets は 2〜5 件。証拠文書内で確認できる観点だけに基づく。\n- inclusionCriteria は、このクラスタに含める条件を 2〜5 件。\n- exclusionCriteria は、似ているが除外すべき条件を 2〜5 件。\n- 証拠にない製品名、技術名、カテゴリは追加しない。`
+}
+
+function buildEnglishV2Prompt(input: {
+  evidenceBlocks: Array<{ role: string; docId: string; title: string; text: string }>
+  siblingContexts: string[]
+  evidenceStats: { memberCount: number; evidenceCount: number; roleCounts: Record<string, number>; distinctTitleCount: number }
+}): string {
+  return `Generate an EFLC v2 ClusterSemanticSignature for this cluster.\n\n` +
+    `## Cluster Size and Evidence Distribution\n- Total cluster documents: ${input.evidenceStats.memberCount}\n- Evidence documents: ${input.evidenceStats.evidenceCount}\n- Evidence role counts: ${Object.entries(input.evidenceStats.roleCounts).map(([role, count]) => `${role}=${count}`).join(', ') || 'N/A'}\n- Distinct evidence titles: ${input.evidenceStats.distinctTitleCount}\n\n` +
+    `## Similar Sibling Clusters\n${input.siblingContexts.join('\n') || 'N/A'}\n\n` +
+    `## Evidence Documents\n${input.evidenceBlocks.map((block, index) => `### Evidence ${index + 1} [${block.role}] ${block.docId}\nTitle: ${block.title}\n${block.text}`).join('\n\n')}\n\n` +
+    `## Requirements\n- Make primaryLabel concrete and distinguishable from sibling clusters.\n- primaryLabel / shortSummary / facets must describe the full ${input.evidenceStats.memberCount}-document cluster.\n- Use a single person, company, work, or organization as primaryLabel only when it repeats across multiple evidence roles and can be justified as representing the whole cluster.\n- If a proper name appears only in part of the evidence, keep it inside facets or representativeDocIds, not as the whole-cluster label.\n- Produce 2 to 5 facets grounded only in evidence documents.\n- Produce 2 to 5 inclusionCriteria and exclusionCriteria.\n- Do not introduce unsupported product names, technologies, or categories.`
+}
+
+function fallbackSignature(input: {
+  clusterId: number
+  memberCount: number
+  evidenceBlocks: Array<{ role: string; docId: string; title: string; text: string }>
+  evidenceDocIds: string[]
+  language: Language
+}): ClusterSemanticSignature {
+  const titleTerms = uniqueStrings(input.evidenceBlocks.map((block) => block.title).filter(Boolean)).slice(0, 3)
+  const label = titleTerms[0] || `Cluster ${input.clusterId}`
+  const summary = input.language === 'ja'
+    ? `${input.memberCount} 件の文書を含むクラスタです。代表文書: ${titleTerms.join(' / ') || 'N/A'}。`
+    : `Cluster containing ${input.memberCount} documents. Representative documents: ${titleTerms.join(' / ') || 'N/A'}.`
+  return {
+    primaryLabel: label,
+    shortSummary: summary,
+    facets: titleTerms.slice(0, 3).map((title) => ({
+      label: title,
+      summary: title,
+      keywords: [title],
+      supportRatio: 0,
+      representativeDocIds: input.evidenceDocIds.slice(0, 5),
+    })),
+    inclusionCriteria: titleTerms,
+    exclusionCriteria: [],
+    evidenceDocIds: input.evidenceDocIds,
+    splitCandidate: false,
+  }
+}
+
+function normalizeSignature(value: unknown, fallback: ClusterSemanticSignature): ClusterSemanticSignature {
+  const obj = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const facetsValue = Array.isArray(obj.facets) ? obj.facets : []
+  const facets = facetsValue.map((facetValue) => {
+    const facet = facetValue && typeof facetValue === 'object' ? facetValue as Record<string, unknown> : {}
+    return {
+      label: String(facet.label || '').trim(),
+      summary: String(facet.summary || '').trim(),
+      keywords: Array.isArray(facet.keywords) ? facet.keywords.map(String).filter(Boolean) : [],
+      supportRatio: Number(facet.supportRatio ?? 0),
+      representativeDocIds: Array.isArray(facet.representativeDocIds) ? facet.representativeDocIds.map(String).filter(Boolean) : [],
+    }
+  }).filter((facet) => facet.label.length > 0).slice(0, 6)
+
+  return {
+    primaryLabel: String(obj.primaryLabel || fallback.primaryLabel).trim() || fallback.primaryLabel,
+    shortSummary: String(obj.shortSummary || fallback.shortSummary).trim() || fallback.shortSummary,
+    facets: facets.length > 0 ? facets : fallback.facets,
+    inclusionCriteria: Array.isArray(obj.inclusionCriteria) ? obj.inclusionCriteria.map(String).filter(Boolean).slice(0, 8) : fallback.inclusionCriteria,
+    exclusionCriteria: Array.isArray(obj.exclusionCriteria) ? obj.exclusionCriteria.map(String).filter(Boolean).slice(0, 8) : fallback.exclusionCriteria,
+    evidenceDocIds: Array.isArray(obj.evidenceDocIds) ? obj.evidenceDocIds.map(String).filter(Boolean) : fallback.evidenceDocIds,
+    splitCandidate: Boolean(obj.splitCandidate ?? fallback.splitCandidate),
+  }
+}
+
+function scoreSignature(input: { signature: ClusterSemanticSignature }): ClusterSignatureQuality {
+  const labelText = `${input.signature.primaryLabel} ${input.signature.shortSummary} ${input.signature.facets.map((facet) => facet.label).join(' ')}`.toLowerCase()
+  const genericWords = ['document', 'documents', 'data', 'information', 'content', '文書', '情報', 'データ', '内容']
+  const genericMatches = genericWords.filter((word) => labelText.includes(word)).length
+  const specificityScore = input.signature.primaryLabel.trim().length > 0 && input.signature.primaryLabel.length <= 60 ? 1 : 0
+  const genericityScore = genericMatches / genericWords.length
+  const splitScore = Math.min(1, (input.signature.facets.length > 5 ? 0.4 : 0) + (input.signature.splitCandidate ? 0.6 : 0))
+  const needsRepair = specificityScore < 0.15 || genericityScore > 0.45 || splitScore > 0.7
+  return {
+    specificityScore: Number(specificityScore.toFixed(3)),
+    genericityScore: Number(genericityScore.toFixed(3)),
+    splitScore: Number(splitScore.toFixed(3)),
+    needsRepair,
+    repairReason: needsRepair ? 'low-specificity-or-high-genericity' : undefined,
+  }
+}
+
 // ─── Meta-Index Creation ────────────────────────────────────────────────────
 
 /** Build the meta-index schema definition. */
@@ -348,6 +753,33 @@ export function buildMetaIndexSchema(
         vectorSearchProfile: 'eflc-vector-profile',
       },
       { name: 'representativeText', type: 'Edm.String', searchable: true },
+      { name: 'summaryVersion', type: 'Edm.String', filterable: true, searchable: false },
+      {
+        name: 'facetLabels',
+        type: 'Collection(Edm.String)',
+        searchable: true,
+        filterable: true,
+      },
+      {
+        name: 'facetSummaries',
+        type: 'Collection(Edm.String)',
+        searchable: true,
+        filterable: false,
+      },
+      {
+        name: 'inclusionCriteria',
+        type: 'Collection(Edm.String)',
+        searchable: true,
+        filterable: false,
+      },
+      {
+        name: 'exclusionCriteria',
+        type: 'Collection(Edm.String)',
+        searchable: true,
+        filterable: false,
+      },
+      { name: 'signatureJson', type: 'Edm.String', searchable: false, retrievable: true },
+      { name: 'qualityJson', type: 'Edm.String', searchable: false, retrievable: true },
       { name: 'sourceIndex', type: 'Edm.String', filterable: true, searchable: false },
       { name: 'vectorField', type: 'Edm.String', filterable: true, searchable: false },
       { name: 'createdAt', type: 'Edm.DateTimeOffset', filterable: true, sortable: true },
@@ -380,9 +812,12 @@ export function buildMetaIndexSchema(
             titleField: { fieldName: 'label' },
             prioritizedContentFields: [
               { fieldName: 'summary' },
+              { fieldName: 'facetSummaries' },
+              { fieldName: 'inclusionCriteria' },
+              { fieldName: 'exclusionCriteria' },
               { fieldName: 'representativeText' },
             ],
-            prioritizedKeywordsFields: [{ fieldName: 'keywords' }],
+            prioritizedKeywordsFields: [{ fieldName: 'keywords' }, { fieldName: 'facetLabels' }],
           },
         },
       ],
@@ -531,6 +966,13 @@ export async function uploadMetaDocuments(input: {
     centroidVector: s.centroidVector,
     // Azure AI Search rejects single terms > 32766 UTF-8 bytes. Keep a safety margin.
     representativeText: truncateUtf8Bytes(s.representativeText, 32_000),
+    summaryVersion: s.summaryVersion ?? 'v1',
+    facetLabels: (s.facetLabels ?? []).map((label) => truncateUtf8Bytes(label, 32_000)),
+    facetSummaries: (s.facetSummaries ?? []).map((summary) => truncateUtf8Bytes(summary, 32_000)),
+    inclusionCriteria: (s.inclusionCriteria ?? []).map((criterion) => truncateUtf8Bytes(criterion, 32_000)),
+    exclusionCriteria: (s.exclusionCriteria ?? []).map((criterion) => truncateUtf8Bytes(criterion, 32_000)),
+    signatureJson: truncateUtf8Bytes(s.signatureJson ?? '', 32_000),
+    qualityJson: truncateUtf8Bytes(s.qualityJson ?? '', 32_000),
     sourceIndex: metaConfig.sourceIndexName,
     vectorField: metaConfig.vectorField,
     createdAt: metaConfig.createdAt,
@@ -849,7 +1291,7 @@ export async function fetchExistingSummaries(input: {
       search: '*',
       top: 100,
       orderby: 'documentCount desc',
-      select: 'id,clusterId,label,summary,keywords,documentCount,memberDocIds,centroidVector,representativeText,sourceIndex,vectorField,createdAt',
+      select: 'id,clusterId,label,summary,keywords,documentCount,memberDocIds,centroidVector,representativeText,summaryVersion,facetLabels,facetSummaries,inclusionCriteria,exclusionCriteria,signatureJson,qualityJson,sourceIndex,vectorField,createdAt',
     },
     language: input.language,
   })
@@ -868,5 +1310,12 @@ export async function fetchExistingSummaries(input: {
     memberDocIds: Array.isArray(d.memberDocIds) ? d.memberDocIds.map(String) : [],
     centroidVector: Array.isArray(d.centroidVector) ? d.centroidVector.map(Number) : [],
     representativeText: String(d.representativeText ?? ''),
+    summaryVersion: d.summaryVersion === 'v2' ? 'v2' : 'v1',
+    facetLabels: Array.isArray(d.facetLabels) ? d.facetLabels.map(String) : [],
+    facetSummaries: Array.isArray(d.facetSummaries) ? d.facetSummaries.map(String) : [],
+    inclusionCriteria: Array.isArray(d.inclusionCriteria) ? d.inclusionCriteria.map(String) : [],
+    exclusionCriteria: Array.isArray(d.exclusionCriteria) ? d.exclusionCriteria.map(String) : [],
+    signatureJson: String(d.signatureJson ?? ''),
+    qualityJson: String(d.qualityJson ?? ''),
   }))
 }

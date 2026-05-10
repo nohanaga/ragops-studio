@@ -9,6 +9,34 @@ import { cosineSimilarity, type ClusterResult, type HierarchicalClusterResult } 
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+export type EdgeConfidence = 'high' | 'medium' | 'low'
+
+export type EdgeReasonKind = 'centroid' | 'bridge-documents' | 'shared-facet' | 'shared-keyword' | 'signature-overlap'
+
+export interface EdgeReason {
+  kind: EdgeReasonKind
+  score: number
+  detail: string
+}
+
+export interface EdgeScoreBreakdown {
+  centroidSimilarity: number
+  bridgeSupport: number
+  signatureOverlap: number
+  confidenceScore: number
+}
+
+export interface ClusterEdgeSummaryInput {
+  label?: string
+  summary?: string
+  keywords?: string[]
+  facetLabels?: string[]
+  facetSummaries?: string[]
+  inclusionCriteria?: string[]
+  exclusionCriteria?: string[]
+  signatureJson?: string
+}
+
 export interface ClusterEdge {
   /** Source cluster index. */
   source: number
@@ -16,6 +44,20 @@ export interface ClusterEdge {
   target: number
   /** Cosine similarity between the two centroids (0–1). */
   similarity: number
+  /** Explainability confidence. Low means centroid-near candidate only. */
+  confidence?: EdgeConfidence
+  /** Whether the edge is explained by additional evidence or only a proximity candidate. */
+  relationKind?: 'explained' | 'candidate'
+  /** Structured reasons shown in the graph UI. */
+  reasons?: EdgeReason[]
+  /** Shared facet labels when semantic signatures are available. */
+  sharedFacets?: string[]
+  /** Shared keywords when summaries/signatures are available. */
+  sharedKeywords?: string[]
+  /** Bridge document indices supporting this edge. */
+  bridgeDocIndices?: number[]
+  /** Deterministic score components. */
+  scoreBreakdown?: EdgeScoreBreakdown
 }
 
 export interface BridgeNode {
@@ -45,6 +87,11 @@ export interface ClusterGraphData {
   bridges: BridgeNode[]
 }
 
+interface BuildEdgeEvidenceOptions {
+  bridges?: BridgeNode[]
+  summaries?: ClusterEdgeSummaryInput[]
+}
+
 // ─── Edge Building ──────────────────────────────────────────────────────────
 
 /**
@@ -58,6 +105,7 @@ export function buildClusterEdges(
   centroids: Float32Array[],
   threshold = 0.5,
   maxEdgesPerNode = 5,
+  evidence: BuildEdgeEvidenceOptions = {},
 ): ClusterEdge[] {
   const k = centroids.length
   if (k <= 1) return []
@@ -68,13 +116,16 @@ export function buildClusterEdges(
     for (let j = i + 1; j < k; j++) {
       const sim = cosineSimilarity(centroids[i], centroids[j])
       if (sim >= threshold) {
-        allEdges.push({ source: i, target: j, similarity: sim })
+        allEdges.push(buildExplainableEdge({ source: i, target: j, similarity: sim, evidence }))
       }
     }
   }
 
   // Sort by similarity descending
-  allEdges.sort((a, b) => b.similarity - a.similarity)
+  allEdges.sort((a, b) => {
+    const confidenceDiff = (b.scoreBreakdown?.confidenceScore ?? b.similarity) - (a.scoreBreakdown?.confidenceScore ?? a.similarity)
+    return confidenceDiff !== 0 ? confidenceDiff : b.similarity - a.similarity
+  })
 
   // Limit edges per node for readability
   const edgeCounts = new Uint16Array(k)
@@ -88,6 +139,142 @@ export function buildClusterEdges(
   }
 
   return filtered
+}
+
+function buildExplainableEdge(input: {
+  source: number
+  target: number
+  similarity: number
+  evidence: BuildEdgeEvidenceOptions
+}): ClusterEdge {
+  const { source, target, similarity, evidence } = input
+  const pairBridgeDocs = bridgeDocIndicesForPair(evidence.bridges ?? [], source, target)
+  const sharedFacets = sharedTerms(extractFacetTerms(evidence.summaries?.[source]), extractFacetTerms(evidence.summaries?.[target])).slice(0, 6)
+  const sharedKeywords = sharedTerms(extractKeywordTerms(evidence.summaries?.[source]), extractKeywordTerms(evidence.summaries?.[target])).slice(0, 8)
+  const bridgeSupport = Math.min(1, pairBridgeDocs.length / 3)
+  const signatureOverlap = Math.min(1, sharedFacets.length * 0.35 + sharedKeywords.length * 0.12)
+  const reasons: EdgeReason[] = [{ kind: 'centroid', score: similarity, detail: similarity.toFixed(3) }]
+
+  if (pairBridgeDocs.length > 0) {
+    reasons.push({ kind: 'bridge-documents', score: bridgeSupport, detail: String(pairBridgeDocs.length) })
+  }
+  if (sharedFacets.length > 0) {
+    reasons.push({ kind: 'shared-facet', score: Math.min(1, sharedFacets.length / 3), detail: sharedFacets.join(', ') })
+  }
+  if (sharedKeywords.length > 0) {
+    reasons.push({ kind: 'shared-keyword', score: Math.min(1, sharedKeywords.length / 5), detail: sharedKeywords.join(', ') })
+  }
+  if (signatureOverlap > 0) {
+    reasons.push({ kind: 'signature-overlap', score: signatureOverlap, detail: signatureOverlap.toFixed(2) })
+  }
+
+  const hasBridgeEvidence = bridgeSupport > 0
+  const hasSignatureEvidence = signatureOverlap > 0
+  const confidenceScore = Math.min(1, similarity * 0.35 + bridgeSupport * 0.35 + signatureOverlap * 0.3)
+  const confidence: EdgeConfidence = hasBridgeEvidence && hasSignatureEvidence
+    ? 'high'
+    : hasBridgeEvidence || hasSignatureEvidence
+      ? 'medium'
+      : 'low'
+
+  return {
+    source,
+    target,
+    similarity,
+    confidence,
+    relationKind: confidence === 'low' ? 'candidate' : 'explained',
+    reasons,
+    sharedFacets,
+    sharedKeywords,
+    bridgeDocIndices: pairBridgeDocs.slice(0, 8),
+    scoreBreakdown: {
+      centroidSimilarity: similarity,
+      bridgeSupport,
+      signatureOverlap,
+      confidenceScore,
+    },
+  }
+}
+
+function bridgeDocIndicesForPair(bridges: BridgeNode[], source: number, target: number): number[] {
+  return bridges
+    .filter((bridge) => {
+      const left = Math.min(bridge.ownCluster, bridge.nearestCluster)
+      const right = Math.max(bridge.ownCluster, bridge.nearestCluster)
+      return left === Math.min(source, target) && right === Math.max(source, target)
+    })
+    .sort((left, right) => right.similarityToNearest - left.similarityToNearest)
+    .map((bridge) => bridge.docIndex)
+}
+
+function extractFacetTerms(summary?: ClusterEdgeSummaryInput): string[] {
+  if (!summary) return []
+  const terms = [...(summary.facetLabels ?? [])]
+  if (summary.signatureJson) {
+    try {
+      const parsed = JSON.parse(summary.signatureJson) as { facets?: Array<{ label?: unknown }> }
+      for (const facet of parsed.facets ?? []) {
+        if (typeof facet.label === 'string') terms.push(facet.label)
+      }
+    } catch {
+      // Ignore malformed old signature payloads.
+    }
+  }
+  return uniqueNormalizedTerms(terms)
+}
+
+function extractKeywordTerms(summary?: ClusterEdgeSummaryInput): string[] {
+  if (!summary) return []
+  const terms = [
+    ...(summary.keywords ?? []),
+    ...(summary.inclusionCriteria ?? []),
+  ]
+  if (summary.signatureJson) {
+    try {
+      const parsed = JSON.parse(summary.signatureJson) as { facets?: Array<{ keywords?: unknown }> }
+      for (const facet of parsed.facets ?? []) {
+        if (Array.isArray(facet.keywords)) {
+          for (const keyword of facet.keywords) {
+            if (typeof keyword === 'string') terms.push(keyword)
+          }
+        }
+      }
+    } catch {
+      // Ignore malformed old signature payloads.
+    }
+  }
+  return uniqueNormalizedTerms(terms)
+}
+
+function sharedTerms(left: string[], right: string[]): string[] {
+  const rightMap = new Map(right.map((term) => [normalizeTerm(term), term]))
+  const result: string[] = []
+  const seen = new Set<string>()
+  for (const term of left) {
+    const key = normalizeTerm(term)
+    const rightTerm = rightMap.get(key)
+    if (!key || !rightTerm || seen.has(key)) continue
+    seen.add(key)
+    result.push(term.length <= rightTerm.length ? term : rightTerm)
+  }
+  return result
+}
+
+function uniqueNormalizedTerms(values: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const value of values) {
+    const trimmed = value.trim()
+    const key = normalizeTerm(trimmed)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    result.push(trimmed)
+  }
+  return result
+}
+
+function normalizeTerm(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
 // ─── Bridge Node Detection ──────────────────────────────────────────────────
@@ -294,8 +481,8 @@ export function buildClusterGraph(
   const labels = hierarchical ? hierarchical.macroLabels : cluster.labels
   const counts = hierarchical ? hierarchical.macro.counts : cluster.counts
 
-  const edges = buildClusterEdges(centroids, edgeThreshold)
   const bridges = findBridgeNodes(vectors, labels, centroids)
+  const edges = buildClusterEdges(centroids, edgeThreshold, 5, { bridges })
   const nodes = forceDirectedLayout(counts, edges)
 
   return { nodes, edges, bridges }
@@ -308,7 +495,7 @@ export function buildClusterGraph(
  * Bridge nodes cannot be reconstructed (requires full document vectors).
  */
 export function rebuildClusterGraphFromMeta(
-  summaries: { centroidVector: number[]; documentCount: number }[],
+  summaries: Array<{ centroidVector: number[]; documentCount: number } & ClusterEdgeSummaryInput>,
   edgeThreshold = 0.5,
 ): ClusterGraphData {
   const centroids = summaries.map((s) =>
@@ -316,7 +503,7 @@ export function rebuildClusterGraphFromMeta(
   )
   const counts = Array.from(summaries.map((s) => s.documentCount))
 
-  const edges = buildClusterEdges(centroids, edgeThreshold)
+  const edges = buildClusterEdges(centroids, edgeThreshold, 5, { summaries })
   const nodes = forceDirectedLayout(counts, edges)
 
   return { nodes, edges, bridges: [] }
