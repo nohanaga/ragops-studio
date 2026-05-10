@@ -137,8 +137,9 @@ export function useIndexVisualization(input: {
 
     setError(null)
     setData(null)
-    setPhase('scanning')
+    setPhase(enableAdaptiveSampling ? 'detecting' : 'scanning')
     setProgress(0)
+    setProgressTotal(0)
 
     try {
       // Find primary key from index definition
@@ -329,6 +330,8 @@ export function useIndexVisualization(input: {
     workerRef.current?.terminate()
     workerRef.current = null
     setPhase('idle')
+    setProgress(0)
+    setProgressTotal(0)
   }, [])
 
   /** Restore visualization data from a snapshot (load/import). */
@@ -346,6 +349,8 @@ export function useIndexVisualization(input: {
     setData(null)
     setPhase('idle')
     setError(null)
+    setProgress(0)
+    setProgressTotal(0)
   }, [])
 
   return {

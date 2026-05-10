@@ -269,12 +269,13 @@ export const BASIC_GUIDES: Record<string, FeatureGuide> = {
     steps: [
       { icon: 'box-arrow-in-right', titleJa: 'ツールメニューから開く', titleEn: 'Open from Tools menu', descJa: 'ツールメニューから Index Cluster Visualizer を開きます。', descEn: 'Open Index Cluster Visualizer from the Tools menu.' },
       { icon: 'gear', titleJa: 'インデックスとクラスタ数を設定', titleEn: 'Set index & cluster count', descJa: 'インデックス名、ベクトルフィールド、クラスタ数 (k)、最大ドキュメント数を設定します。', descEn: 'Set the index name, vector field, cluster count (k), and max documents.', targetSelector: '[data-guide-target="iv-settings"]' },
-      { icon: 'play-circle', titleJa: 'スキャンして散布図を生成', titleEn: 'Scan & generate scatter plot', descJa: '実行ボタンでベクトルスキャン → クラスタリング → 散布図描画が進行します。', descEn: 'Click Run to start vector scan → clustering → scatter plot rendering.', targetSelector: '[data-guide-target="iv-run"]' },
+      { icon: 'play-circle', titleJa: 'スキャンして散布図を生成', titleEn: 'Scan & generate scatter plot', descJa: '実行ボタンで文書ベクトルを読み込み、似た文書ごとのまとまりを散布図にします。', descEn: 'Click Run to load document vectors and plot groups of similar documents.', targetSelector: '[data-guide-target="iv-run"]' },
       { icon: 'eye', titleJa: 'クラスタ内ドキュメントを閲覧', titleEn: 'Browse cluster documents', descJa: '散布図のクラスタをホバーまたはクリックしてドキュメントを確認できます。', descEn: 'Hover or click clusters on the scatter plot to view documents.' },
-      { icon: 'chat-left-text', titleJa: 'LLM でクラスタを要約して登録', titleEn: 'Summarize & register with LLM', descJa: 'LLM でクラスタ要約を生成し、メタインデックスとして Azure AI Search に登録します。', descEn: 'Generate cluster summaries with LLM and register as a meta-index in Azure AI Search.', targetSelector: '[data-guide-target="iv-meta"]' },
+      { icon: 'chat-left-text', titleJa: 'LLM で要約して登録', titleEn: 'Summarize and register with LLM', descJa: '各クラスタの代表文書から名前・概要・キーワードを作成し、メタインデックスとして Azure AI Search に登録します。', descEn: 'Create a name, summary, and keywords from representative documents in each cluster, then register them as a meta-index in Azure AI Search.', targetSelector: '[data-guide-target="iv-meta"]' },
+      { icon: 'download', titleJa: '保存形式を使い分ける', titleEn: 'Use the right save format', descJa: '.ragvis.json は可視化構造、.ragmeta.json は LLM 要約・Trace の再利用に使います。', descEn: '.ragvis.json is for visualization structure; .ragmeta.json is for reusing LLM summaries and traces.' },
     ],
-    tipsJa: ['まず 500〜1000 件で実行して傾向を掴みましょう', 'チャンクインデックスでは Adaptive Sampling を有効に'],
-    tipsEn: ['Start with 500–1000 documents to get a feel', 'Enable Adaptive Sampling for chunk indexes'],
+    tipsJa: ['まず 500〜1000 件で実行して傾向を掴みましょう', 'チャンクインデックスでは Adaptive Sampling を有効に', 'LLM 再実行を避けたい場合は Meta JSON を保存しましょう'],
+    tipsEn: ['Start with 500–1000 documents to get a feel', 'Enable Adaptive Sampling for chunk indexes', 'Save Meta JSON when you want to avoid repeated LLM runs'],
     docsUrl: 'https://learn.microsoft.com/azure/search/vector-search-overview',
   },
   'experiment-management': {

@@ -36,9 +36,9 @@ const CLUSTER_LABEL_SCHEMA: JsonSchemaResponseFormat = {
   schema: {
     type: 'object',
     properties: {
-      label: { type: 'string' },
-      summary: { type: 'string' },
-      keywords: { type: 'array', items: { type: 'string' } },
+      label: { type: 'string', maxLength: 80 },
+      summary: { type: 'string', maxLength: 320 },
+      keywords: { type: 'array', maxItems: 8, items: { type: 'string', maxLength: 60 } },
     },
     required: ['label', 'summary', 'keywords'],
     additionalProperties: false,
@@ -50,16 +50,17 @@ const CLUSTER_SIGNATURE_SCHEMA: JsonSchemaResponseFormat = {
   schema: {
     type: 'object',
     properties: {
-      primaryLabel: { type: 'string' },
-      shortSummary: { type: 'string' },
+      primaryLabel: { type: 'string', maxLength: 80 },
+      shortSummary: { type: 'string', maxLength: 320 },
       facets: {
         type: 'array',
+        maxItems: 5,
         items: {
           type: 'object',
           properties: {
-            label: { type: 'string' },
-            summary: { type: 'string' },
-            keywords: { type: 'array', items: { type: 'string' } },
+            label: { type: 'string', maxLength: 80 },
+            summary: { type: 'string', maxLength: 240 },
+            keywords: { type: 'array', maxItems: 8, items: { type: 'string', maxLength: 60 } },
             supportRatio: { type: 'number' },
             representativeDocIds: { type: 'array', items: { type: 'string' } },
           },
@@ -67,8 +68,8 @@ const CLUSTER_SIGNATURE_SCHEMA: JsonSchemaResponseFormat = {
           additionalProperties: false,
         },
       },
-      inclusionCriteria: { type: 'array', items: { type: 'string' } },
-      exclusionCriteria: { type: 'array', items: { type: 'string' } },
+      inclusionCriteria: { type: 'array', maxItems: 5, items: { type: 'string', maxLength: 180 } },
+      exclusionCriteria: { type: 'array', maxItems: 5, items: { type: 'string', maxLength: 180 } },
       evidenceDocIds: { type: 'array', items: { type: 'string' } },
       splitCandidate: { type: 'boolean' },
     },
@@ -92,6 +93,47 @@ function truncateUtf8Bytes(text: string, maxBytes: number): string {
   // Decode the first `maxBytes` bytes, ignoring any incomplete trailing sequence.
   const decoder = new TextDecoder('utf-8', { fatal: false })
   return decoder.decode(bytes.slice(0, maxBytes))
+}
+
+const MAX_CLUSTER_LABEL_CHARS = 80
+const MAX_CLUSTER_SUMMARY_CHARS = 320
+const MAX_FACET_SUMMARY_CHARS = 240
+const MAX_KEYWORD_CHARS = 60
+const MAX_CRITERION_CHARS = 180
+const MAX_TITLE_LABEL_SOURCE_CHARS = 120
+
+function normalizeInlineText(value: unknown): string {
+  return String(value ?? '').replace(/\s+/g, ' ').trim()
+}
+
+function compactInlineText(value: unknown, maxChars: number): string {
+  const text = normalizeInlineText(value)
+  if (text.length <= maxChars) return text
+  return `${text.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`
+}
+
+function compactList(values: unknown, maxItems: number, maxChars: number): string[] {
+  if (!Array.isArray(values)) return []
+  return uniqueStrings(values.map((value) => compactInlineText(value, maxChars)).filter(Boolean)).slice(0, maxItems)
+}
+
+function compactClusterLabel(value: unknown, fallback: string): string {
+  return compactInlineText(value, MAX_CLUSTER_LABEL_CHARS) || fallback
+}
+
+function compactClusterSummary(value: unknown, fallback: string): string {
+  return compactInlineText(value, MAX_CLUSTER_SUMMARY_CHARS) || fallback
+}
+
+function compactEvidenceTitle(value: unknown): string | null {
+  const text = normalizeInlineText(value)
+  if (!text || text.length > MAX_TITLE_LABEL_SOURCE_CHARS) return null
+  return compactInlineText(text, MAX_CLUSTER_LABEL_CHARS)
+}
+
+function safeRepresentativeReference(doc?: { id: string; title: string }): string {
+  if (!doc) return 'N/A'
+  return compactEvidenceTitle(doc.title) ?? doc.id
 }
 
 export interface ClusterSummary {
@@ -395,7 +437,11 @@ export async function summarizeClusters(input: {
       ? `クラスタ全体の文書数: ${memberIndices.length}\n代表文書数: ${repTexts.length}\n\n以下はドキュメントクラスタの代表文書です。\n\n${repTexts.map((t, i) => `### 文書${i + 1}\n${t}`).join('\n\n')}\n\n制約:\n- label / summary / keywords はクラスタ全体を表すこと。\n- 代表文書の一部に出るだけの人物名・企業名・作品名を label にしない。\n- 固有名を label に使う場合は、summary でその固有名がクラスタ全体を代表する根拠を説明できる場合に限る。\n- サンプルが多様なら、より広い共通テーマでまとめる。\n\n以下のJSON形式で出力してください:\n{"label": "クラスタを表す短いラベル（10語以内）", "summary": "クラスタの概要（200文字以内）", "keywords": ["キーワード1", "キーワード2", "キーワード3", "キーワード4", "キーワード5"]}`
       : `Total documents in cluster: ${memberIndices.length}\nRepresentative documents: ${repTexts.length}\n\nBelow are representative documents from the cluster.\n\n${repTexts.map((t, i) => `### Document ${i + 1}\n${t}`).join('\n\n')}\n\nConstraints:\n- label / summary / keywords must describe the whole cluster.\n- Do not make a person, company, work, or organization the label when it appears only in part of the samples.\n- Use a proper name as the label only when the summary can justify that it represents the whole cluster.\n- If the samples are diverse, use a broader shared theme.\n\nRespond in the following JSON format:\n{"label": "Short label for this cluster (max 10 words)", "summary": "Cluster overview (max 200 chars)", "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"]}`
 
-    let label = `Cluster ${c}`
+    const fallbackLabel = language === 'ja' ? `クラスタ ${c}` : `Cluster ${c}`
+    const fallbackSummary = language === 'ja'
+      ? `${memberIndices.length} 件の文書を含むクラスタです。`
+      : `Contains ${memberIndices.length} documents.`
+    let label = fallbackLabel
     let summary = ''
     let keywords: string[] = []
     let traceResponse: string | null = null
@@ -425,9 +471,9 @@ export async function summarizeClusters(input: {
       traceResponse = response
 
       const parsed = JSON.parse(extractJsonFromText(response))
-      label = String(parsed.label || label)
-      summary = String(parsed.summary || '')
-      keywords = Array.isArray(parsed.keywords) ? parsed.keywords.map(String) : []
+      label = compactClusterLabel(parsed.label, fallbackLabel)
+      summary = compactClusterSummary(parsed.summary, fallbackSummary)
+      keywords = compactList(parsed.keywords, 8, MAX_KEYWORD_CHARS)
     } catch (err) {
       // If LLM fails, use fallback
       if (err instanceof DOMException && err.name === 'AbortError') throw err
@@ -435,8 +481,17 @@ export async function summarizeClusters(input: {
       const errMsg = err instanceof Error ? err.message : String(err)
       llmErrors.push(errMsg)
       traceError = errMsg
-      label = `Cluster ${c} (${memberIndices.length} docs)`
-      summary = `Contains ${memberIndices.length} documents. Representative: ${docs[topIndices[0]]?.title || 'N/A'}`
+      label = compactClusterLabel(
+        language === 'ja' ? `クラスタ ${c} (${memberIndices.length} 件)` : `Cluster ${c} (${memberIndices.length} docs)`,
+        fallbackLabel,
+      )
+      const representative = safeRepresentativeReference(docs[topIndices[0]])
+      summary = compactClusterSummary(
+        language === 'ja'
+          ? `${memberIndices.length} 件の文書を含むクラスタです。代表文書: ${representative}。`
+          : `Contains ${memberIndices.length} documents. Representative: ${representative}`,
+        fallbackSummary,
+      )
     }
 
     const traceDuration = performance.now() - traceStart
@@ -885,18 +940,19 @@ function collectMicroIdsForMacro(hierarchical: HierarchicalClusterResult, macroI
 }
 
 function parseSignatureFromSummary(summary: ClusterSummary): ClusterSemanticSignature {
+  const fallbackLabel = summary.clusterId || 'Cluster'
   const fallback: ClusterSemanticSignature = {
-    primaryLabel: summary.label,
-    shortSummary: summary.summary,
+    primaryLabel: compactClusterLabel(summary.label, fallbackLabel),
+    shortSummary: compactClusterSummary(summary.summary, fallbackLabel),
     facets: (summary.facetLabels ?? []).map((label, index) => ({
-      label,
-      summary: summary.facetSummaries?.[index] ?? label,
-      keywords: summary.keywords.slice(0, 8),
+      label: compactClusterLabel(label, fallbackLabel),
+      summary: compactInlineText(summary.facetSummaries?.[index] ?? label, MAX_FACET_SUMMARY_CHARS),
+      keywords: compactList(summary.keywords, 8, MAX_KEYWORD_CHARS),
       supportRatio: 0,
       representativeDocIds: [],
     })),
-    inclusionCriteria: summary.inclusionCriteria ?? [],
-    exclusionCriteria: summary.exclusionCriteria ?? [],
+    inclusionCriteria: compactList(summary.inclusionCriteria ?? [], 8, MAX_CRITERION_CHARS),
+    exclusionCriteria: compactList(summary.exclusionCriteria ?? [], 8, MAX_CRITERION_CHARS),
     evidenceDocIds: [],
     splitCandidate: false,
   }
@@ -1110,22 +1166,27 @@ function fallbackSignature(input: {
   evidenceDocIds: string[]
   language: Language
 }): ClusterSemanticSignature {
-  const titleTerms = uniqueStrings(input.evidenceBlocks.map((block) => block.title).filter(Boolean)).slice(0, 3)
-  const label = titleTerms[0] || `Cluster ${input.clusterId}`
+  const titleTerms = uniqueStrings(input.evidenceBlocks
+    .map((block) => compactEvidenceTitle(block.title))
+    .filter((title): title is string => Boolean(title)))
+    .slice(0, 3)
+  const fallbackLabel = input.language === 'ja' ? `クラスタ ${input.clusterId}` : `Cluster ${input.clusterId}`
+  const label = compactClusterLabel(titleTerms[0], fallbackLabel)
+  const representativeLabel = titleTerms.join(' / ') || 'N/A'
   const summary = input.language === 'ja'
-    ? `${input.memberCount} 件の文書を含むクラスタです。代表文書: ${titleTerms.join(' / ') || 'N/A'}。`
-    : `Cluster containing ${input.memberCount} documents. Representative documents: ${titleTerms.join(' / ') || 'N/A'}.`
+    ? compactClusterSummary(`${input.memberCount} 件の文書を含むクラスタです。代表文書: ${representativeLabel}。`, `${input.memberCount} 件の文書を含むクラスタです。`)
+    : compactClusterSummary(`Cluster containing ${input.memberCount} documents. Representative documents: ${representativeLabel}.`, `Cluster containing ${input.memberCount} documents.`)
   return {
     primaryLabel: label,
     shortSummary: summary,
     facets: titleTerms.slice(0, 3).map((title) => ({
-      label: title,
-      summary: title,
-      keywords: [title],
+      label: compactClusterLabel(title, fallbackLabel),
+      summary: compactInlineText(title, MAX_FACET_SUMMARY_CHARS),
+      keywords: compactList([title], 1, MAX_KEYWORD_CHARS),
       supportRatio: 0,
       representativeDocIds: input.evidenceDocIds.slice(0, 5),
     })),
-    inclusionCriteria: titleTerms,
+    inclusionCriteria: titleTerms.map((title) => compactInlineText(title, MAX_CRITERION_CHARS)).filter(Boolean),
     exclusionCriteria: [],
     evidenceDocIds: input.evidenceDocIds,
     splitCandidate: false,
@@ -1137,21 +1198,23 @@ function normalizeSignature(value: unknown, fallback: ClusterSemanticSignature):
   const facetsValue = Array.isArray(obj.facets) ? obj.facets : []
   const facets = facetsValue.map((facetValue) => {
     const facet = facetValue && typeof facetValue === 'object' ? facetValue as Record<string, unknown> : {}
+    const facetLabel = compactInlineText(facet.label, MAX_CLUSTER_LABEL_CHARS)
+    if (!facetLabel) return null
     return {
-      label: String(facet.label || '').trim(),
-      summary: String(facet.summary || '').trim(),
-      keywords: Array.isArray(facet.keywords) ? facet.keywords.map(String).filter(Boolean) : [],
+      label: facetLabel,
+      summary: compactInlineText(facet.summary || facetLabel, MAX_FACET_SUMMARY_CHARS),
+      keywords: compactList(facet.keywords, 8, MAX_KEYWORD_CHARS),
       supportRatio: Number(facet.supportRatio ?? 0),
       representativeDocIds: Array.isArray(facet.representativeDocIds) ? facet.representativeDocIds.map(String).filter(Boolean) : [],
     }
-  }).filter((facet) => facet.label.length > 0).slice(0, 6)
+  }).filter((facet): facet is ClusterFacet => Boolean(facet)).slice(0, 6)
 
   return {
-    primaryLabel: String(obj.primaryLabel || fallback.primaryLabel).trim() || fallback.primaryLabel,
-    shortSummary: String(obj.shortSummary || fallback.shortSummary).trim() || fallback.shortSummary,
+    primaryLabel: compactClusterLabel(obj.primaryLabel || fallback.primaryLabel, fallback.primaryLabel),
+    shortSummary: compactClusterSummary(obj.shortSummary || fallback.shortSummary, fallback.shortSummary),
     facets: facets.length > 0 ? facets : fallback.facets,
-    inclusionCriteria: Array.isArray(obj.inclusionCriteria) ? obj.inclusionCriteria.map(String).filter(Boolean).slice(0, 8) : fallback.inclusionCriteria,
-    exclusionCriteria: Array.isArray(obj.exclusionCriteria) ? obj.exclusionCriteria.map(String).filter(Boolean).slice(0, 8) : fallback.exclusionCriteria,
+    inclusionCriteria: Array.isArray(obj.inclusionCriteria) ? compactList(obj.inclusionCriteria, 8, MAX_CRITERION_CHARS) : fallback.inclusionCriteria,
+    exclusionCriteria: Array.isArray(obj.exclusionCriteria) ? compactList(obj.exclusionCriteria, 8, MAX_CRITERION_CHARS) : fallback.exclusionCriteria,
     evidenceDocIds: Array.isArray(obj.evidenceDocIds) ? obj.evidenceDocIds.map(String).filter(Boolean) : fallback.evidenceDocIds,
     splitCandidate: Boolean(obj.splitCandidate ?? fallback.splitCandidate),
   }
@@ -1657,31 +1720,34 @@ export async function uploadMetaDocuments(input: {
 }): Promise<RestResult> {
   const { profile, apiVersion, metaIndexName, summaries, metaConfig } = input
 
-  const documents = summaries.map((s) => ({
-    '@search.action': 'upload',
-    id: s.clusterId,
-    clusterId: s.clusterId,
-    label: truncateUtf8Bytes(s.label, 32_000),
-    summary: truncateUtf8Bytes(s.summary, 32_000),
-    keywords: s.keywords.map((k) => truncateUtf8Bytes(k, 32_000)),
-    documentCount: s.documentCount,
-    memberDocIds: s.memberDocIds.slice(0, 1000), // Limit for field size
-    centroidVector: s.centroidVector,
-    // Azure AI Search rejects single terms > 32766 UTF-8 bytes. Keep a safety margin.
-    representativeText: truncateUtf8Bytes(s.representativeText, 32_000),
-    summaryVersion: s.summaryVersion ?? 'v1',
-    facetLabels: (s.facetLabels ?? []).map((label) => truncateUtf8Bytes(label, 32_000)),
-    facetSummaries: (s.facetSummaries ?? []).map((summary) => truncateUtf8Bytes(summary, 32_000)),
-    inclusionCriteria: (s.inclusionCriteria ?? []).map((criterion) => truncateUtf8Bytes(criterion, 32_000)),
-    exclusionCriteria: (s.exclusionCriteria ?? []).map((criterion) => truncateUtf8Bytes(criterion, 32_000)),
-    signatureJson: truncateUtf8Bytes(s.signatureJson ?? '', 32_000),
-    qualityJson: truncateUtf8Bytes(s.qualityJson ?? '', 32_000),
-    topologyJson: truncateUtf8Bytes(s.topologyJson ?? '', 32_000),
-    hierarchyJson: truncateUtf8Bytes(s.hierarchyJson ?? '', 32_000),
-    sourceIndex: metaConfig.sourceIndexName,
-    vectorField: metaConfig.vectorField,
-    createdAt: metaConfig.createdAt,
-  }))
+  const documents = summaries.map((s) => {
+    const fallbackLabel = s.clusterId || 'Cluster'
+    return {
+      '@search.action': 'upload',
+      id: s.clusterId,
+      clusterId: s.clusterId,
+      label: compactClusterLabel(s.label, fallbackLabel),
+      summary: compactClusterSummary(s.summary, fallbackLabel),
+      keywords: compactList(s.keywords, 16, MAX_KEYWORD_CHARS),
+      documentCount: s.documentCount,
+      memberDocIds: s.memberDocIds.slice(0, 1000), // Limit for field size
+      centroidVector: s.centroidVector,
+      // Azure AI Search rejects single terms > 32766 UTF-8 bytes. Keep a safety margin.
+      representativeText: truncateUtf8Bytes(s.representativeText, 32_000),
+      summaryVersion: s.summaryVersion ?? 'v1',
+      facetLabels: compactList(s.facetLabels ?? [], 8, MAX_CLUSTER_LABEL_CHARS),
+      facetSummaries: compactList(s.facetSummaries ?? [], 8, MAX_FACET_SUMMARY_CHARS),
+      inclusionCriteria: compactList(s.inclusionCriteria ?? [], 8, MAX_CRITERION_CHARS),
+      exclusionCriteria: compactList(s.exclusionCriteria ?? [], 8, MAX_CRITERION_CHARS),
+      signatureJson: truncateUtf8Bytes(s.signatureJson ?? '', 32_000),
+      qualityJson: truncateUtf8Bytes(s.qualityJson ?? '', 32_000),
+      topologyJson: truncateUtf8Bytes(s.topologyJson ?? '', 32_000),
+      hierarchyJson: truncateUtf8Bytes(s.hierarchyJson ?? '', 32_000),
+      sourceIndex: metaConfig.sourceIndexName,
+      vectorField: metaConfig.vectorField,
+      createdAt: metaConfig.createdAt,
+    }
+  })
 
   const result = await indexDocuments({
     profile,
@@ -2006,23 +2072,27 @@ export async function fetchExistingSummaries(input: {
   const docs = resp.value as Array<Record<string, JsonValue>> | undefined
   if (!docs || docs.length === 0) return null
 
-  return docs.map((d) => ({
-    clusterId: String(d.clusterId ?? ''),
-    label: String(d.label ?? ''),
-    summary: String(d.summary ?? ''),
-    keywords: Array.isArray(d.keywords) ? d.keywords.map(String) : [],
-    documentCount: Number(d.documentCount ?? 0),
-    memberDocIds: Array.isArray(d.memberDocIds) ? d.memberDocIds.map(String) : [],
-    centroidVector: Array.isArray(d.centroidVector) ? d.centroidVector.map(Number) : [],
-    representativeText: String(d.representativeText ?? ''),
-    summaryVersion: d.summaryVersion === 'v2' ? 'v2' : 'v1',
-    facetLabels: Array.isArray(d.facetLabels) ? d.facetLabels.map(String) : [],
-    facetSummaries: Array.isArray(d.facetSummaries) ? d.facetSummaries.map(String) : [],
-    inclusionCriteria: Array.isArray(d.inclusionCriteria) ? d.inclusionCriteria.map(String) : [],
-    exclusionCriteria: Array.isArray(d.exclusionCriteria) ? d.exclusionCriteria.map(String) : [],
-    signatureJson: String(d.signatureJson ?? ''),
-    qualityJson: String(d.qualityJson ?? ''),
-    topologyJson: String(d.topologyJson ?? ''),
-    hierarchyJson: String(d.hierarchyJson ?? ''),
-  }))
+  return docs.map((d) => {
+    const clusterId = String(d.clusterId ?? '')
+    const fallbackLabel = clusterId || 'Cluster'
+    return {
+      clusterId,
+      label: compactClusterLabel(d.label, fallbackLabel),
+      summary: compactClusterSummary(d.summary, fallbackLabel),
+      keywords: compactList(d.keywords, 16, MAX_KEYWORD_CHARS),
+      documentCount: Number(d.documentCount ?? 0),
+      memberDocIds: Array.isArray(d.memberDocIds) ? d.memberDocIds.map(String) : [],
+      centroidVector: Array.isArray(d.centroidVector) ? d.centroidVector.map(Number) : [],
+      representativeText: String(d.representativeText ?? ''),
+      summaryVersion: d.summaryVersion === 'v2' ? 'v2' : 'v1',
+      facetLabels: compactList(d.facetLabels, 8, MAX_CLUSTER_LABEL_CHARS),
+      facetSummaries: compactList(d.facetSummaries, 8, MAX_FACET_SUMMARY_CHARS),
+      inclusionCriteria: compactList(d.inclusionCriteria, 8, MAX_CRITERION_CHARS),
+      exclusionCriteria: compactList(d.exclusionCriteria, 8, MAX_CRITERION_CHARS),
+      signatureJson: String(d.signatureJson ?? ''),
+      qualityJson: String(d.qualityJson ?? ''),
+      topologyJson: String(d.topologyJson ?? ''),
+      hierarchyJson: String(d.hierarchyJson ?? ''),
+    }
+  })
 }

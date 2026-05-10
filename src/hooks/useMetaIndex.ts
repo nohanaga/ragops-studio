@@ -33,7 +33,7 @@ import {
   type MetaClusterTrace,
 } from '../lib/metaIndex'
 import { getIndexDefinition, type JsonValue } from '../lib/aiSearchRest'
-import { resolveMaxInputTokens } from '../lib/llmProvider'
+import { LOCAL_PROVIDERS, resolveMaxInputTokens } from '../lib/llmProvider'
 import { selectCentroidEvidence, selectRoleAwareEvidence } from '../lib/clusterEvidence'
 
 export type MetaIndexPhase =
@@ -227,7 +227,10 @@ export function useMetaIndex(input: {
 
       // 2. Fetch representative texts. v1 fetches centroid-top plus role-aware
       // spread samples; v2 fetches bounded role-aware evidence.
-      const effectiveMaxTokens = resolveMaxInputTokens(llmConfig.deployment, llmConfig.maxInputTokens)
+      const resolvedMaxTokens = resolveMaxInputTokens(llmConfig.deployment, llmConfig.maxInputTokens)
+      const effectiveMaxTokens = !llmConfig.maxInputTokens && LOCAL_PROVIDERS.has(llmConfig.provider)
+        ? Math.min(resolvedMaxTokens, 8_192)
+        : resolvedMaxTokens
       const repPerCluster = Math.min(500, Math.max(10, Math.floor(effectiveMaxTokens * 0.75 / 30)))
       const repDocIds: string[] = []
       const k = clusters.centroids.length

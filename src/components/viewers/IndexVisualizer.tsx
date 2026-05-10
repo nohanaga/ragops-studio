@@ -335,6 +335,68 @@ export function IndexVisualizer({
   const canRun = !!profile && !!vis.selectedIndex && !!vis.selectedVectorField && !isRunning
   const isMetaRunning = meta.metaPhase !== 'idle' && meta.metaPhase !== 'done' && meta.metaPhase !== 'error'
 
+  const visualizationProgress = useMemo(() => {
+    const phaseOrder: string[] = []
+    if (vis.enableAdaptiveSampling) phaseOrder.push('detecting')
+    phaseOrder.push('scanning', 'clustering')
+    if (vis.enableGraph) phaseOrder.push('graphing')
+    phaseOrder.push('projecting')
+
+    const phaseIndex = Math.max(1, phaseOrder.indexOf(vis.phase) + 1)
+    const phaseLabel = (() => {
+      switch (vis.phase) {
+        case 'detecting':
+          return t(language, 'ivPhaseDetecting')
+        case 'scanning':
+          return t(language, 'ivPhaseScanning')
+        case 'clustering':
+          return t(language, 'ivPhaseClustering')
+        case 'graphing':
+          return t(language, 'ivPhaseGraphing')
+        case 'projecting':
+          return t(language, 'ivPhaseProjecting')
+        default:
+          return t(language, 'ivProgressLabel')
+      }
+    })()
+
+    return {
+      phaseIndex,
+      phaseTotal: phaseOrder.length,
+      phaseLabel,
+      stepCurrent: vis.phase === 'scanning' ? vis.progress : 0,
+      stepTotal: vis.phase === 'scanning' ? vis.progressTotal : 0,
+    }
+  }, [language, vis.enableAdaptiveSampling, vis.enableGraph, vis.phase, vis.progress, vis.progressTotal])
+
+  const metaProgress = useMemo(() => {
+    const phaseOrder = ['fetching-texts', 'summarizing', 'creating-index', 'uploading']
+    const phaseIndex = Math.max(1, phaseOrder.indexOf(meta.metaPhase) + 1)
+    const phaseLabel = (() => {
+      switch (meta.metaPhase) {
+        case 'fetching-texts':
+          return t(language, 'ivMetaPhaseFetching')
+        case 'summarizing':
+          return t(language, 'ivMetaPhaseSummarizing')
+        case 'creating-index':
+          return t(language, 'ivMetaPhaseCreating')
+        case 'uploading':
+          return t(language, 'ivMetaPhaseUploading')
+        default:
+          return t(language, 'ivProgressLabel')
+      }
+    })()
+
+    return {
+      phaseIndex,
+      phaseTotal: phaseOrder.length,
+      phaseLabel,
+      stepCurrent: meta.metaPhase === 'summarizing' ? meta.summarizeProgress.current : 0,
+      stepTotal: meta.metaPhase === 'summarizing' ? meta.summarizeProgress.total : 0,
+      currentLabel: meta.summarizeProgress.currentLabel,
+    }
+  }, [language, meta.metaPhase, meta.summarizeProgress])
+
   // Can generate meta-index only if Phase 1 is done
   const canGenerateMeta = vis.data && vis.phase === 'done' && !isMetaRunning
   const vectorDims = vis.vectorFields.find((f) => f.name === vis.selectedVectorField)?.dimensions ?? 0
@@ -592,23 +654,40 @@ export function IndexVisualizer({
 
         {/* Progress */}
         {isRunning && (
-          <div className="app__hint" style={{ marginTop: '8px' }}>
-            {vis.phase === 'detecting' && t(language, 'ivPhaseDetecting')}
-            {vis.phase === 'scanning' && (
-              <>
-                {t(language, 'ivPhaseScanning')} ({vis.progress}/{vis.progressTotal})
-                <div className="progress" style={{ marginTop: '4px', height: '6px' }}>
-                  <div
-                    className="progress-bar"
-                    role="progressbar"
-                    style={{ width: `${vis.progressTotal > 0 ? (vis.progress / vis.progressTotal) * 100 : 0}%` }}
-                  />
-                </div>
-              </>
-            )}
-            {vis.phase === 'clustering' && t(language, 'ivPhaseClustering')}
-            {vis.phase === 'graphing' && t(language, 'ivPhaseGraphing')}
-            {vis.phase === 'projecting' && t(language, 'ivPhaseProjecting')}
+          <div
+            data-guide-target="iv-progress"
+            style={{
+              display: 'flex',
+              gap: 12,
+              alignItems: 'center',
+              marginTop: '8px',
+            }}
+          >
+            <div style={{ flex: '0 0 auto' }}>
+              <span className="mono mono--ellipsesSm">
+                {t(language, 'ivProgressOverall')
+                  .replace('{current}', String(visualizationProgress.phaseIndex))
+                  .replace('{total}', String(visualizationProgress.phaseTotal))}
+              </span>
+              <progress
+                value={visualizationProgress.phaseIndex}
+                max={visualizationProgress.phaseTotal}
+                style={{ width: '100%', display: 'block', marginTop: 2 }}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <span className="mono mono--ellipsesSm">
+                {visualizationProgress.phaseLabel}
+                {visualizationProgress.stepTotal > 0
+                  ? `: ${visualizationProgress.stepCurrent} / ${visualizationProgress.stepTotal}`
+                  : visualizationProgress.phaseLabel.endsWith('…') ? '' : '…'}
+              </span>
+              <progress
+                value={visualizationProgress.stepTotal > 0 ? visualizationProgress.stepCurrent : undefined}
+                max={visualizationProgress.stepTotal > 0 ? visualizationProgress.stepTotal : undefined}
+                style={{ width: '100%', display: 'block', marginTop: 2 }}
+              />
+            </div>
           </div>
         )}
 
@@ -990,33 +1069,45 @@ export function IndexVisualizer({
 
         {/* Meta progress */}
         {isMetaRunning && (
-          <div className="app__hint" style={{ marginTop: '8px' }}>
-            {meta.metaPhase === 'fetching-texts' && t(language, 'ivMetaPhaseFetching')}
-            {meta.metaPhase === 'summarizing' && (
-              <>
-                {t(language, 'ivMetaPhaseSummarizing')
-                  .replace('{current}', String(meta.summarizeProgress.current))
-                  .replace('{total}', String(meta.summarizeProgress.total))}
-                {meta.summarizeProgress.currentLabel && (
+          <div
+            data-guide-target="iv-meta-progress"
+            style={{
+              display: 'flex',
+              gap: 12,
+              alignItems: 'center',
+              marginTop: '8px',
+            }}
+          >
+            <div style={{ flex: '0 0 auto' }}>
+              <span className="mono mono--ellipsesSm">
+                {t(language, 'ivMetaProgressOverall')
+                  .replace('{current}', String(metaProgress.phaseIndex))
+                  .replace('{total}', String(metaProgress.phaseTotal))}
+              </span>
+              <progress
+                value={metaProgress.phaseIndex}
+                max={metaProgress.phaseTotal}
+                style={{ width: '100%', display: 'block', marginTop: 2 }}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <span className="mono mono--ellipsesSm">
+                {metaProgress.phaseLabel}
+                {metaProgress.stepTotal > 0
+                  ? `: ${metaProgress.stepCurrent} / ${metaProgress.stepTotal}`
+                  : metaProgress.phaseLabel.endsWith('…') ? '' : '…'}
+                {metaProgress.currentLabel && (
                   <span style={{ marginLeft: '8px', opacity: 0.7 }}>
-                    — {meta.summarizeProgress.currentLabel}
+                    — {metaProgress.currentLabel}
                   </span>
                 )}
-                <div className="progress" style={{ marginTop: '4px', height: '6px' }}>
-                  <div
-                    className="progress-bar"
-                    role="progressbar"
-                    style={{
-                      width: `${meta.summarizeProgress.total > 0
-                        ? (meta.summarizeProgress.current / meta.summarizeProgress.total) * 100
-                        : 0}%`,
-                    }}
-                  />
-                </div>
-              </>
-            )}
-            {meta.metaPhase === 'creating-index' && t(language, 'ivMetaPhaseCreating')}
-            {meta.metaPhase === 'uploading' && t(language, 'ivMetaPhaseUploading')}
+              </span>
+              <progress
+                value={metaProgress.stepTotal > 0 ? metaProgress.stepCurrent : undefined}
+                max={metaProgress.stepTotal > 0 ? metaProgress.stepTotal : undefined}
+                style={{ width: '100%', display: 'block', marginTop: 2 }}
+              />
+            </div>
           </div>
         )}
         {meta.metaPhase === 'done' && !meta.metaWarning && (
