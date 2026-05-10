@@ -43,24 +43,6 @@
   margin-bottom: 16px;
 }
 
-.app__error {
-  color: #e15759;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.app__warning {
-  color: #f0ad4e;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.app__success {
-  color: #59a14f;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
 /* Generic hint text blocks (used by custom builders) */
 .section__hint {
   color: var(--muted);
@@ -1518,6 +1500,16 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.section__subtitle {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 summary.section__title {
@@ -4178,10 +4170,16 @@ html[data-theme='light'] .rawJsonViewer {
 }
 
 .notice {
-  border: 1px solid color-mix(in srgb, #2196f3 50%, var(--border));
-  border-radius: var(--radius);
-  background: color-mix(in srgb, #2196f3 12%, var(--panel-2));
-  padding: 10px 12px;
+  --app-message-color: #2196f3;
+  --app-message-bg-alpha: 12%;
+  --app-message-border-alpha: 48%;
+  color: color-mix(in srgb, var(--app-message-color) 86%, var(--fg));
+  background: color-mix(in srgb, var(--app-message-color) var(--app-message-bg-alpha), var(--panel-2));
+  border: 1px solid color-mix(in srgb, var(--app-message-color) var(--app-message-border-alpha), var(--border));
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.5;
   margin-top: 10px;
   position: relative;
 }
@@ -4206,24 +4204,19 @@ html[data-theme='light'] .rawJsonViewer {
 }
 
 .notice--success {
-  border-color: color-mix(in srgb, #4caf50 50%, var(--border));
-  background: color-mix(in srgb, #4caf50 12%, var(--panel-2));
+  --app-message-color: #59a14f;
 }
 
 .notice--info {
-  border-color: color-mix(in srgb, #2196f3 50%, var(--border));
-  background: color-mix(in srgb, #2196f3 12%, var(--panel-2));
+  --app-message-color: #2196f3;
 }
 
 .notice--warning {
-  border-color: color-mix(in srgb, #ff9800 50%, var(--border));
-  background: color-mix(in srgb, #ff9800 12%, var(--panel-2));
+  --app-message-color: #f0ad4e;
 }
 
 .notice--error {
-  border-color: color-mix(in srgb, #f44336 50%, var(--border));
-  background: color-mix(in srgb, #f44336 12%, var(--panel-2));
-  margin: 10px 0;
+  --app-message-color: #e15759;
 }
 
 .notice__title {
