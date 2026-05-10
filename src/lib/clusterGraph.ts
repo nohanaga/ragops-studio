@@ -79,12 +79,20 @@ export interface GraphNode {
   /** 2D layout position (computed by force-directed layout). */
   x: number
   y: number
+  /** Semantic level represented by this node. */
+  nodeKind?: 'macro' | 'micro' | 'document'
+  /** Parent macro cluster id when this node is a micro cluster. */
+  parentId?: number
+  /** Local id inside the parent hierarchy level. */
+  localId?: number
 }
 
 export interface ClusterGraphData {
   nodes: GraphNode[]
   edges: ClusterEdge[]
   bridges: BridgeNode[]
+  graphLevel?: 'macro' | 'micro' | 'document'
+  parentId?: number
 }
 
 interface BuildEdgeEvidenceOptions {
@@ -483,9 +491,103 @@ export function buildClusterGraph(
 
   const bridges = findBridgeNodes(vectors, labels, centroids)
   const edges = buildClusterEdges(centroids, edgeThreshold, 5, { bridges })
-  const nodes = forceDirectedLayout(counts, edges)
+  const nodes = forceDirectedLayout(counts, edges).map((node) => ({ ...node, nodeKind: 'macro' as const }))
 
-  return { nodes, edges, bridges }
+  return { nodes, edges, bridges, graphLevel: 'macro' }
+}
+
+/**
+ * Build a session-only micro-cluster graph for a selected macro cluster.
+ *
+ * Node ids stay globally unique micro ids so the UI can use
+ * `hierarchical.microLabels` directly for document drilldown.
+ */
+export function buildHierarchicalClusterGraph(
+  vectors: Float32Array[],
+  hierarchical: HierarchicalClusterResult,
+  macroId: number,
+  edgeThreshold = 0.5,
+  summaries?: ClusterEdgeSummaryInput[],
+): ClusterGraphData {
+  const childMicroIds = getMicroClusterIdsForMacro(hierarchical, macroId)
+  if (childMicroIds.length === 0) {
+    return { nodes: [], edges: [], bridges: [], graphLevel: 'micro', parentId: macroId }
+  }
+
+  const flattened = flattenMicroClusters(hierarchical)
+  const localIndexByGlobalId = new Map<number, number>()
+  childMicroIds.forEach((globalId, localId) => localIndexByGlobalId.set(globalId, localId))
+
+  const localCentroids = childMicroIds
+    .map((globalId) => flattened[globalId]?.centroid)
+    .filter((centroid): centroid is Float32Array => Boolean(centroid))
+  const localCounts = childMicroIds.map((globalId) => flattened[globalId]?.count ?? 0)
+  const localSummaries = summaries ? childMicroIds.map((globalId) => summaries[globalId]) : undefined
+
+  const globalBridges = findBridgeNodes(vectors, hierarchical.microLabels, flattened.map((item) => item.centroid), 80)
+  const localBridges = globalBridges
+    .filter((bridge) => localIndexByGlobalId.has(bridge.ownCluster) && localIndexByGlobalId.has(bridge.nearestCluster))
+    .map((bridge) => ({
+      ...bridge,
+      ownCluster: localIndexByGlobalId.get(bridge.ownCluster)!,
+      nearestCluster: localIndexByGlobalId.get(bridge.nearestCluster)!,
+    }))
+
+  const maxEdgesPerNode = Math.max(3, Math.min(6, childMicroIds.length - 1))
+  const localEdges = buildClusterEdges(localCentroids, edgeThreshold, maxEdgesPerNode, {
+    bridges: localBridges,
+    summaries: localSummaries,
+  })
+  const localNodes = forceDirectedLayout(localCounts, localEdges, 200, 142 + macroId * 37)
+
+  const nodes = localNodes.map((node) => ({
+    ...node,
+    id: childMicroIds[node.id],
+    nodeKind: 'micro' as const,
+    parentId: macroId,
+    localId: node.id,
+  }))
+  const edges = localEdges.map((edge) => ({
+    ...edge,
+    source: childMicroIds[edge.source],
+    target: childMicroIds[edge.target],
+  }))
+  const bridges = localBridges.map((bridge) => ({
+    ...bridge,
+    ownCluster: childMicroIds[bridge.ownCluster],
+    nearestCluster: childMicroIds[bridge.nearestCluster],
+  }))
+
+  return { nodes, edges, bridges, graphLevel: 'micro', parentId: macroId }
+}
+
+export function getMicroClusterIdsForMacro(hierarchical: HierarchicalClusterResult, macroId: number): number[] {
+  const ids: number[] = []
+  for (let id = 0; id < hierarchical.microToMacro.length; id++) {
+    if (hierarchical.microToMacro[id] === macroId) ids.push(id)
+  }
+  return ids
+}
+
+function flattenMicroClusters(hierarchical: HierarchicalClusterResult): Array<{
+  centroid: Float32Array
+  count: number
+  macroId: number
+  localId: number
+}> {
+  const flattened: Array<{ centroid: Float32Array; count: number; macroId: number; localId: number }> = []
+  for (let macroId = 0; macroId < hierarchical.microClusters.length; macroId++) {
+    const micro = hierarchical.microClusters[macroId]
+    for (let localId = 0; localId < micro.centroids.length; localId++) {
+      flattened.push({
+        centroid: micro.centroids[localId],
+        count: micro.counts[localId] ?? 0,
+        macroId,
+        localId,
+      })
+    }
+  }
+  return flattened
 }
 
 /**
@@ -504,7 +606,7 @@ export function rebuildClusterGraphFromMeta(
   const counts = Array.from(summaries.map((s) => s.documentCount))
 
   const edges = buildClusterEdges(centroids, edgeThreshold, 5, { summaries })
-  const nodes = forceDirectedLayout(counts, edges)
+  const nodes = forceDirectedLayout(counts, edges).map((node) => ({ ...node, nodeKind: 'macro' as const }))
 
-  return { nodes, edges, bridges: [] }
+  return { nodes, edges, bridges: [], graphLevel: 'macro' }
 }

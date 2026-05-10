@@ -11,13 +11,14 @@ import type { VisualizationData, ScannedDoc } from '../hooks/useIndexVisualizati
 import type { ClusterResult, HierarchicalClusterResult } from '../lib/clustering'
 import type { PcaResult } from '../lib/dimensionReduction'
 import type { ClusterGraphData } from '../lib/clusterGraph'
-import type { ClusterSummary } from '../lib/metaIndex'
+import type { ClusterSummary, ClusterSummaryMode, MetaClusterTrace } from '../lib/metaIndex'
 
 // ─── Serializable Types ─────────────────────────────────────────────────────
 
 /** Portable representation of visualization state for save/load. */
 export interface VisualizationSnapshot {
   version: 1
+  kind?: 'ragops.visualization'
   createdAt: string
   /** Source index name. */
   indexName: string
@@ -54,11 +55,31 @@ export interface VisualizationSnapshot {
     microLabels: number[]
     microToMacro: number[]
     totalMicroClusters: number
+    microClusters?: Array<{
+      labels: number[]
+      centroids: number[][]
+      counts: number[]
+      inertia: number
+    }>
   }
   /** Cluster graph (optional). */
   graph?: ClusterGraphData
-  /** LLM cluster summaries (optional). */
+  /** Legacy optional field. New `.ragvis.json` exports do not include LLM summaries. */
   clusterSummaries?: ClusterSummary[]
+}
+
+export interface MetaIndexSnapshot {
+  version: 1
+  kind: 'ragops.meta-index-cache'
+  createdAt: string
+  indexName: string
+  vectorField: string
+  summaryMode: ClusterSummaryMode
+  metaIndexName?: string | null
+  metaTokenUsage?: { prompt: number; completion: number; total: number }
+  clusterSummaries: ClusterSummary[]
+  metaTraces?: MetaClusterTrace[]
+  visualization?: VisualizationSnapshot
 }
 
 // ─── localStorage Persistence ───────────────────────────────────────────────
@@ -143,6 +164,7 @@ export function buildSnapshot(params: {
 
   const snapshot: VisualizationSnapshot = {
     version: 1,
+    kind: 'ragops.visualization',
     createdAt: new Date().toISOString(),
     indexName,
     vectorField,
@@ -162,6 +184,12 @@ export function buildSnapshot(params: {
       microLabels: Array.from(data.hierarchical.microLabels),
       microToMacro: Array.from(data.hierarchical.microToMacro),
       totalMicroClusters: data.hierarchical.totalMicroClusters,
+      microClusters: data.hierarchical.microClusters.map((micro) => ({
+        labels: Array.from(micro.labels),
+        centroids: micro.centroids.map((centroid) => Array.from(centroid)),
+        counts: micro.counts,
+        inertia: micro.inertia,
+      })),
     }
   }
 
@@ -202,12 +230,16 @@ export function restoreFromSnapshot(snapshot: VisualizationSnapshot): {
   let hierarchical: HierarchicalClusterResult | undefined
   if (snapshot.hierarchical) {
     const h = snapshot.hierarchical
-    // Reconstruct micro clusters from labels + macro labels
     hierarchical = {
       macroLabels: new Uint16Array(h.macroLabels),
       microLabels: new Uint16Array(h.microLabels),
       macro: cluster,
-      microClusters: [], // Not stored — not needed for display
+      microClusters: h.microClusters?.map((micro) => ({
+        labels: new Uint16Array(micro.labels),
+        centroids: micro.centroids.map((centroid) => new Float32Array(centroid)),
+        counts: micro.counts,
+        inertia: micro.inertia,
+      })) ?? [],
       microToMacro: new Uint16Array(h.microToMacro),
       totalMicroClusters: h.totalMicroClusters,
     }
@@ -236,7 +268,11 @@ export function estimateSnapshotSize(snapshot: VisualizationSnapshot): number {
   const coordOverhead = snapshot.coords.length * 20 // [x,y] as text
   const labelOverhead = snapshot.labels.length * 4
   const centroidOverhead = snapshot.centroids.reduce((acc, c) => acc + c.length * 8, 0)
-  return docOverhead + coordOverhead + labelOverhead + centroidOverhead + 2000 // metadata
+  const microCentroidOverhead = snapshot.hierarchical?.microClusters?.reduce(
+    (acc, micro) => acc + micro.centroids.reduce((sum, centroid) => sum + centroid.length * 8, 0),
+    0,
+  ) ?? 0
+  return docOverhead + coordOverhead + labelOverhead + centroidOverhead + microCentroidOverhead + 2000 // metadata
 }
 
 /** Size threshold above which localStorage persistence is risky (5 MB). */
@@ -263,8 +299,60 @@ export async function importSnapshotFromFile(file: File): Promise<VisualizationS
     const parsed = JSON.parse(text)
     if (!isRecord(parsed)) return null
     if (parsed.version !== 1) return null
+    if ('kind' in parsed && parsed.kind !== 'ragops.visualization') return null
     if (!Array.isArray(parsed.docs) || !Array.isArray(parsed.labels) || !Array.isArray(parsed.coords)) return null
     return parsed as unknown as VisualizationSnapshot
+  } catch {
+    return null
+  }
+}
+
+export function buildMetaIndexSnapshot(params: {
+  indexName: string
+  vectorField: string
+  summaryMode: ClusterSummaryMode
+  metaIndexName?: string | null
+  metaTokenUsage?: { prompt: number; completion: number; total: number }
+  clusterSummaries: ClusterSummary[]
+  metaTraces?: MetaClusterTrace[]
+  visualization?: VisualizationSnapshot
+}): MetaIndexSnapshot {
+  return {
+    version: 1,
+    kind: 'ragops.meta-index-cache',
+    createdAt: new Date().toISOString(),
+    indexName: params.indexName,
+    vectorField: params.vectorField,
+    summaryMode: params.summaryMode,
+    metaIndexName: params.metaIndexName ?? null,
+    metaTokenUsage: params.metaTokenUsage,
+    clusterSummaries: params.clusterSummaries,
+    metaTraces: params.metaTraces,
+    visualization: params.visualization,
+  }
+}
+
+export function exportMetaIndexSnapshotToFile(snapshot: MetaIndexSnapshot, filename?: string) {
+  const json = JSON.stringify(snapshot, null, 2)
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename ?? `${snapshot.indexName}-meta-cache-${new Date().toISOString().slice(0, 10)}.ragmeta.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+export async function importMetaIndexSnapshotFromFile(file: File): Promise<MetaIndexSnapshot | null> {
+  try {
+    const text = await file.text()
+    const parsed = JSON.parse(text)
+    if (!isRecord(parsed)) return null
+    if (parsed.version !== 1 || parsed.kind !== 'ragops.meta-index-cache') return null
+    if (!Array.isArray(parsed.clusterSummaries)) return null
+    return parsed as unknown as MetaIndexSnapshot
   } catch {
     return null
   }

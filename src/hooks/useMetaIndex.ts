@@ -7,12 +7,13 @@
 import { useState, useCallback, useRef } from 'react'
 import type { ConnectionProfile, SearchApiVersion } from '../lib/model'
 import type { Language } from '../lib/translations'
-import type { ClusterResult } from '../lib/clustering'
+import type { ClusterResult, HierarchicalClusterResult } from '../lib/clustering'
 import type { ScannedDoc } from './useIndexVisualization'
 import type { ResolvedLlmProfile } from './useSharedLlmConfig'
 import {
   summarizeClusters,
   summarizeClustersV2,
+  summarizeClustersHierarchicalV2,
   createMetaIndex,
   uploadMetaDocuments,
   deleteMetaIndex,
@@ -23,6 +24,7 @@ import {
   fetchExistingMetaDocIds,
   deleteMetaDocuments,
   generateMetaIndexName,
+  flattenHierarchicalMicroClusters,
   type ClusterSummary,
   type ClusterSummaryMode,
   type TwoStageSearchResult,
@@ -177,6 +179,7 @@ export function useMetaIndex(input: {
     vectorDimensions: number,
     docs: ScannedDoc[],
     clusters: ClusterResult,
+    hierarchical?: HierarchicalClusterResult,
     contentFields?: string[],
     summaryMode: ClusterSummaryMode = 'v1',
   ) => {
@@ -228,9 +231,12 @@ export function useMetaIndex(input: {
       const repPerCluster = Math.min(500, Math.max(10, Math.floor(effectiveMaxTokens * 0.75 / 30)))
       const repDocIds: string[] = []
       const k = clusters.centroids.length
-      for (let c = 0; c < k; c++) {
+      const evidenceClusters = summaryMode === 'v2' && hierarchical
+        ? flattenHierarchicalMicroClusters(hierarchical)
+        : clusters
+      for (let c = 0; c < evidenceClusters.centroids.length; c++) {
         if (summaryMode === 'v2') {
-          const evidence = selectRoleAwareEvidence({ clusterId: c, clusters, docs, maxCount: Math.min(32, repPerCluster) })
+          const evidence = selectRoleAwareEvidence({ clusterId: c, clusters: evidenceClusters, docs, maxCount: Math.min(32, repPerCluster) })
           repDocIds.push(...evidence.map((item) => item.docId))
         } else {
           const centroidEvidence = selectCentroidEvidence({ clusterId: c, clusters, docs, maxCount: repPerCluster })
@@ -256,8 +262,20 @@ export function useMetaIndex(input: {
       // 3. Summarize clusters with LLM
       setMetaPhase('summarizing')
       const llm = llmConfig.buildLlmProviderConfig()
-      const summarizeResult = summaryMode === 'v2'
-        ? await summarizeClustersV2({
+      const summarizeResult = summaryMode === 'v2' && hierarchical
+        ? await summarizeClustersHierarchicalV2({
+            clusters,
+            hierarchical,
+            docs,
+            representativeTexts,
+            llmConfig: llm,
+            language,
+            maxInputTokens: effectiveMaxTokens,
+            signal: ctrl.signal,
+            onProgress: setSummarizeProgress,
+          })
+        : summaryMode === 'v2'
+          ? await summarizeClustersV2({
             clusters,
             docs,
             representativeTexts,
@@ -267,7 +285,7 @@ export function useMetaIndex(input: {
             signal: ctrl.signal,
             onProgress: setSummarizeProgress,
           })
-        : await summarizeClusters({
+          : await summarizeClusters({
             clusters,
             docs,
             representativeTexts,
@@ -289,13 +307,14 @@ export function useMetaIndex(input: {
 
       // Track LLM failures as warnings
       if (summarizeResult.llmFailureCount > 0) {
-        const warnMsg = summarizeResult.llmFailureCount === k
+        const expectedCalls = Math.max(k, summarizeResult.traces.length)
+        const warnMsg = summarizeResult.llmFailureCount === expectedCalls
           ? (language === 'ja'
-            ? `⚠️ 全 ${k} クラスタの LLM 呼び出しが失敗しました。フォールバックラベルを使用しています。\n${summarizeResult.llmErrors.join('\n')}`
-            : `⚠️ All ${k} LLM calls failed. Using fallback labels.\n${summarizeResult.llmErrors.join('\n')}`)
+            ? `⚠️ 全 ${expectedCalls} クラスタの LLM 呼び出しが失敗しました。フォールバックラベルを使用しています。\n${summarizeResult.llmErrors.join('\n')}`
+            : `⚠️ All ${expectedCalls} LLM calls failed. Using fallback labels.\n${summarizeResult.llmErrors.join('\n')}`)
           : (language === 'ja'
-            ? `⚠️ ${summarizeResult.llmFailureCount}/${k} クラスタの LLM 呼び出しが失敗しました。\n${summarizeResult.llmErrors.join('\n')}`
-            : `⚠️ ${summarizeResult.llmFailureCount}/${k} LLM calls failed.\n${summarizeResult.llmErrors.join('\n')}`)
+            ? `⚠️ ${summarizeResult.llmFailureCount}/${expectedCalls} クラスタの LLM 呼び出しが失敗しました。\n${summarizeResult.llmErrors.join('\n')}`
+            : `⚠️ ${summarizeResult.llmFailureCount}/${expectedCalls} LLM calls failed.\n${summarizeResult.llmErrors.join('\n')}`)
         setMetaWarning(warnMsg)
       }
 
@@ -349,7 +368,7 @@ export function useMetaIndex(input: {
         vectorField,
         vectorDimensions,
         clusterCount: k,
-        algorithm: summaryMode === 'v2' ? 'eflc-v2-kmeans' : 'eflc-v1-kmeans',
+        algorithm: summaryMode === 'v2' && hierarchical ? 'eflc-v2-hierarchical-kmeans' : summaryMode === 'v2' ? 'eflc-v2-kmeans' : 'eflc-v1-kmeans',
         createdAt: new Date().toISOString(),
       }
       const uploadResult = await uploadMetaDocuments({
@@ -429,18 +448,33 @@ export function useMetaIndex(input: {
     setSearchPhase('idle')
   }, [])
 
-  /** Restore cluster summaries from a loaded snapshot. */
-  const restoreSummaries = useCallback((summaries: ClusterSummary[]) => {
+  /** Restore cluster summaries from a loaded snapshot or dev cache. */
+  const restoreSummaries = useCallback((summaries: ClusterSummary[], options?: {
+    traces?: MetaClusterTrace[]
+    tokenUsage?: { prompt: number; completion: number; total: number }
+    metaIndexName?: string | null
+    metaIndexExists?: boolean | null
+  }) => {
     setClusterSummaries(summaries)
+    setMetaTraces(options?.traces ?? [])
+    setMetaTokenUsage(options?.tokenUsage ?? { prompt: 0, completion: 0, total: 0 })
+    if (options && 'metaIndexName' in options) setMetaIndexName(options.metaIndexName ?? null)
+    if (options && 'metaIndexExists' in options) setMetaIndexExists(options.metaIndexExists ?? null)
+    setMetaError(null)
+    setMetaWarning(null)
     setMetaPhase('done')
   }, [])
 
   /** Clear all meta-index and search state. */
-  const clearAll = useCallback(() => {
+  const clearAll = useCallback((options?: { clearIndexStatus?: boolean }) => {
     abortRef.current?.abort()
     setMetaPhase('idle')
     setMetaError(null)
     setMetaWarning(null)
+    if (options?.clearIndexStatus) {
+      setMetaIndexExists(null)
+      setMetaIndexName(null)
+    }
     setClusterSummaries(null)
     setMetaTokenUsage({ prompt: 0, completion: 0, total: 0 })
     setMetaTraces([])

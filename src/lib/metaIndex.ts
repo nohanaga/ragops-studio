@@ -11,10 +11,12 @@
 import type { ConnectionProfile, SearchApiVersion } from './model'
 import type { Language } from './translations'
 import type { LlmProviderConfig } from './llmProvider'
-import type { ClusterResult } from './clustering'
+import type { ClusterResult, HierarchicalClusterResult } from './clustering'
 import { callLlmChat, extractJsonFromText, type LlmUsage, type JsonSchemaResponseFormat } from './llmProvider'
 import { countTokens, truncateToTokenLimit } from './tokenizer'
 import { selectRoleAwareEvidence, type ClusterEvidenceCandidate } from './clusterEvidence'
+import { analyzeEmbeddingTopology, type EmbeddingTopologyClusterMetric } from './embeddingTopology'
+import { aggregateMicroSignatures, buildHierarchicalSignaturePayload, type MicroSignatureInput } from './clusterSignatureAggregation'
 import {
   createOrUpdateIndex,
   searchDocuments,
@@ -108,6 +110,8 @@ export interface ClusterSummary {
   exclusionCriteria?: string[]
   signatureJson?: string
   qualityJson?: string
+  topologyJson?: string
+  hierarchyJson?: string
 }
 
 export interface ClusterFacet {
@@ -126,6 +130,14 @@ export interface ClusterSemanticSignature {
   exclusionCriteria: string[]
   evidenceDocIds: string[]
   splitCandidate: boolean
+  topology?: EmbeddingTopologyClusterMetric
+  hierarchy?: {
+    level: 'flat' | 'micro' | 'macro'
+    parentClusterId?: string
+    childClusterIds?: string[]
+    childCount?: number
+    strategy?: string
+  }
 }
 
 export interface ClusterSignatureQuality {
@@ -134,14 +146,75 @@ export interface ClusterSignatureQuality {
   splitScore: number
   needsRepair: boolean
   repairReason?: string
+  topology?: {
+    cohesionScore: number
+    separationScore: number
+    boundaryRatio: number
+    outlierRatio: number
+    ambiguityScore: number
+    topologyLabel: string
+    needsSplit: boolean
+  }
 }
 
 export type ClusterSummaryMode = 'v1' | 'v2'
+
+export type MetaTraceAction = 'created' | 'kept' | 'rejected' | 'modified' | 'enriched'
+
+export type MetaTraceLevel = 'flat' | 'micro' | 'macro'
+
+export type MetaTracePhase =
+  | 'member-collection'
+  | 'evidence-selection'
+  | 'topology-analysis'
+  | 'sibling-contrast'
+  | 'hierarchical-aggregation'
+  | 'llm-signature'
+  | 'quality-scoring'
+  | 'meta-document'
+
+export interface MetaTraceStepDetail {
+  metrics?: Record<string, string | number | boolean>
+  docIds?: string[]
+  input?: string
+  output?: string
+  reason?: string
+  before?: string
+  after?: string
+}
+
+export interface MetaTraceStep {
+  step: number
+  phase: MetaTracePhase
+  action: MetaTraceAction
+  timestamp: string
+  detail?: MetaTraceStepDetail
+}
+
+export interface MetaTraceOutput {
+  primaryLabel: string
+  shortSummary: string
+  facetLabels: string[]
+  inclusionCriteria: string[]
+  exclusionCriteria: string[]
+  evidenceDocIds: string[]
+  keywords?: string[]
+  quality?: ClusterSignatureQuality
+  topology?: EmbeddingTopologyClusterMetric
+  hierarchy?: {
+    level: MetaTraceLevel
+    childClusterIds?: string[]
+    childCount?: number
+    strategy?: string
+  }
+}
 
 /** Per-cluster LLM trace for debugging meta-index generation. */
 export interface MetaClusterTrace {
   clusterId: number
   label: string
+  summaryMode?: ClusterSummaryMode
+  traceLevel?: MetaTraceLevel
   systemPrompt: string
   userPrompt: string
   response: string | null
@@ -151,6 +224,10 @@ export interface MetaClusterTrace {
   totalTokens: number
   durationMs: number
   representativeDocIds: string[]
+  memberCount?: number
+  evidenceStats?: { evidenceCount: number; roleCounts: Record<string, number>; distinctTitleCount: number }
+  pipelineSteps?: MetaTraceStep[]
+  output?: MetaTraceOutput
 }
 
 export interface MetaIndexConfig {
@@ -403,6 +480,7 @@ export async function summarizeClustersV2(input: {
   representativeTexts: Map<string, string>
   llmConfig: LlmProviderConfig
   language: Language
+  traceLevel?: 'flat' | 'micro'
   maxInputTokens?: number
   maxEvidenceDocs?: number
   signal?: AbortSignal
@@ -414,6 +492,7 @@ export async function summarizeClustersV2(input: {
     representativeTexts,
     llmConfig,
     language,
+    traceLevel = 'flat',
     maxInputTokens = 128_000,
     maxEvidenceDocs = 24,
     signal,
@@ -429,6 +508,10 @@ export async function summarizeClustersV2(input: {
   let completionTokens = 0
   let totalTokens = 0
   const traces: MetaClusterTrace[] = []
+  const topology = analyzeEmbeddingTopology({
+    vectors: docs.map((doc) => doc.vector),
+    clusters,
+  })
 
   for (let clusterId = 0; clusterId < clusters.centroids.length; clusterId++) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
@@ -440,13 +523,14 @@ export async function summarizeClustersV2(input: {
     const evidenceBlocks = buildEvidenceBlocks({ evidence, docs, representativeTexts, tokenBudget: boundedContentTokenBudget })
     const siblingContexts = buildSiblingContexts({ clusterId, clusters, language })
     const evidenceStats = buildEvidenceStats({ memberCount: memberIndices.length, evidenceBlocks })
+    const topologyMetric = topology.clusterMetrics[clusterId]
 
     const systemPrompt = language === 'ja'
       ? 'あなたは高カーディナリティな検索インデックスのクラスタ分析者です。与えられた role-aware evidence と兄弟クラスタとの差分を使い、クラスタを検索・探索に使える意味署名としてJSONで生成してください。証拠にない概念は追加しないでください。汎用的なラベルを避け、兄弟クラスタと区別できる表現にしてください。'
       : 'You are a cluster analyst for high-cardinality search indexes. Use the role-aware evidence documents and sibling contrasts to generate a search-ready semantic signature as JSON. Do not add concepts unsupported by evidence. Avoid generic labels and make this cluster distinguishable from siblings.'
     const userPrompt = language === 'ja'
-      ? buildJapaneseV2Prompt({ evidenceBlocks, siblingContexts, evidenceStats })
-      : buildEnglishV2Prompt({ evidenceBlocks, siblingContexts, evidenceStats })
+      ? buildJapaneseV2Prompt({ evidenceBlocks, siblingContexts, evidenceStats, topologyMetric })
+      : buildEnglishV2Prompt({ evidenceBlocks, siblingContexts, evidenceStats, topologyMetric })
 
     let signature = fallbackSignature({ clusterId, memberCount: memberIndices.length, evidenceBlocks, evidenceDocIds, language })
     let traceResponse: string | null = null
@@ -483,15 +567,24 @@ export async function summarizeClustersV2(input: {
       traceError = errMsg
     }
 
-    const quality = scoreSignature({ signature })
+    const quality = scoreSignature({ signature, topologyMetric })
     const keywords = uniqueStrings([
       ...signature.facets.flatMap((facet) => facet.keywords),
       ...signature.facets.map((facet) => facet.label),
     ]).slice(0, 16)
+    const persistedSignature: ClusterSemanticSignature = {
+      ...signature,
+      topology: topologyMetric,
+      hierarchy: { level: traceLevel },
+    }
+    const hierarchyTrace = { level: traceLevel }
+    const traceDurationMs = Math.round(performance.now() - traceStart)
 
     traces.push({
       clusterId,
       label: signature.primaryLabel,
+      summaryMode: 'v2',
+      traceLevel,
       systemPrompt,
       userPrompt,
       response: traceResponse,
@@ -499,8 +592,30 @@ export async function summarizeClustersV2(input: {
       promptTokens: tracePromptTokens,
       completionTokens: traceCompletionTokens,
       totalTokens: traceTotalTokens,
-      durationMs: Math.round(performance.now() - traceStart),
+      durationMs: traceDurationMs,
       representativeDocIds: evidenceDocIds,
+      memberCount: memberIndices.length,
+      evidenceStats,
+      pipelineSteps: buildV2TraceSteps({
+        clusterId,
+        traceLevel,
+        memberCount: memberIndices.length,
+        clusterCount: clusters.centroids.length,
+        evidenceStats,
+        evidenceDocIds,
+        topologyMetric,
+        siblingContexts,
+        traceError,
+        tracePromptTokens,
+        traceCompletionTokens,
+        traceTotalTokens,
+        traceDurationMs,
+        tokenBudget: boundedContentTokenBudget,
+        signature,
+        quality,
+        hierarchy: hierarchyTrace,
+      }),
+      output: buildTraceOutput({ signature, keywords, quality, topologyMetric, hierarchy: hierarchyTrace }),
     })
 
     onProgress?.({ current: clusterId + 1, total: clusters.centroids.length, currentLabel: signature.primaryLabel })
@@ -519,12 +634,323 @@ export async function summarizeClustersV2(input: {
       facetSummaries: signature.facets.map((facet) => facet.summary),
       inclusionCriteria: signature.inclusionCriteria,
       exclusionCriteria: signature.exclusionCriteria,
-      signatureJson: JSON.stringify(signature),
+      signatureJson: JSON.stringify(persistedSignature),
       qualityJson: JSON.stringify(quality),
+      topologyJson: JSON.stringify(topologyMetric),
+      hierarchyJson: JSON.stringify(hierarchyTrace),
     })
   }
 
   return { summaries, llmFailureCount, llmErrors, promptTokens, completionTokens, totalTokens, traces }
+}
+
+export async function summarizeClustersHierarchicalV2(input: {
+  clusters: ClusterResult
+  hierarchical: HierarchicalClusterResult
+  docs: Array<{ id: string; title: string; vector: Float32Array }>
+  representativeTexts: Map<string, string>
+  llmConfig: LlmProviderConfig
+  language: Language
+  maxInputTokens?: number
+  maxEvidenceDocs?: number
+  signal?: AbortSignal
+  onProgress?: (progress: SummarizeProgress) => void
+}): Promise<{ summaries: ClusterSummary[]; llmFailureCount: number; llmErrors: string[]; promptTokens: number; completionTokens: number; totalTokens: number; traces: MetaClusterTrace[] }> {
+  const {
+    clusters,
+    hierarchical,
+    docs,
+    representativeTexts,
+    llmConfig,
+    language,
+    maxInputTokens = 128_000,
+    maxEvidenceDocs = 24,
+    signal,
+    onProgress,
+  } = input
+  const microClusters = flattenHierarchicalMicroClusters(hierarchical)
+  const totalSteps = microClusters.centroids.length + clusters.centroids.length
+
+  const microResult = await summarizeClustersV2({
+    clusters: microClusters,
+    docs,
+    representativeTexts,
+    llmConfig,
+    language,
+    traceLevel: 'micro',
+    maxInputTokens,
+    maxEvidenceDocs,
+    signal,
+    onProgress: (progress) => onProgress?.({
+      current: progress.current,
+      total: totalSteps,
+      currentLabel: progress.currentLabel,
+    }),
+  })
+
+  let llmFailureCount = microResult.llmFailureCount
+  const llmErrors = [...microResult.llmErrors]
+  let promptTokens = microResult.promptTokens
+  let completionTokens = microResult.completionTokens
+  let totalTokens = microResult.totalTokens
+  const microTraces = [...microResult.traces]
+  const macroTraces: MetaClusterTrace[] = []
+  const boundedContentTokenBudget = Math.min(18_000, Math.floor(maxInputTokens * 0.25))
+  const topology = analyzeEmbeddingTopology({
+    vectors: docs.map((doc) => doc.vector),
+    clusters,
+  })
+  const summaries: ClusterSummary[] = []
+
+  for (let macroId = 0; macroId < clusters.centroids.length; macroId++) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    const childMicroIds = collectMicroIdsForMacro(hierarchical, macroId)
+    const children: MicroSignatureInput[] = childMicroIds
+      .map((microId) => {
+        const summary = microResult.summaries[microId]
+        if (!summary) return null
+        return {
+          clusterId: `micro-${microId}`,
+          documentCount: summary.documentCount,
+          signature: parseSignatureFromSummary(summary),
+        }
+      })
+      .filter((child): child is MicroSignatureInput => Boolean(child))
+    const memberIndices = collectMemberIndices(clusters, macroId, docs.length)
+    const memberDocIds = memberIndices.map((docIndex) => docs[docIndex].id)
+    const topologyMetric = topology.clusterMetrics[macroId]
+    const hierarchyPayload = buildHierarchicalSignaturePayload(children)
+    const fallback = aggregateMicroSignatures({ macroId, children, language })
+    const siblingContexts = buildSiblingContexts({ clusterId: macroId, clusters, language })
+    const systemPrompt = language === 'ja'
+      ? 'あなたは階層クラスタの意味署名を集約する分析者です。micro cluster の署名だけを根拠として、macro cluster の ClusterSemanticSignature を bottom-up に生成してください。新しい根拠文書や証拠にない概念は追加しないでください。兄弟 macro cluster と区別できるようにしてください。'
+      : 'You aggregate hierarchical cluster semantic signatures. Generate the macro ClusterSemanticSignature bottom-up from micro cluster signatures only. Do not add unsupported concepts or new evidence documents. Make the macro distinguishable from sibling macro clusters.'
+    const userPrompt = buildHierarchicalAggregationPrompt({
+      macroId,
+      memberCount: memberIndices.length,
+      children,
+      siblingContexts,
+      topologyMetric,
+      language,
+      tokenBudget: boundedContentTokenBudget,
+    })
+
+    let signature = fallback
+    let traceResponse: string | null = null
+    let traceError: string | null = null
+    let tracePromptTokens = 0
+    let traceCompletionTokens = 0
+    let traceTotalTokens = 0
+    const traceStart = performance.now()
+
+    try {
+      const response = await callLlmChat({
+        config: llmConfig,
+        systemPrompt,
+        userPrompt,
+        signal,
+        jsonMode: true,
+        jsonSchema: CLUSTER_SIGNATURE_SCHEMA,
+        onUsage: (usage: LlmUsage) => {
+          promptTokens += usage.promptTokens
+          completionTokens += usage.completionTokens
+          totalTokens += usage.totalTokens
+          tracePromptTokens = usage.promptTokens
+          traceCompletionTokens = usage.completionTokens
+          traceTotalTokens = usage.totalTokens
+        },
+      })
+      traceResponse = response
+      signature = normalizeSignature(JSON.parse(extractJsonFromText(response)), fallback)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err
+      llmFailureCount++
+      const errMsg = err instanceof Error ? err.message : String(err)
+      llmErrors.push(errMsg)
+      traceError = errMsg
+    }
+
+    const quality = scoreSignature({ signature, topologyMetric })
+    const keywords = uniqueStrings([
+      ...signature.facets.flatMap((facet) => facet.keywords),
+      ...signature.facets.map((facet) => facet.label),
+      ...children.map((child) => child.signature.primaryLabel),
+    ]).slice(0, 16)
+    const persistedSignature: ClusterSemanticSignature = {
+      ...signature,
+      topology: topologyMetric,
+      hierarchy: {
+        level: 'macro',
+        childClusterIds: hierarchyPayload.childClusterIds,
+        childCount: hierarchyPayload.childCount,
+        strategy: hierarchyPayload.strategy,
+      },
+    }
+    const hierarchyTrace = {
+      level: 'macro' as const,
+      childClusterIds: hierarchyPayload.childClusterIds,
+      childCount: hierarchyPayload.childCount,
+      strategy: hierarchyPayload.strategy,
+    }
+    const traceDurationMs = Math.round(performance.now() - traceStart)
+
+    macroTraces.push({
+      clusterId: macroId,
+      label: signature.primaryLabel,
+      summaryMode: 'v2',
+      traceLevel: 'macro',
+      systemPrompt,
+      userPrompt,
+      response: traceResponse,
+      error: traceError,
+      promptTokens: tracePromptTokens,
+      completionTokens: traceCompletionTokens,
+      totalTokens: traceTotalTokens,
+      durationMs: traceDurationMs,
+      representativeDocIds: signature.evidenceDocIds,
+      memberCount: memberIndices.length,
+      pipelineSteps: buildHsaTraceSteps({
+        macroId,
+        memberCount: memberIndices.length,
+        macroClusterCount: clusters.centroids.length,
+        children,
+        hierarchyPayload,
+        topologyMetric,
+        siblingContexts,
+        traceError,
+        tracePromptTokens,
+        traceCompletionTokens,
+        traceTotalTokens,
+        traceDurationMs,
+        signature,
+        quality,
+        hierarchy: hierarchyTrace,
+      }),
+      output: buildTraceOutput({ signature, keywords, quality, topologyMetric, hierarchy: hierarchyTrace }),
+    })
+
+    onProgress?.({
+      current: microClusters.centroids.length + macroId + 1,
+      total: totalSteps,
+      currentLabel: signature.primaryLabel,
+    })
+
+    summaries.push({
+      clusterId: `cluster-${macroId}`,
+      label: signature.primaryLabel,
+      summary: signature.shortSummary,
+      keywords,
+      documentCount: memberIndices.length,
+      memberDocIds,
+      centroidVector: Array.from(clusters.centroids[macroId]),
+      representativeText: truncateToTokenLimit(buildMacroRepresentativeText(children), Math.min(boundedContentTokenBudget, 12_500)),
+      summaryVersion: 'v2',
+      facetLabels: signature.facets.map((facet) => facet.label),
+      facetSummaries: signature.facets.map((facet) => facet.summary),
+      inclusionCriteria: signature.inclusionCriteria,
+      exclusionCriteria: signature.exclusionCriteria,
+      signatureJson: JSON.stringify(persistedSignature),
+      qualityJson: JSON.stringify(quality),
+      topologyJson: JSON.stringify(topologyMetric),
+      hierarchyJson: JSON.stringify(hierarchyPayload),
+    })
+  }
+
+  return { summaries, llmFailureCount, llmErrors, promptTokens, completionTokens, totalTokens, traces: [...macroTraces, ...microTraces] }
+}
+
+export function flattenHierarchicalMicroClusters(hierarchical: HierarchicalClusterResult): ClusterResult {
+  const centroids: Float32Array[] = []
+  const counts: number[] = []
+  let inertia = 0
+  for (const microResult of hierarchical.microClusters) {
+    centroids.push(...microResult.centroids)
+    counts.push(...microResult.counts)
+    inertia += microResult.inertia
+  }
+  return {
+    labels: hierarchical.microLabels,
+    centroids,
+    counts,
+    inertia,
+  }
+}
+
+function collectMicroIdsForMacro(hierarchical: HierarchicalClusterResult, macroId: number): number[] {
+  const result: number[] = []
+  for (let microId = 0; microId < hierarchical.microToMacro.length; microId++) {
+    if (hierarchical.microToMacro[microId] === macroId) result.push(microId)
+  }
+  return result
+}
+
+function parseSignatureFromSummary(summary: ClusterSummary): ClusterSemanticSignature {
+  const fallback: ClusterSemanticSignature = {
+    primaryLabel: summary.label,
+    shortSummary: summary.summary,
+    facets: (summary.facetLabels ?? []).map((label, index) => ({
+      label,
+      summary: summary.facetSummaries?.[index] ?? label,
+      keywords: summary.keywords.slice(0, 8),
+      supportRatio: 0,
+      representativeDocIds: [],
+    })),
+    inclusionCriteria: summary.inclusionCriteria ?? [],
+    exclusionCriteria: summary.exclusionCriteria ?? [],
+    evidenceDocIds: [],
+    splitCandidate: false,
+  }
+  if (!summary.signatureJson) return fallback
+  try {
+    return normalizeSignature(JSON.parse(summary.signatureJson), fallback)
+  } catch {
+    return fallback
+  }
+}
+
+function buildHierarchicalAggregationPrompt(input: {
+  macroId: number
+  memberCount: number
+  children: MicroSignatureInput[]
+  siblingContexts: string[]
+  topologyMetric?: EmbeddingTopologyClusterMetric
+  language: Language
+  tokenBudget: number
+}): string {
+  const childPayload = input.children.map((child) => ({
+    clusterId: child.clusterId,
+    documentCount: child.documentCount,
+    primaryLabel: child.signature.primaryLabel,
+    shortSummary: child.signature.shortSummary,
+    facets: child.signature.facets.slice(0, 5),
+    inclusionCriteria: child.signature.inclusionCriteria.slice(0, 6),
+    exclusionCriteria: child.signature.exclusionCriteria.slice(0, 6),
+    splitCandidate: child.signature.splitCandidate,
+  }))
+  const childJson = truncateToTokenLimit(JSON.stringify(childPayload, null, 2), input.tokenBudget)
+
+  if (input.language === 'ja') {
+    return `macro cluster-${input.macroId} の ClusterSemanticSignature を生成してください。\n\n` +
+      `## Macro cluster\n- 文書数: ${input.memberCount}\n- child micro clusters: ${input.children.length}\n\n` +
+      `## Embedding Topology Analysis (ETA)\n${formatTopologyMetricForPrompt(input.topologyMetric, 'ja')}\n\n` +
+      `## 近接する兄弟 macro cluster\n${input.siblingContexts.join('\n') || 'N/A'}\n\n` +
+      `## Child micro signatures\n${childJson}\n\n` +
+      `## 集約要件\n- child micro signatures の共通上位概念を primaryLabel にする。\n- child の一部だけに出る固有名を macro 全体の primaryLabel にしない。\n- facets は child micro signature の主要観点を supportRatio 付きで 2〜5 件に統合する。\n- inclusionCriteria / exclusionCriteria は兄弟 macro cluster と区別できる条件にする。\n- ETA が overlapping/diffuse または needsSplit=true の場合は splitCandidate=true を検討し、facets を増やして混合性を説明する。\n- 出力 JSON の evidenceDocIds は child micro signatures に含まれる evidenceDocIds だけから選ぶ。`
+  }
+
+  return `Generate a ClusterSemanticSignature for macro cluster-${input.macroId}.\n\n` +
+    `## Macro cluster\n- Documents: ${input.memberCount}\n- Child micro clusters: ${input.children.length}\n\n` +
+    `## Embedding Topology Analysis (ETA)\n${formatTopologyMetricForPrompt(input.topologyMetric, 'en')}\n\n` +
+    `## Similar sibling macro clusters\n${input.siblingContexts.join('\n') || 'N/A'}\n\n` +
+    `## Child micro signatures\n${childJson}\n\n` +
+    `## Aggregation requirements\n- Use the common higher-level concept across child micro signatures as primaryLabel.\n- Do not promote a proper name that appears in only one child to the whole macro primaryLabel.\n- Merge the main child facets into 2 to 5 macro facets with supportRatio.\n- Make inclusionCriteria / exclusionCriteria distinguish this macro from sibling macro clusters.\n- If ETA is overlapping/diffuse or needsSplit=true, consider splitCandidate=true and explain mixedness with facets.\n- evidenceDocIds must come only from child micro signature evidenceDocIds.`
+}
+
+function buildMacroRepresentativeText(children: MicroSignatureInput[]): string {
+  return children.map((child) => {
+    const facets = child.signature.facets.map((facet) => `${facet.label}: ${facet.summary}`).join('\n')
+    return `### ${child.clusterId} (${child.documentCount} docs)\n${child.signature.primaryLabel}\n${child.signature.shortSummary}\n${facets}`
+  }).join('\n\n')
 }
 
 function collectMemberIndices(clusters: ClusterResult, clusterId: number, docCount: number): number[] {
@@ -625,9 +1051,11 @@ function buildJapaneseV2Prompt(input: {
   evidenceBlocks: Array<{ role: string; docId: string; title: string; text: string }>
   siblingContexts: string[]
   evidenceStats: { memberCount: number; evidenceCount: number; roleCounts: Record<string, number>; distinctTitleCount: number }
+  topologyMetric?: EmbeddingTopologyClusterMetric
 }): string {
   return `以下のクラスタについて、EFLC v2 の ClusterSemanticSignature を生成してください。\n\n` +
     `## クラスタ規模と evidence 分布\n- クラスタ全体の文書数: ${input.evidenceStats.memberCount}\n- evidence 文書数: ${input.evidenceStats.evidenceCount}\n- evidence role 分布: ${Object.entries(input.evidenceStats.roleCounts).map(([role, count]) => `${role}=${count}`).join(', ') || 'N/A'}\n- evidence の distinct title 数: ${input.evidenceStats.distinctTitleCount}\n\n` +
+    `## Embedding Topology Analysis (ETA)\n${formatTopologyMetricForPrompt(input.topologyMetric, 'ja')}\n\n` +
     `## 近接する兄弟クラスタ (混同防止)\n${input.siblingContexts.join('\n') || 'N/A'}\n\n` +
     `## 証拠文書\n${input.evidenceBlocks.map((block, index) => `### Evidence ${index + 1} [${block.role}] ${block.docId}\nTitle: ${block.title}\n${block.text}`).join('\n\n')}\n\n` +
     `## 出力要件\n- primaryLabel は具体的で、兄弟クラスタと区別できる短い日本語にする。\n- primaryLabel / shortSummary / facets は、クラスタ全体の ${input.evidenceStats.memberCount} 件を表す前提で作る。\n- 単一の人物・企業・作品・団体を primaryLabel にしてよいのは、複数 role の evidence で反復し、クラスタ全体を代表すると説明できる場合だけ。\n- evidence の一部だけに出る固有名は facet または representativeDocIds 側に留め、クラスタ全体のラベルにしない。\n- facets は 2〜5 件。証拠文書内で確認できる観点だけに基づく。\n- inclusionCriteria は、このクラスタに含める条件を 2〜5 件。\n- exclusionCriteria は、似ているが除外すべき条件を 2〜5 件。\n- 証拠にない製品名、技術名、カテゴリは追加しない。`
@@ -637,12 +1065,42 @@ function buildEnglishV2Prompt(input: {
   evidenceBlocks: Array<{ role: string; docId: string; title: string; text: string }>
   siblingContexts: string[]
   evidenceStats: { memberCount: number; evidenceCount: number; roleCounts: Record<string, number>; distinctTitleCount: number }
+  topologyMetric?: EmbeddingTopologyClusterMetric
 }): string {
   return `Generate an EFLC v2 ClusterSemanticSignature for this cluster.\n\n` +
     `## Cluster Size and Evidence Distribution\n- Total cluster documents: ${input.evidenceStats.memberCount}\n- Evidence documents: ${input.evidenceStats.evidenceCount}\n- Evidence role counts: ${Object.entries(input.evidenceStats.roleCounts).map(([role, count]) => `${role}=${count}`).join(', ') || 'N/A'}\n- Distinct evidence titles: ${input.evidenceStats.distinctTitleCount}\n\n` +
+    `## Embedding Topology Analysis (ETA)\n${formatTopologyMetricForPrompt(input.topologyMetric, 'en')}\n\n` +
     `## Similar Sibling Clusters\n${input.siblingContexts.join('\n') || 'N/A'}\n\n` +
     `## Evidence Documents\n${input.evidenceBlocks.map((block, index) => `### Evidence ${index + 1} [${block.role}] ${block.docId}\nTitle: ${block.title}\n${block.text}`).join('\n\n')}\n\n` +
     `## Requirements\n- Make primaryLabel concrete and distinguishable from sibling clusters.\n- primaryLabel / shortSummary / facets must describe the full ${input.evidenceStats.memberCount}-document cluster.\n- Use a single person, company, work, or organization as primaryLabel only when it repeats across multiple evidence roles and can be justified as representing the whole cluster.\n- If a proper name appears only in part of the evidence, keep it inside facets or representativeDocIds, not as the whole-cluster label.\n- Produce 2 to 5 facets grounded only in evidence documents.\n- Produce 2 to 5 inclusionCriteria and exclusionCriteria.\n- Do not introduce unsupported product names, technologies, or categories.`
+}
+
+function formatTopologyMetricForPrompt(metric: EmbeddingTopologyClusterMetric | undefined, language: Language): string {
+  if (!metric) return 'N/A'
+  if (language === 'ja') {
+    return [
+      `- topologyLabel: ${metric.topologyLabel}`,
+      `- cohesionScore: ${metric.cohesionScore}`,
+      `- separationScore: ${metric.separationScore}`,
+      `- boundaryRatio: ${metric.boundaryRatio}`,
+      `- outlierRatio: ${metric.outlierRatio}`,
+      `- ambiguityScore: ${metric.ambiguityScore}`,
+      `- nearestCluster: ${metric.nearestClusterId === undefined ? 'N/A' : `cluster-${metric.nearestClusterId} (${metric.nearestClusterSimilarity?.toFixed(3) ?? 'N/A'})`}`,
+      `- needsSplit: ${metric.needsSplit}`,
+      '- topologyLabel が overlapping/diffuse、または needsSplit=true の場合は、単一ラベルに無理に圧縮せず facets と splitCandidate に反映する。',
+    ].join('\n')
+  }
+  return [
+    `- topologyLabel: ${metric.topologyLabel}`,
+    `- cohesionScore: ${metric.cohesionScore}`,
+    `- separationScore: ${metric.separationScore}`,
+    `- boundaryRatio: ${metric.boundaryRatio}`,
+    `- outlierRatio: ${metric.outlierRatio}`,
+    `- ambiguityScore: ${metric.ambiguityScore}`,
+    `- nearestCluster: ${metric.nearestClusterId === undefined ? 'N/A' : `cluster-${metric.nearestClusterId} (${metric.nearestClusterSimilarity?.toFixed(3) ?? 'N/A'})`}`,
+    `- needsSplit: ${metric.needsSplit}`,
+    '- If topologyLabel is overlapping/diffuse or needsSplit=true, do not over-compress; reflect it in facets and splitCandidate.',
+  ].join('\n')
 }
 
 function fallbackSignature(input: {
@@ -699,21 +1157,264 @@ function normalizeSignature(value: unknown, fallback: ClusterSemanticSignature):
   }
 }
 
-function scoreSignature(input: { signature: ClusterSemanticSignature }): ClusterSignatureQuality {
+function scoreSignature(input: { signature: ClusterSemanticSignature; topologyMetric?: EmbeddingTopologyClusterMetric }): ClusterSignatureQuality {
   const labelText = `${input.signature.primaryLabel} ${input.signature.shortSummary} ${input.signature.facets.map((facet) => facet.label).join(' ')}`.toLowerCase()
   const genericWords = ['document', 'documents', 'data', 'information', 'content', '文書', '情報', 'データ', '内容']
   const genericMatches = genericWords.filter((word) => labelText.includes(word)).length
   const specificityScore = input.signature.primaryLabel.trim().length > 0 && input.signature.primaryLabel.length <= 60 ? 1 : 0
   const genericityScore = genericMatches / genericWords.length
-  const splitScore = Math.min(1, (input.signature.facets.length > 5 ? 0.4 : 0) + (input.signature.splitCandidate ? 0.6 : 0))
-  const needsRepair = specificityScore < 0.15 || genericityScore > 0.45 || splitScore > 0.7
+  const topologySplitBoost = input.topologyMetric?.needsSplit ? 0.35 : 0
+  const topologyAmbiguityBoost = Math.min(0.25, (input.topologyMetric?.ambiguityScore ?? 0) * 0.25)
+  const splitScore = Math.min(1, (input.signature.facets.length > 5 ? 0.4 : 0) + (input.signature.splitCandidate ? 0.6 : 0) + topologySplitBoost + topologyAmbiguityBoost)
+  const needsRepair = specificityScore < 0.15 || genericityScore > 0.45 || splitScore > 0.78
   return {
     specificityScore: Number(specificityScore.toFixed(3)),
     genericityScore: Number(genericityScore.toFixed(3)),
     splitScore: Number(splitScore.toFixed(3)),
     needsRepair,
     repairReason: needsRepair ? 'low-specificity-or-high-genericity' : undefined,
+    topology: input.topologyMetric
+      ? {
+          cohesionScore: input.topologyMetric.cohesionScore,
+          separationScore: input.topologyMetric.separationScore,
+          boundaryRatio: input.topologyMetric.boundaryRatio,
+          outlierRatio: input.topologyMetric.outlierRatio,
+          ambiguityScore: input.topologyMetric.ambiguityScore,
+          topologyLabel: input.topologyMetric.topologyLabel,
+          needsSplit: input.topologyMetric.needsSplit,
+        }
+      : undefined,
   }
+}
+
+function buildV2TraceSteps(input: {
+  clusterId: number
+  traceLevel: 'flat' | 'micro'
+  memberCount: number
+  clusterCount: number
+  evidenceStats: { memberCount: number; evidenceCount: number; roleCounts: Record<string, number>; distinctTitleCount: number }
+  evidenceDocIds: string[]
+  topologyMetric?: EmbeddingTopologyClusterMetric
+  siblingContexts: string[]
+  traceError: string | null
+  tracePromptTokens: number
+  traceCompletionTokens: number
+  traceTotalTokens: number
+  traceDurationMs: number
+  tokenBudget: number
+  signature: ClusterSemanticSignature
+  quality: ClusterSignatureQuality
+  hierarchy: MetaTraceOutput['hierarchy']
+}): MetaTraceStep[] {
+  const steps: MetaTraceStep[] = []
+  pushTraceStep(steps, 'member-collection', 'created', {
+    metrics: {
+      mode: input.traceLevel === 'micro' ? 'eflc-v2-micro' : 'eflc-v2-flat',
+      clusterId: `cluster-${input.clusterId}`,
+      memberDocuments: input.memberCount,
+      totalClusters: input.clusterCount,
+    },
+  })
+  pushTraceStep(steps, 'evidence-selection', 'created', {
+    metrics: {
+      strategy: 'role-aware-evidence',
+      evidenceDocuments: input.evidenceStats.evidenceCount,
+      distinctEvidenceTitles: input.evidenceStats.distinctTitleCount,
+      roleDistribution: formatRoleCounts(input.evidenceStats.roleCounts),
+      tokenBudget: input.tokenBudget,
+    },
+    docIds: input.evidenceDocIds,
+  })
+  pushTraceStep(steps, 'topology-analysis', input.topologyMetric?.needsSplit ? 'modified' : 'enriched', {
+    metrics: buildTopologyTraceMetrics(input.topologyMetric),
+    reason: input.topologyMetric?.needsSplit ? 'topology-suggests-split-or-mixed-signature' : undefined,
+  })
+  pushTraceStep(steps, 'sibling-contrast', 'enriched', {
+    metrics: { siblingContextCount: input.siblingContexts.length },
+    output: input.siblingContexts.join('\n') || 'N/A',
+  })
+  pushTraceStep(steps, 'llm-signature', input.traceError ? 'rejected' : 'created', {
+    metrics: {
+      promptTokens: input.tracePromptTokens,
+      completionTokens: input.traceCompletionTokens,
+      totalTokens: input.traceTotalTokens,
+      durationMs: input.traceDurationMs,
+    },
+    reason: input.traceError ?? undefined,
+    output: formatSignatureTraceOutput(input.signature),
+  })
+  pushTraceStep(steps, 'quality-scoring', input.quality.needsRepair ? 'modified' : 'kept', {
+    metrics: buildQualityTraceMetrics(input.quality),
+    reason: input.quality.repairReason,
+  })
+  pushTraceStep(steps, 'meta-document', 'enriched', {
+    metrics: {
+      summaryVersion: 'v2',
+      hierarchyLevel: input.hierarchy?.level ?? input.traceLevel,
+      facetCount: input.signature.facets.length,
+      inclusionCriteria: input.signature.inclusionCriteria.length,
+      exclusionCriteria: input.signature.exclusionCriteria.length,
+      evidenceDocIds: input.signature.evidenceDocIds.length,
+    },
+    output: 'label, summary, keywords, signatureJson, qualityJson, topologyJson, hierarchyJson',
+  })
+  return steps
+}
+
+function buildHsaTraceSteps(input: {
+  macroId: number
+  memberCount: number
+  macroClusterCount: number
+  children: MicroSignatureInput[]
+  hierarchyPayload: { childClusterIds: string[]; childDocumentCounts: number[]; childCount: number; strategy: string }
+  topologyMetric?: EmbeddingTopologyClusterMetric
+  siblingContexts: string[]
+  traceError: string | null
+  tracePromptTokens: number
+  traceCompletionTokens: number
+  traceTotalTokens: number
+  traceDurationMs: number
+  signature: ClusterSemanticSignature
+  quality: ClusterSignatureQuality
+  hierarchy: MetaTraceOutput['hierarchy']
+}): MetaTraceStep[] {
+  const steps: MetaTraceStep[] = []
+  pushTraceStep(steps, 'member-collection', 'created', {
+    metrics: {
+      mode: 'eflc-v2-hierarchical-macro',
+      clusterId: `cluster-${input.macroId}`,
+      memberDocuments: input.memberCount,
+      totalClusters: input.macroClusterCount,
+    },
+  })
+  pushTraceStep(steps, 'hierarchical-aggregation', 'created', {
+    metrics: {
+      strategy: input.hierarchyPayload.strategy,
+      childMicroClusters: input.hierarchyPayload.childCount,
+      childDocumentCounts: input.hierarchyPayload.childDocumentCounts.join(', '),
+    },
+    input: input.children
+      .map((child) => `${child.clusterId}: ${child.signature.primaryLabel} (${child.documentCount} docs)`)
+      .join('\n'),
+    docIds: input.hierarchyPayload.childClusterIds,
+    output: formatSignatureTraceOutput(input.signature),
+  })
+  pushTraceStep(steps, 'topology-analysis', input.topologyMetric?.needsSplit ? 'modified' : 'enriched', {
+    metrics: buildTopologyTraceMetrics(input.topologyMetric),
+    reason: input.topologyMetric?.needsSplit ? 'topology-suggests-split-or-mixed-signature' : undefined,
+  })
+  pushTraceStep(steps, 'sibling-contrast', 'enriched', {
+    metrics: { siblingContextCount: input.siblingContexts.length },
+    output: input.siblingContexts.join('\n') || 'N/A',
+  })
+  pushTraceStep(steps, 'llm-signature', input.traceError ? 'rejected' : 'created', {
+    metrics: {
+      promptTokens: input.tracePromptTokens,
+      completionTokens: input.traceCompletionTokens,
+      totalTokens: input.traceTotalTokens,
+      durationMs: input.traceDurationMs,
+    },
+    reason: input.traceError ?? undefined,
+    output: formatSignatureTraceOutput(input.signature),
+  })
+  pushTraceStep(steps, 'quality-scoring', input.quality.needsRepair ? 'modified' : 'kept', {
+    metrics: buildQualityTraceMetrics(input.quality),
+    reason: input.quality.repairReason,
+  })
+  pushTraceStep(steps, 'meta-document', 'enriched', {
+    metrics: {
+      summaryVersion: 'v2',
+      hierarchyLevel: input.hierarchy?.level ?? 'macro',
+      childMicroClusters: input.hierarchy?.childCount ?? input.hierarchyPayload.childCount,
+      facetCount: input.signature.facets.length,
+      inclusionCriteria: input.signature.inclusionCriteria.length,
+      exclusionCriteria: input.signature.exclusionCriteria.length,
+      evidenceDocIds: input.signature.evidenceDocIds.length,
+    },
+    output: 'label, summary, keywords, signatureJson, qualityJson, topologyJson, hierarchyJson',
+  })
+  return steps
+}
+
+function pushTraceStep(
+  steps: MetaTraceStep[],
+  phase: MetaTracePhase,
+  action: MetaTraceAction,
+  detail?: MetaTraceStepDetail,
+): void {
+  steps.push({
+    step: steps.length + 1,
+    phase,
+    action,
+    timestamp: new Date().toISOString(),
+    detail,
+  })
+}
+
+function buildTraceOutput(input: {
+  signature: ClusterSemanticSignature
+  keywords?: string[]
+  quality?: ClusterSignatureQuality
+  topologyMetric?: EmbeddingTopologyClusterMetric
+  hierarchy?: MetaTraceOutput['hierarchy']
+}): MetaTraceOutput {
+  return {
+    primaryLabel: input.signature.primaryLabel,
+    shortSummary: input.signature.shortSummary,
+    facetLabels: input.signature.facets.map((facet) => facet.label),
+    inclusionCriteria: input.signature.inclusionCriteria,
+    exclusionCriteria: input.signature.exclusionCriteria,
+    evidenceDocIds: input.signature.evidenceDocIds,
+    keywords: input.keywords,
+    quality: input.quality,
+    topology: input.topologyMetric,
+    hierarchy: input.hierarchy,
+  }
+}
+
+function buildTopologyTraceMetrics(metric: EmbeddingTopologyClusterMetric | undefined): Record<string, string | number | boolean> {
+  if (!metric) return { topology: 'N/A' }
+  return {
+    topologyLabel: metric.topologyLabel,
+    documentCount: metric.documentCount,
+    cohesionScore: metric.cohesionScore,
+    separationScore: metric.separationScore,
+    boundaryRatio: metric.boundaryRatio,
+    outlierRatio: metric.outlierRatio,
+    ambiguityScore: metric.ambiguityScore,
+    nearestClusterId: metric.nearestClusterId === undefined ? 'N/A' : `cluster-${metric.nearestClusterId}`,
+    nearestClusterSimilarity: metric.nearestClusterSimilarity ?? 'N/A',
+    internalNeighborRatio: metric.internalNeighborRatio ?? 'N/A',
+    crossClusterNeighborRatio: metric.crossClusterNeighborRatio ?? 'N/A',
+    needsSplit: metric.needsSplit,
+  }
+}
+
+function buildQualityTraceMetrics(quality: ClusterSignatureQuality): Record<string, string | number | boolean> {
+  return {
+    specificityScore: quality.specificityScore,
+    genericityScore: quality.genericityScore,
+    splitScore: quality.splitScore,
+    needsRepair: quality.needsRepair,
+    repairReason: quality.repairReason ?? 'N/A',
+  }
+}
+
+function formatSignatureTraceOutput(signature: ClusterSemanticSignature): string {
+  const facets = signature.facets.map((facet) => facet.label).join(', ') || 'N/A'
+  return [
+    `primaryLabel: ${signature.primaryLabel}`,
+    `shortSummary: ${signature.shortSummary}`,
+    `facets: ${facets}`,
+    `splitCandidate: ${signature.splitCandidate}`,
+  ].join('\n')
+}
+
+function formatRoleCounts(roleCounts: Record<string, number>): string {
+  return Object.entries(roleCounts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([role, count]) => `${role}=${count}`)
+    .join(', ') || 'N/A'
 }
 
 // ─── Meta-Index Creation ────────────────────────────────────────────────────
@@ -780,6 +1481,8 @@ export function buildMetaIndexSchema(
       },
       { name: 'signatureJson', type: 'Edm.String', searchable: false, retrievable: true },
       { name: 'qualityJson', type: 'Edm.String', searchable: false, retrievable: true },
+      { name: 'topologyJson', type: 'Edm.String', searchable: false, retrievable: true },
+      { name: 'hierarchyJson', type: 'Edm.String', searchable: false, retrievable: true },
       { name: 'sourceIndex', type: 'Edm.String', filterable: true, searchable: false },
       { name: 'vectorField', type: 'Edm.String', filterable: true, searchable: false },
       { name: 'createdAt', type: 'Edm.DateTimeOffset', filterable: true, sortable: true },
@@ -973,6 +1676,8 @@ export async function uploadMetaDocuments(input: {
     exclusionCriteria: (s.exclusionCriteria ?? []).map((criterion) => truncateUtf8Bytes(criterion, 32_000)),
     signatureJson: truncateUtf8Bytes(s.signatureJson ?? '', 32_000),
     qualityJson: truncateUtf8Bytes(s.qualityJson ?? '', 32_000),
+    topologyJson: truncateUtf8Bytes(s.topologyJson ?? '', 32_000),
+    hierarchyJson: truncateUtf8Bytes(s.hierarchyJson ?? '', 32_000),
     sourceIndex: metaConfig.sourceIndexName,
     vectorField: metaConfig.vectorField,
     createdAt: metaConfig.createdAt,
@@ -1291,7 +1996,7 @@ export async function fetchExistingSummaries(input: {
       search: '*',
       top: 100,
       orderby: 'documentCount desc',
-      select: 'id,clusterId,label,summary,keywords,documentCount,memberDocIds,centroidVector,representativeText,summaryVersion,facetLabels,facetSummaries,inclusionCriteria,exclusionCriteria,signatureJson,qualityJson,sourceIndex,vectorField,createdAt',
+      select: 'id,clusterId,label,summary,keywords,documentCount,memberDocIds,centroidVector,representativeText,summaryVersion,facetLabels,facetSummaries,inclusionCriteria,exclusionCriteria,signatureJson,qualityJson,topologyJson,hierarchyJson,sourceIndex,vectorField,createdAt',
     },
     language: input.language,
   })
@@ -1317,5 +2022,7 @@ export async function fetchExistingSummaries(input: {
     exclusionCriteria: Array.isArray(d.exclusionCriteria) ? d.exclusionCriteria.map(String) : [],
     signatureJson: String(d.signatureJson ?? ''),
     qualityJson: String(d.qualityJson ?? ''),
+    topologyJson: String(d.topologyJson ?? ''),
+    hierarchyJson: String(d.hierarchyJson ?? ''),
   }))
 }

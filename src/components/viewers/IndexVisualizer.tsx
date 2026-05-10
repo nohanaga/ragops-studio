@@ -12,9 +12,11 @@ import { useIndexVisualization, type ScannedDoc, type VisualizationData } from '
 import type { ReductionMethod } from '../../lib/dimensionReduction'
 import { useMetaIndex } from '../../hooks/useMetaIndex'
 import { type JsonValue } from '../../lib/aiSearchRest'
-import type { ClusterSummary, ClusterSummaryMode, MetaClusterTrace } from '../../lib/metaIndex'
+import type { ClusterSummary, ClusterSummaryMode, MetaClusterTrace, MetaTraceAction, MetaTracePhase, MetaTraceStep } from '../../lib/metaIndex'
+import type { EmbeddingTopologyClusterMetric } from '../../lib/embeddingTopology'
+import type { HierarchicalSignaturePayload } from '../../lib/clusterSignatureAggregation'
 import type { ClusterEdge, ClusterGraphData, EdgeConfidence, EdgeReason } from '../../lib/clusterGraph'
-import { rebuildClusterGraphFromMeta } from '../../lib/clusterGraph'
+import { buildHierarchicalClusterGraph, rebuildClusterGraphFromMeta } from '../../lib/clusterGraph'
 import type { SharedLlmConfig } from '../../hooks/useSharedLlmConfig'
 import { LlmProfileSelector } from '../builders/LlmProfileSelector'
 import { TipsBlock } from '../builders/TipsBlock'
@@ -24,9 +26,13 @@ import {
   restoreFromSnapshot,
   exportSnapshotToFile,
   importSnapshotFromFile,
+  buildMetaIndexSnapshot,
+  exportMetaIndexSnapshotToFile,
+  importMetaIndexSnapshotFromFile,
 } from '../../app/persistedVisualization'
 
 type TranslationKey = keyof typeof translations.ja
+type ClusterBrowseLevel = 'macro' | 'micro'
 
 export type IndexVisualizerProps = {
   profile: ConnectionProfile | null
@@ -107,6 +113,54 @@ function t(lang: Language, key: TranslationKey): string {
   return String((translations[lang] as Record<string, string>)[key] ?? (translations.en as Record<string, string>)[key] ?? key)
 }
 
+function parseTopologyMetric(summary?: ClusterSummary | null): EmbeddingTopologyClusterMetric | null {
+  if (!summary?.topologyJson) return null
+  try {
+    const parsed = JSON.parse(summary.topologyJson) as EmbeddingTopologyClusterMetric
+    return typeof parsed?.topologyLabel === 'string' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function parseHierarchyPayload(summary?: ClusterSummary | null): HierarchicalSignaturePayload | null {
+  if (!summary?.hierarchyJson) return null
+  try {
+    const parsed = JSON.parse(summary.hierarchyJson) as HierarchicalSignaturePayload
+    return parsed?.level === 'macro' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function topologyLabelText(language: Language, metric: EmbeddingTopologyClusterMetric): string {
+  const key = `ivMetaTopology${metric.topologyLabel.charAt(0).toUpperCase()}${metric.topologyLabel.slice(1)}` as TranslationKey
+  return t(language, key)
+}
+
+function macroClusterLabel(clusterId: number, clusterSummariesFromMeta?: ClusterSummary[] | null): string {
+  return clusterSummariesFromMeta?.[clusterId]?.label ?? `Cluster ${clusterId}`
+}
+
+function microClusterOrdinal(data: VisualizationData | null | undefined, microId: number): { macroId: number; ordinal: number } | null {
+  const hierarchical = data?.hierarchical
+  if (!hierarchical) return null
+  const macroId = hierarchical.microToMacro[microId]
+  if (macroId === undefined) return null
+  let ordinal = 0
+  for (let id = 0; id <= microId && id < hierarchical.microToMacro.length; id++) {
+    if (hierarchical.microToMacro[id] === macroId) ordinal++
+  }
+  return { macroId, ordinal }
+}
+
+function microClusterLabel(language: Language, data: VisualizationData | null | undefined, microId: number, clusterSummariesFromMeta?: ClusterSummary[] | null, includeParent = true): string {
+  const location = microClusterOrdinal(data, microId)
+  const microLabel = `${t(language, 'ivHierarchicalMicro')} ${location?.ordinal ?? microId}`
+  if (!includeParent || !location) return microLabel
+  return `${macroClusterLabel(location.macroId, clusterSummariesFromMeta)} / ${microLabel}`
+}
+
 export function IndexVisualizer({
   profile,
   apiVersion,
@@ -124,8 +178,10 @@ export function IndexVisualizer({
   // ─── New state for save/load, highlight, browse ───────────────────────────
   const [highlightedCluster, setHighlightedCluster] = useState<number | null>(null)
   const [browseClusterId, setBrowseClusterId] = useState<number | null>(null)
+  const [browseClusterLevel, setBrowseClusterLevel] = useState<ClusterBrowseLevel>('macro')
   const [browseClusterPage, setBrowseClusterPage] = useState(0)
   const [saveLoadMessage, setSaveLoadMessage] = useState<string | null>(null)
+  const [metaCacheMessage, setMetaCacheMessage] = useState<string | null>(null)
   const [metaAction, setMetaAction] = useState<'overwrite' | 'create-new'>('overwrite')
   const [summaryMode, setSummaryMode] = useState<ClusterSummaryMode>('v1')
   const [metaContentFields, setMetaContentFields] = useState('')
@@ -133,6 +189,31 @@ export function IndexVisualizer({
   const [traceClusterId, setTraceClusterId] = useState<number | null>(null)
   const [rebuiltGraph, setRebuiltGraph] = useState<ClusterGraphData | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const metaCacheFileInputRef = useRef<HTMLInputElement>(null)
+
+  const openClusterBrowser = useCallback((clusterId: number, level: ClusterBrowseLevel = 'macro') => {
+    setBrowseClusterId(clusterId)
+    setBrowseClusterLevel(level)
+    setBrowseClusterPage(0)
+  }, [])
+
+  const clearLoadedViewState = useCallback(() => {
+    setDataSourceLabel(null)
+    setRebuiltGraph(null)
+    setTraceClusterId(null)
+    setBrowseClusterId(null)
+    setBrowseClusterLevel('macro')
+    setBrowseClusterPage(0)
+    setHighlightedCluster(null)
+    setSaveLoadMessage(null)
+    setMetaCacheMessage(null)
+  }, [])
+
+  const handleRunVisualization = useCallback(() => {
+    clearLoadedViewState()
+    meta.clearAll({ clearIndexStatus: true })
+    vis.run()
+  }, [vis, meta, clearLoadedViewState])
 
   /** Export current visualization to a .ragvis.json file. */
   const handleExportFile = useCallback(() => {
@@ -151,10 +232,43 @@ export function IndexVisualizer({
         enableAdaptiveSampling: vis.enableAdaptiveSampling,
       },
       data: vis.data,
-      clusterSummaries: meta.clusterSummaries,
     })
     exportSnapshotToFile(snapshot)
-  }, [vis.data, vis.selectedIndex, vis.selectedVectorField, vis.k, vis.microK, vis.maxDocs, vis.enableHierarchical, vis.enableGraph, vis.graphEdgeThreshold, vis.reductionMethod, vis.enableAdaptiveSampling, meta.clusterSummaries])
+  }, [vis.data, vis.selectedIndex, vis.selectedVectorField, vis.k, vis.microK, vis.maxDocs, vis.enableHierarchical, vis.enableGraph, vis.graphEdgeThreshold, vis.reductionMethod, vis.enableAdaptiveSampling])
+
+  const buildCurrentVisualizationSnapshot = useCallback(() => {
+    if (!vis.data) return undefined
+    return buildSnapshot({
+      indexName: vis.selectedIndex,
+      vectorField: vis.selectedVectorField,
+      settings: {
+        k: vis.k,
+        microK: vis.microK,
+        maxDocs: vis.maxDocs,
+        enableHierarchical: vis.enableHierarchical,
+        enableGraph: vis.enableGraph,
+        graphEdgeThreshold: vis.graphEdgeThreshold,
+        reductionMethod: vis.reductionMethod,
+        enableAdaptiveSampling: vis.enableAdaptiveSampling,
+      },
+      data: vis.data,
+    })
+  }, [vis.data, vis.selectedIndex, vis.selectedVectorField, vis.k, vis.microK, vis.maxDocs, vis.enableHierarchical, vis.enableGraph, vis.graphEdgeThreshold, vis.reductionMethod, vis.enableAdaptiveSampling])
+
+  const handleExportMetaCacheFile = useCallback(() => {
+    if (!meta.clusterSummaries || meta.clusterSummaries.length === 0) return
+    const snapshot = buildMetaIndexSnapshot({
+      indexName: vis.selectedIndex,
+      vectorField: vis.selectedVectorField,
+      summaryMode,
+      metaIndexName: meta.metaIndexName,
+      metaTokenUsage: meta.metaTokenUsage,
+      clusterSummaries: meta.clusterSummaries,
+      metaTraces: meta.metaTraces,
+      visualization: buildCurrentVisualizationSnapshot(),
+    })
+    exportMetaIndexSnapshotToFile(snapshot)
+  }, [meta.clusterSummaries, meta.metaIndexName, meta.metaTokenUsage, meta.metaTraces, vis.selectedIndex, vis.selectedVectorField, summaryMode, buildCurrentVisualizationSnapshot])
 
   /** Import visualization from a file. */
   const handleImportFile = useCallback(async (file: File) => {
@@ -165,14 +279,40 @@ export function IndexVisualizer({
       return
     }
     const restored = restoreFromSnapshot(snapshot)
+    clearLoadedViewState()
+    meta.clearAll({ clearIndexStatus: true })
     vis.restoreData(restored.data)
-    if (restored.clusterSummaries) {
-      meta.restoreSummaries(restored.clusterSummaries)
-    }
     setDataSourceLabel({ type: 'file', name: file.name })
     setSaveLoadMessage(t(language, 'ivLoadSuccess'))
     setTimeout(() => setSaveLoadMessage(null), 3000)
-  }, [vis, meta, language])
+  }, [vis, meta, language, clearLoadedViewState])
+
+  const handleImportMetaCacheFile = useCallback(async (file: File) => {
+    const snapshot = await importMetaIndexSnapshotFromFile(file)
+    if (!snapshot) {
+      setMetaCacheMessage(t(language, 'ivMetaCacheLoadError'))
+      setTimeout(() => setMetaCacheMessage(null), 3000)
+      return
+    }
+
+    clearLoadedViewState()
+    if (snapshot.visualization) {
+      const restored = restoreFromSnapshot(snapshot.visualization)
+      vis.restoreData(restored.data)
+      setDataSourceLabel({ type: 'file', name: file.name })
+    } else {
+      vis.clearData()
+    }
+    meta.restoreSummaries(snapshot.clusterSummaries, {
+      traces: snapshot.metaTraces,
+      tokenUsage: snapshot.metaTokenUsage,
+      metaIndexName: snapshot.metaIndexName,
+      metaIndexExists: false,
+    })
+    setSummaryMode(snapshot.summaryMode)
+    setMetaCacheMessage(t(language, 'ivMetaCacheLoadSuccess'))
+    setTimeout(() => setMetaCacheMessage(null), 3000)
+  }, [vis, meta, language, clearLoadedViewState])
 
   // Sync index name from app when component first opens
   useEffect(() => {
@@ -419,7 +559,7 @@ export function IndexVisualizer({
           <button
             type="button"
             className="btn btn--primary"
-            onClick={() => { setDataSourceLabel(null); vis.run() }}
+            onClick={handleRunVisualization}
             disabled={!canRun}
           >
             <i className="bi bi-play-fill icon--mr6" />
@@ -440,11 +580,8 @@ export function IndexVisualizer({
               className="btn btn--secondary"
               onClick={() => {
                 vis.clearData()
-                meta.clearAll()
-                setDataSourceLabel(null)
-                setBrowseClusterId(null)
-                setBrowseClusterPage(0)
-                setHighlightedCluster(null)
+                meta.clearAll({ clearIndexStatus: true })
+                clearLoadedViewState()
               }}
             >
               <i className="bi bi-x-circle icon--mr6" />
@@ -527,7 +664,7 @@ export function IndexVisualizer({
           clusterSummariesFromMeta={meta.clusterSummaries}
           highlightedCluster={highlightedCluster}
           onClusterHover={setHighlightedCluster}
-          onBrowseCluster={(id) => { setBrowseClusterId(id); setBrowseClusterPage(0) }}
+          onBrowseCluster={(id) => openClusterBrowser(id, 'macro')}
         />
       )}
 
@@ -538,7 +675,8 @@ export function IndexVisualizer({
           data={vis.data}
           language={language}
           clusterSummariesFromMeta={meta.clusterSummaries}
-          onBrowseCluster={(id) => { setBrowseClusterId(id); setBrowseClusterPage(0) }}
+          metaTraces={meta.metaTraces}
+          onBrowseCluster={openClusterBrowser}
         />
       )}
 
@@ -549,7 +687,8 @@ export function IndexVisualizer({
           data={vis.data}
           language={language}
           clusterSummariesFromMeta={meta.clusterSummaries}
-          onBrowseCluster={(id) => { setBrowseClusterId(id); setBrowseClusterPage(0) }}
+          metaTraces={meta.metaTraces}
+          onBrowseCluster={openClusterBrowser}
         />
       )}
 
@@ -560,6 +699,9 @@ export function IndexVisualizer({
         <div className="section__title">
           <i className="bi bi-floppy icon--mr6" />
           {t(language, 'ivSaveTitle')}
+        </div>
+        <div className="app__hint">
+          {t(language, 'ivSaveDescription')}
         </div>
 
         <div className="actions" style={{ marginTop: '8px' }}>
@@ -574,7 +716,7 @@ export function IndexVisualizer({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".ragvis.json,.json"
+            accept=".ragvis.json"
             style={{ display: 'none' }}
             onChange={(e) => {
               const file = e.target.files?.[0]
@@ -598,9 +740,10 @@ export function IndexVisualizer({
         <ClusterDocBrowser
           data={vis.data ?? null}
           clusterId={browseClusterId}
+          clusterLevel={browseClusterLevel}
           page={browseClusterPage}
           onPageChange={setBrowseClusterPage}
-          onClose={() => { setBrowseClusterId(null); setBrowseClusterPage(0) }}
+          onClose={() => { setBrowseClusterId(null); setBrowseClusterLevel('macro'); setBrowseClusterPage(0) }}
           language={language}
           clusterSummariesFromMeta={meta.clusterSummaries}
           titleFieldName={vis.titleFieldName}
@@ -746,6 +889,7 @@ export function IndexVisualizer({
                 vectorDims,
                 vis.data.docs,
                 vis.data.cluster,
+                vis.data.hierarchical,
                 fields.length > 0 ? fields : undefined,
                 summaryMode,
               )
@@ -768,6 +912,42 @@ export function IndexVisualizer({
             <i className="bi bi-arrow-repeat icon--mr6" />
             {t(language, 'ivMetaLoadOption')}
           </button>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            onClick={handleExportMetaCacheFile}
+            disabled={isMetaRunning || !meta.clusterSummaries || meta.clusterSummaries.length === 0}
+            title={t(language, 'ivMetaCacheExportHint')}
+          >
+            <i className="bi bi-download icon--mr6" />
+            {t(language, 'ivMetaCacheExport')}
+          </button>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            onClick={() => metaCacheFileInputRef.current?.click()}
+            disabled={isMetaRunning}
+            title={t(language, 'ivMetaCacheImportHint')}
+          >
+            <i className="bi bi-upload icon--mr6" />
+            {t(language, 'ivMetaCacheImport')}
+          </button>
+          <input
+            ref={metaCacheFileInputRef}
+            type="file"
+            accept=".ragmeta.json"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) handleImportMetaCacheFile(file)
+              e.target.value = ''
+            }}
+          />
+          {metaCacheMessage && (
+            <div className="notice notice--success" style={{ marginTop: '6px', flexBasis: '100%' }}>
+              {metaCacheMessage}
+            </div>
+          )}
           {meta.clusterSummaries && meta.clusterSummaries.length > 0 && meta.clusterSummaries[0].centroidVector?.length > 0 && (
             <button
               type="button"
@@ -935,12 +1115,31 @@ export function IndexVisualizer({
                       {t(language, 'ivClusterDocsMemberIds')}: {cs.memberDocIds.length}
                     </div>
                   )}
+                  {(() => {
+                    const topology = parseTopologyMetric(cs)
+                    const hierarchy = parseHierarchyPayload(cs)
+                    if (!topology && !hierarchy) return null
+                    return (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px', fontSize: '10px', opacity: 0.72 }}>
+                        {topology && (
+                          <span style={{ border: '1px solid rgba(91,157,255,0.28)', background: 'rgba(91,157,255,0.1)', borderRadius: '4px', padding: '1px 5px' }}>
+                            {t(language, 'ivMetaEtaLabel')}: {topologyLabelText(language, topology)} / {topology.ambiguityScore.toFixed(2)}
+                          </span>
+                        )}
+                        {hierarchy && (
+                          <span style={{ border: '1px solid rgba(53,199,164,0.28)', background: 'rgba(53,199,164,0.1)', borderRadius: '4px', padding: '1px 5px' }}>
+                            {t(language, 'ivMetaHsaLabel')}: {hierarchy.childCount}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })()}
                   {(vis.data || (cs.memberDocIds && cs.memberDocIds.length > 0)) && (
                     <button
                       type="button"
                       className="btn btn--secondary"
                       style={{ marginTop: '6px', padding: '2px 8px', fontSize: '11px' }}
-                      onClick={() => { setBrowseClusterId(idx); setBrowseClusterPage(0) }}
+                      onClick={() => openClusterBrowser(idx, 'macro')}
                     >
                       <i className="bi bi-list-ul icon--mr6" />
                       {t(language, 'ivClusterDocsBrowse')}
@@ -1570,9 +1769,10 @@ function MetaTraceModal({ trace, language, onClose }: {
   language: Language
   onClose: () => void
 }) {
-  const [expandedSection, setExpandedSection] = useState<'system' | 'user' | 'response' | null>(null)
+  const [expandedSection, setExpandedSection] = useState<'output' | 'system' | 'user' | 'response' | null>(null)
+  const pipelineSteps = trace.pipelineSteps ?? []
 
-  const toggle = (section: 'system' | 'user' | 'response') => {
+  const toggle = (section: 'output' | 'system' | 'user' | 'response') => {
     setExpandedSection((prev) => prev === section ? null : section)
   }
 
@@ -1586,7 +1786,7 @@ function MetaTraceModal({ trace, language, onClose }: {
         <div className="modal-header">
           <h2>
             <i className="bi bi-bug" style={{ marginRight: '8px' }} />
-            {language === 'ja' ? 'クラスタ LLM トレース' : 'Cluster LLM Trace'} — {trace.label}
+            {language === 'ja' ? 'クラスタ生成トレース' : 'Cluster Generation Trace'} — {trace.label}
           </h2>
           <button type="button" className="btn" onClick={onClose}>✕</button>
         </div>
@@ -1597,6 +1797,22 @@ function MetaTraceModal({ trace, language, onClose }: {
               <div style={{ fontSize: '11px', opacity: 0.6 }}>Cluster ID</div>
               <div style={{ fontWeight: 600 }}>{trace.clusterId}</div>
             </div>
+            <div style={{ background: 'var(--panel-2)', borderRadius: '8px', padding: '10px 14px', flex: '1 1 120px' }}>
+              <div style={{ fontSize: '11px', opacity: 0.6 }}>{language === 'ja' ? 'モード' : 'Mode'}</div>
+              <div style={{ fontWeight: 600 }}>{trace.summaryMode ?? 'v1'}{trace.traceLevel ? ` / ${trace.traceLevel}` : ''}</div>
+            </div>
+            {typeof trace.memberCount === 'number' && (
+              <div style={{ background: 'var(--panel-2)', borderRadius: '8px', padding: '10px 14px', flex: '1 1 120px' }}>
+                <div style={{ fontSize: '11px', opacity: 0.6 }}>{language === 'ja' ? '文書数' : 'Documents'}</div>
+                <div style={{ fontWeight: 600 }}>{trace.memberCount.toLocaleString()}</div>
+              </div>
+            )}
+            {pipelineSteps.length > 0 && (
+              <div style={{ background: 'var(--panel-2)', borderRadius: '8px', padding: '10px 14px', flex: '1 1 120px' }}>
+                <div style={{ fontSize: '11px', opacity: 0.6 }}>{language === 'ja' ? 'パイプライン' : 'Pipeline'}</div>
+                <div style={{ fontWeight: 600 }}>{pipelineSteps.length} steps</div>
+              </div>
+            )}
             <div style={{ background: 'var(--panel-2)', borderRadius: '8px', padding: '10px 14px', flex: '1 1 120px' }}>
               <div style={{ fontSize: '11px', opacity: 0.6 }}>Input Tokens</div>
               <div style={{ fontWeight: 600 }}>{trace.promptTokens.toLocaleString()}</div>
@@ -1615,8 +1831,6 @@ function MetaTraceModal({ trace, language, onClose }: {
             </div>
           </div>
 
-
-
           {/* Error indicator */}
           {trace.error && (
             <div className="notice notice--error" style={{ marginBottom: '12px' }}>
@@ -1625,78 +1839,227 @@ function MetaTraceModal({ trace, language, onClose }: {
             </div>
           )}
 
-          {/* System Prompt */}
-          <div style={{ marginBottom: '8px', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
-            <button
-              type="button"
-              onClick={() => toggle('system')}
-              style={{
-                width: '100%', textAlign: 'left', padding: '10px 14px', background: 'var(--panel-2)',
-                border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '12px', color: 'var(--fg)',
-                display: 'flex', alignItems: 'center', gap: '8px',
-              }}
+          {trace.output && (
+            <div className="edgTraceModal__summary">
+              <div className="edgTraceModal__queryLabel">
+                {language === 'ja' ? '最終 output' : 'Final Output'}
+              </div>
+              <div className="edgTraceModal__queryText" style={{ fontWeight: 600 }}>
+                {trace.output.primaryLabel}
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px', lineHeight: 1.5 }}>
+                {trace.output.shortSummary}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px' }}>
+                {trace.output.facetLabels.slice(0, 8).map((facet) => (
+                  <span key={facet} className="edgTraceNode__badge">{facet}</span>
+                ))}
+                {trace.output.topology && (
+                  <span className="edgTraceNode__badge">
+                    ETA {trace.output.topology.topologyLabel} / {trace.output.topology.ambiguityScore.toFixed(2)}
+                  </span>
+                )}
+                {trace.output.hierarchy?.childCount !== undefined && (
+                  <span className="edgTraceNode__badge">
+                    HSA {trace.output.hierarchy.childCount} micro
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {pipelineSteps.length > 0 && (
+            <div style={{ marginBottom: '14px' }}>
+              <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '8px' }}>
+                {language === 'ja' ? 'EFLC v2 パイプライン' : 'EFLC v2 Pipeline'}
+              </div>
+              <div className="edgTracePipeline">
+                {pipelineSteps.map((step, index) => (
+                  <MetaTraceStepCard
+                    key={`${step.step}-${step.phase}`}
+                    step={step}
+                    language={language}
+                    isLast={index === pipelineSteps.length - 1}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {trace.output && (
+            <TraceSection
+              title={language === 'ja' ? 'Output JSON サマリ' : 'Output JSON Summary'}
+              section="output"
+              expandedSection={expandedSection}
+              onToggle={toggle}
+              meta={`${JSON.stringify(trace.output).length.toLocaleString()} chars`}
             >
-              <i className={`bi bi-chevron-${expandedSection === 'system' ? 'down' : 'right'}`} />
-              System Prompt
-              <span style={{ marginLeft: 'auto', fontWeight: 400, opacity: 0.6, fontSize: '11px' }}>
-                {trace.systemPrompt.length.toLocaleString()} chars
-              </span>
-            </button>
-            {expandedSection === 'system' && (
-              <pre style={{ margin: 0, padding: '12px 14px', fontSize: '11px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '200px', overflow: 'auto', background: 'var(--panel)' }}>
-                {trace.systemPrompt}
-              </pre>
-            )}
-          </div>
+              {JSON.stringify(trace.output, null, 2)}
+            </TraceSection>
+          )}
+
+          {/* System Prompt */}
+          <TraceSection
+            title="System Prompt"
+            section="system"
+            expandedSection={expandedSection}
+            onToggle={toggle}
+            meta={`${trace.systemPrompt.length.toLocaleString()} chars`}
+            maxHeight={200}
+          >
+            {trace.systemPrompt}
+          </TraceSection>
 
           {/* User Prompt (input documents) */}
-          <div style={{ marginBottom: '8px', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
-            <button
-              type="button"
-              onClick={() => toggle('user')}
-              style={{
-                width: '100%', textAlign: 'left', padding: '10px 14px', background: 'var(--panel-2)',
-                border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '12px', color: 'var(--fg)',
-                display: 'flex', alignItems: 'center', gap: '8px',
-              }}
-            >
-              <i className={`bi bi-chevron-${expandedSection === 'user' ? 'down' : 'right'}`} />
-              User Prompt ({language === 'ja' ? '入力ドキュメント' : 'Input Documents'})
-              <span style={{ marginLeft: 'auto', fontWeight: 400, opacity: 0.6, fontSize: '11px' }}>
-                {trace.userPrompt.length.toLocaleString()} chars
-              </span>
-            </button>
-            {expandedSection === 'user' && (
-              <pre style={{ margin: 0, padding: '12px 14px', fontSize: '11px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '400px', overflow: 'auto', background: 'var(--panel)' }}>
-                {trace.userPrompt}
-              </pre>
-            )}
-          </div>
+          <TraceSection
+            title={`User Prompt (${language === 'ja' ? '入力 evidence / micro signature' : 'Input evidence / micro signatures'})`}
+            section="user"
+            expandedSection={expandedSection}
+            onToggle={toggle}
+            meta={`${trace.userPrompt.length.toLocaleString()} chars`}
+            maxHeight={400}
+          >
+            {trace.userPrompt}
+          </TraceSection>
 
           {/* LLM Response */}
-          <div style={{ marginBottom: '8px', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
-            <button
-              type="button"
-              onClick={() => toggle('response')}
-              style={{
-                width: '100%', textAlign: 'left', padding: '10px 14px', background: 'var(--panel-2)',
-                border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '12px', color: 'var(--fg)',
-                display: 'flex', alignItems: 'center', gap: '8px',
-              }}
-            >
-              <i className={`bi bi-chevron-${expandedSection === 'response' ? 'down' : 'right'}`} />
-              LLM Response
-              <span style={{ marginLeft: 'auto', fontWeight: 400, opacity: 0.6, fontSize: '11px' }}>
-                {trace.response ? `${trace.response.length.toLocaleString()} chars` : '—'}
-              </span>
-            </button>
-            {expandedSection === 'response' && (
-              <pre style={{ margin: 0, padding: '12px 14px', fontSize: '11px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '300px', overflow: 'auto', background: 'var(--panel)' }}>
-                {trace.response ?? (language === 'ja' ? '(レスポンスなし)' : '(No response)')}
-              </pre>
-            )}
-          </div>
+          <TraceSection
+            title="LLM Response"
+            section="response"
+            expandedSection={expandedSection}
+            onToggle={toggle}
+            meta={trace.response ? `${trace.response.length.toLocaleString()} chars` : '—'}
+            maxHeight={300}
+          >
+            {trace.response ?? (language === 'ja' ? '(レスポンスなし)' : '(No response)')}
+          </TraceSection>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function TraceSection({ title, section, expandedSection, onToggle, meta, maxHeight = 300, children }: {
+  title: string
+  section: 'output' | 'system' | 'user' | 'response'
+  expandedSection: 'output' | 'system' | 'user' | 'response' | null
+  onToggle: (section: 'output' | 'system' | 'user' | 'response') => void
+  meta: string
+  maxHeight?: number
+  children: string
+}) {
+  return (
+    <div style={{ marginBottom: '8px', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={() => onToggle(section)}
+        style={{
+          width: '100%', textAlign: 'left', padding: '10px 14px', background: 'var(--panel-2)',
+          border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '12px', color: 'var(--fg)',
+          display: 'flex', alignItems: 'center', gap: '8px',
+        }}
+      >
+        <i className={`bi bi-chevron-${expandedSection === section ? 'down' : 'right'}`} />
+        {title}
+        <span style={{ marginLeft: 'auto', fontWeight: 400, opacity: 0.6, fontSize: '11px' }}>
+          {meta}
+        </span>
+      </button>
+      {expandedSection === section && (
+        <pre style={{ margin: 0, padding: '12px 14px', fontSize: '11px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: `${maxHeight}px`, overflow: 'auto', background: 'var(--panel)' }}>
+          {children}
+        </pre>
+      )}
+    </div>
+  )
+}
+
+const META_TRACE_PHASE_LABELS: Record<MetaTracePhase, { ja: string; en: string }> = {
+  'member-collection': { ja: '文書収集', en: 'Member Collection' },
+  'evidence-selection': { ja: 'Evidence 選択', en: 'Evidence Selection' },
+  'topology-analysis': { ja: 'ETA 解析', en: 'ETA Analysis' },
+  'sibling-contrast': { ja: '兄弟クラスタ比較', en: 'Sibling Contrast' },
+  'hierarchical-aggregation': { ja: 'HSA 集約', en: 'HSA Aggregation' },
+  'llm-signature': { ja: 'LLM 意味署名生成', en: 'LLM Signature' },
+  'quality-scoring': { ja: '品質判定', en: 'Quality Scoring' },
+  'meta-document': { ja: 'Meta-Index 出力', en: 'Meta-Index Output' },
+}
+
+const META_TRACE_PHASE_DESCRIPTIONS: Record<MetaTracePhase, { ja: string; en: string }> = {
+  'member-collection': { ja: 'クラスタに所属する文書数と実行経路を確定します。', en: 'Determines the member document count and execution path.' },
+  'evidence-selection': { ja: 'prototype / diverse / boundary / outlier の role-aware evidence を選びます。', en: 'Selects role-aware prototype, diverse, boundary, and outlier evidence.' },
+  'topology-analysis': { ja: '埋め込み近傍構造から凝集性、境界性、曖昧性を測定します。', en: 'Measures cohesion, boundary behavior, and ambiguity from embedding topology.' },
+  'sibling-contrast': { ja: '近接する兄弟クラスタとの差分をプロンプト制約に入れます。', en: 'Adds contrast against nearby sibling clusters to the prompt constraints.' },
+  'hierarchical-aggregation': { ja: 'micro signature 群から macro signature の候補を bottom-up に作ります。', en: 'Builds the macro signature candidate bottom-up from micro signatures.' },
+  'llm-signature': { ja: '選択済み evidence と制約から ClusterSemanticSignature JSON を生成します。', en: 'Generates ClusterSemanticSignature JSON from selected evidence and constraints.' },
+  'quality-scoring': { ja: '汎用性、分割候補、ETA の曖昧性を使って品質を採点します。', en: 'Scores quality using genericity, split risk, and ETA ambiguity.' },
+  'meta-document': { ja: '互換フィールドと拡張 JSON を Meta-Index 文書へ整形します。', en: 'Formats compatible fields and extended JSON for the meta-index document.' },
+}
+
+const META_TRACE_ACTION_LABELS: Record<MetaTraceAction, { ja: string; en: string }> = {
+  created: { ja: '作成', en: 'Created' },
+  kept: { ja: '維持', en: 'Kept' },
+  rejected: { ja: '失敗', en: 'Failed' },
+  modified: { ja: '調整', en: 'Adjusted' },
+  enriched: { ja: '拡張', en: 'Enriched' },
+}
+
+const META_TRACE_ACTION_ICONS: Record<MetaTraceAction, string> = {
+  created: 'bi-plus-circle',
+  kept: 'bi-check-circle',
+  rejected: 'bi-x-circle',
+  modified: 'bi-sliders',
+  enriched: 'bi-stars',
+}
+
+function MetaTraceStepCard({ step, language, isLast }: { step: MetaTraceStep; language: Language; isLast: boolean }) {
+  const phaseLabel = META_TRACE_PHASE_LABELS[step.phase]?.[language] ?? step.phase
+  const phaseDesc = META_TRACE_PHASE_DESCRIPTIONS[step.phase]?.[language]
+  const actionLabel = META_TRACE_ACTION_LABELS[step.action]?.[language] ?? step.action
+  const icon = META_TRACE_ACTION_ICONS[step.action] ?? 'bi-circle'
+  const metrics = Object.entries(step.detail?.metrics ?? {})
+
+  return (
+    <div className="edgTraceNode">
+      <div className="edgTraceNode__rail">
+        <div className={`edgTraceNode__dot edgTraceNode__dot--${step.action}`}>
+          <i className={`bi ${icon}`} />
+        </div>
+        {!isLast && <div className="edgTraceNode__line" />}
+      </div>
+      <div className={`edgTraceNode__card edgTraceNode__card--${step.action}`}>
+        <div className="edgTraceNode__header">
+          <span className="edgTraceNode__phase">{step.step}. {phaseLabel}</span>
+          <span className={`edgTraceNode__action edgTraceNode__action--${step.action}`}>{actionLabel}</span>
+        </div>
+        {phaseDesc && <div className="edgTraceNode__desc">{phaseDesc}</div>}
+        {metrics.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+            {metrics.map(([key, value]) => (
+              <span key={key} className="edgTraceNode__badge">
+                {key}: {String(value)}
+              </span>
+            ))}
+          </div>
+        )}
+        {step.detail?.docIds && step.detail.docIds.length > 0 && (
+          <div className="edgTraceNode__meta">
+            IDs: {step.detail.docIds.slice(0, 12).join(', ')}{step.detail.docIds.length > 12 ? ` +${step.detail.docIds.length - 12}` : ''}
+          </div>
+        )}
+        {step.detail?.reason && (
+          <div className="edgTraceNode__reason">{step.detail.reason}</div>
+        )}
+        {step.detail?.input && (
+          <pre style={{ margin: '6px 0 0', padding: '8px 10px', fontSize: '11px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '120px', overflow: 'auto', background: 'var(--panel-2)', borderRadius: '6px' }}>
+            {step.detail.input}
+          </pre>
+        )}
+        {step.detail?.output && (
+          <pre style={{ margin: '6px 0 0', padding: '8px 10px', fontSize: '11px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '120px', overflow: 'auto', background: 'var(--panel-2)', borderRadius: '6px' }}>
+            {step.detail.output}
+          </pre>
+        )}
       </div>
     </div>
   )
@@ -1813,12 +2176,13 @@ function edgeColorForConfidence(confidence?: EdgeConfidence, isLightBg = false, 
   return isLightBg ? `rgba(90,90,90,${alpha})` : `rgba(190,190,190,${alpha})`
 }
 
-function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onBrowseCluster }: {
+function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, metaTraces, onBrowseCluster }: {
   graph: ClusterGraphData
   data?: VisualizationData | null
   language: Language
   clusterSummariesFromMeta?: ClusterSummary[] | null
-  onBrowseCluster?: (clusterId: number) => void
+  metaTraces?: MetaClusterTrace[]
+  onBrowseCluster?: (clusterId: number, level?: ClusterBrowseLevel) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const graphContainerRef = useRef<HTMLDivElement>(null)
@@ -1837,10 +2201,46 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
   const [searchTerm, setSearchTerm] = useState('')
   const [layoutMode, setLayoutMode] = useState<'force' | 'radial'>('force')
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [expandedMacroId, setExpandedMacroId] = useState<number | null>(null)
   // Animation pulse for selected node halo
   const [pulse, setPulse] = useState(0)
 
-  const { nodes, edges, bridges } = graph
+  const drilldownGraph = useMemo(() => {
+    if (expandedMacroId === null || !data?.hierarchical) return null
+    return buildHierarchicalClusterGraph(
+      data.docs.map((doc) => doc.vector),
+      data.hierarchical,
+      expandedMacroId,
+      0.5,
+    )
+  }, [data, expandedMacroId])
+  const activeGraph = drilldownGraph ?? graph
+  const isMicroGraph = activeGraph.graphLevel === 'micro'
+  const { nodes, edges, bridges } = activeGraph
+
+  useEffect(() => {
+    if (!data?.hierarchical && expandedMacroId !== null) setExpandedMacroId(null)
+  }, [data?.hierarchical, expandedMacroId])
+
+  useEffect(() => {
+    setSelectedNodeId(null)
+    setSelectedEdgeKey(null)
+    setHighlightedNodeId(null)
+  }, [graph])
+
+  const openMicroGraph = useCallback((macroId: number) => {
+    setSelectedNodeId(null)
+    setSelectedEdgeKey(null)
+    setHighlightedNodeId(null)
+    setExpandedMacroId(macroId)
+  }, [])
+
+  const goToMacroGraph = useCallback((macroId?: number) => {
+    setExpandedMacroId(null)
+    setSelectedEdgeKey(null)
+    setHighlightedNodeId(null)
+    setSelectedNodeId(macroId ?? null)
+  }, [])
 
   // Build label map (and a richer summary lookup for the detail panel)
   const summaryMap = useMemo(() => {
@@ -1851,9 +2251,25 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
     return map
   }, [clusterSummariesFromMeta])
 
+  const activeParentLabel = useMemo(() => {
+    return expandedMacroId === null ? '' : macroClusterLabel(expandedMacroId, clusterSummariesFromMeta)
+  }, [expandedMacroId, clusterSummariesFromMeta])
+
+  const microTraceMap = useMemo(() => {
+    const map = new Map<number, MetaClusterTrace>()
+    for (const trace of metaTraces ?? []) {
+      if (trace.traceLevel === 'micro') map.set(trace.clusterId, trace)
+    }
+    return map
+  }, [metaTraces])
+
   const labelMap = useMemo(() => {
-    return (id: number) => summaryMap.get(id)?.label ?? `Cluster ${id}`
-  }, [summaryMap])
+    return (id: number) => {
+      if (!isMicroGraph) return macroClusterLabel(id, clusterSummariesFromMeta)
+      return microTraceMap.get(id)?.output?.primaryLabel
+        ?? microClusterLabel(language, data, id, clusterSummariesFromMeta, false)
+    }
+  }, [isMicroGraph, language, data, clusterSummariesFromMeta, microTraceMap])
 
   // Filter edges by user threshold
   const filteredEdges = useMemo(
@@ -2303,7 +2719,8 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
     if (selectedNodeId === null) return null
     const node = nodes.find((n) => n.id === selectedNodeId)
     if (!node) return null
-    const summary = summaryMap.get(selectedNodeId) ?? null
+    const summary = isMicroGraph ? null : summaryMap.get(selectedNodeId) ?? null
+    const microTrace = isMicroGraph ? microTraceMap.get(selectedNodeId) ?? null : null
     const neighbors = filteredEdges
       .filter((e) => e.source === selectedNodeId || e.target === selectedNodeId)
       .map((e) => ({
@@ -2315,8 +2732,8 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
     const bridgeCount = bridges.filter(
       (b) => b.ownCluster === selectedNodeId || b.nearestCluster === selectedNodeId,
     ).length
-    return { node, summary, neighbors, bridgeCount, degree: degreeMap.get(selectedNodeId) ?? 0 }
-  }, [selectedNodeId, nodes, summaryMap, filteredEdges, bridges, degreeMap])
+    return { node, summary, microTrace, neighbors, bridgeCount, degree: degreeMap.get(selectedNodeId) ?? 0 }
+  }, [selectedNodeId, nodes, isMicroGraph, summaryMap, microTraceMap, filteredEdges, bridges, degreeMap])
 
   const selectedEdgeDetail = useMemo(() => {
     if (!selectedEdgeKey) return null
@@ -2361,6 +2778,30 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
           .replace('{edges}', String(filteredEdges.length))
           .replace('{bridges}', String(bridges.length))}
       </div>
+
+      {data?.hierarchical && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '12px' }}>
+          <button
+            type="button"
+            className="btn btn--sm btn--secondary"
+            disabled={!isMicroGraph}
+            onClick={() => goToMacroGraph()}
+            title={t(language, 'ivGraphBackToMacro')}
+          >
+            <i className="bi bi-diagram-3 icon--mr4" />
+            {t(language, 'ivGraphBreadcrumbOverview')}
+          </button>
+          {isMicroGraph && (
+            <>
+              <span style={{ opacity: 0.55 }}>›</span>
+              <span style={{ fontWeight: 600 }}>{activeParentLabel}</span>
+            </>
+          )}
+          <span style={{ opacity: 0.62 }}>
+            {isMicroGraph ? t(language, 'ivGraphDrilldownMicro') : t(language, 'ivGraphDrilldownOverview')}
+          </span>
+        </div>
+      )}
 
       {/* Toolbar — Row 1: Action buttons */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center', marginTop: '8px', fontSize: '12px' }}>
@@ -2543,6 +2984,45 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
                 <span style={{ color: '#f59f00' }}>🔗 <strong>{selectedDetail.bridgeCount}</strong></span>
               )}
             </div>
+            {isMicroGraph && selectedDetail.node.parentId !== undefined && (
+              <div style={{ marginTop: '8px', display: 'grid', gap: '6px' }}>
+                <div style={{ fontSize: '11px', opacity: 0.78 }}>
+                  {t(language, 'ivGraphSelectedParent')}: <strong>{macroClusterLabel(selectedDetail.node.parentId, clusterSummariesFromMeta)}</strong>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn--sm btn--secondary"
+                  onClick={() => goToMacroGraph(selectedDetail.node.parentId)}
+                  style={{ width: '100%', fontSize: '11px' }}
+                >
+                  <i className="bi bi-arrow-up-circle icon--mr4" />
+                  {t(language, 'ivGraphGoToParentMacro')}
+                </button>
+              </div>
+            )}
+            {isMicroGraph && selectedDetail.microTrace?.output?.shortSummary && (
+              <div style={{ marginTop: '8px' }}>
+                <div style={{ fontSize: '10px', opacity: 0.6, textTransform: 'uppercase', marginBottom: '2px' }}>
+                  {t(language, 'ivGraphMicroAnalysis')}
+                </div>
+                <div style={{ fontSize: '11px', lineHeight: 1.4 }}>{selectedDetail.microTrace.output.shortSummary}</div>
+                {selectedDetail.microTrace.output.facetLabels.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                    {selectedDetail.microTrace.output.facetLabels.slice(0, 6).map((facet) => (
+                      <span key={facet} style={{
+                        padding: '1px 6px', borderRadius: '3px', fontSize: '10px',
+                        background: 'rgba(53,199,164,0.12)', border: '1px solid rgba(53,199,164,0.28)',
+                      }}>{facet}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {isMicroGraph && !selectedDetail.microTrace?.output?.shortSummary && (
+              <div style={{ marginTop: '8px', padding: '6px 8px', borderRadius: '4px', background: 'rgba(91,157,255,0.1)', border: '1px solid rgba(91,157,255,0.22)', fontSize: '11px', lineHeight: 1.4 }}>
+                {t(language, 'ivGraphMicroAnalysisUnavailable')}
+              </div>
+            )}
             {selectedDetail.summary?.summary && (
               <div style={{ marginTop: '8px' }}>
                 <div style={{ fontSize: '10px', opacity: 0.6, textTransform: 'uppercase', marginBottom: '2px' }}>
@@ -2597,10 +3077,18 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, onB
                 </div>
               </div>
             )}
+            {!isMicroGraph && data?.hierarchical && (
+              <button type="button" className="btn btn--sm btn--secondary"
+                onClick={() => openMicroGraph(selectedDetail.node.id)}
+                style={{ marginTop: '10px', width: '100%', fontSize: '11px' }}>
+                <i className="bi bi-diagram-3 icon--mr4" />
+                {t(language, 'ivGraphExpandMicro')}
+              </button>
+            )}
             {onBrowseCluster && (
               <button type="button" className="btn btn--sm btn--primary"
-                onClick={() => onBrowseCluster(selectedDetail.node.id)}
-                style={{ marginTop: '10px', width: '100%', fontSize: '11px' }}>
+                onClick={() => onBrowseCluster(selectedDetail.node.id, isMicroGraph ? 'micro' : 'macro')}
+                style={{ marginTop: isMicroGraph || !data?.hierarchical ? '10px' : '6px', width: '100%', fontSize: '11px' }}>
                 <i className="bi bi-list-ul icon--mr4" />
                 {t(language, 'ivGraphSelectedBrowseDocs')}
               </button>
@@ -2940,9 +3428,10 @@ function StatCard({ label, value }: { label: string; value: string }) {
 
 const DOCS_PER_PAGE = 20
 
-function ClusterDocBrowser({ data, clusterId, page, onPageChange, onClose, language, clusterSummariesFromMeta, titleFieldName }: {
+function ClusterDocBrowser({ data, clusterId, clusterLevel = 'macro', page, onPageChange, onClose, language, clusterSummariesFromMeta, titleFieldName }: {
   data: VisualizationData | null
   clusterId: number
+  clusterLevel?: ClusterBrowseLevel
   page: number
   onPageChange: (p: number) => void
   onClose: () => void
@@ -2954,21 +3443,23 @@ function ClusterDocBrowser({ data, clusterId, page, onPageChange, onClose, langu
   const localDocs = useMemo(() => {
     if (!data) return []
     const result: Array<{ id: string; title: string; index: number }> = []
-    const labels = data.cluster.labels
+    const labels = clusterLevel === 'micro' ? data.hierarchical?.microLabels : data.cluster.labels
+    if (!labels) return []
     for (let i = 0; i < labels.length; i++) {
       if (labels[i] === clusterId) {
         result.push({ id: data.docs[i].id, title: data.docs[i].title, index: i })
       }
     }
     return result
-  }, [data, clusterId])
+  }, [data, clusterId, clusterLevel])
 
   // Collect ALL member doc IDs from meta-index summaries (comprehensive list)
   const allMemberDocIds = useMemo(() => {
+    if (clusterLevel === 'micro') return null
     const summary = clusterSummariesFromMeta?.[clusterId]
     if (!summary?.memberDocIds || summary.memberDocIds.length === 0) return null
     return summary.memberDocIds
-  }, [clusterSummariesFromMeta, clusterId])
+  }, [clusterSummariesFromMeta, clusterId, clusterLevel])
 
   // Determine the display list: prefer local scanned docs, fall back to memberDocIds
   const displayDocs = useMemo(() => {
@@ -2981,7 +3472,9 @@ function ClusterDocBrowser({ data, clusterId, page, onPageChange, onClose, langu
   const currentPage = Math.min(page, totalPages - 1)
   const pageStart = currentPage * DOCS_PER_PAGE
   const pageDocs = displayDocs.slice(pageStart, pageStart + DOCS_PER_PAGE)
-  const clusterLabel = clusterSummariesFromMeta?.[clusterId]?.label ?? `Cluster ${clusterId}`
+  const clusterLabel = clusterLevel === 'micro'
+    ? microClusterLabel(language, data, clusterId, clusterSummariesFromMeta)
+    : macroClusterLabel(clusterId, clusterSummariesFromMeta)
 
   const hasTitle = localDocs.length > 0
 
