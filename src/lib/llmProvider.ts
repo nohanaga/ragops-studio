@@ -260,6 +260,8 @@ export interface CallLlmChatParams {
   config: LlmProviderConfig
   systemPrompt: string
   userPrompt: string
+  /** Alternate user prompts to try when Azure/OpenAI content filtering rejects the prompt. */
+  contentFilterRetryUserPrompts?: string[]
   signal?: AbortSignal
   /** When false, omit `response_format: json_object`. Defaults to true. */
   jsonMode?: boolean
@@ -282,6 +284,18 @@ interface ChatCompletionResponse {
 const MAX_CONTENT_FILTER_RETRIES = 3
 const CONTENT_FILTER_RETRY_DELAY_MS = 1000
 
+export class LlmContentFilterError extends Error {
+  readonly status: number
+  readonly responseText: string
+
+  constructor(status: number, responseText: string) {
+    super(`LLM prompt was blocked by content filtering (${status}): ${responseText.slice(0, 300)}`)
+    this.name = 'LlmContentFilterError'
+    this.status = status
+    this.responseText = responseText
+  }
+}
+
 function isContentFilterError(status: number, body: string): boolean {
   return (
     status === 400 &&
@@ -291,15 +305,32 @@ function isContentFilterError(status: number, body: string): boolean {
   )
 }
 
+export function isLlmContentFilterFailure(error: unknown): boolean {
+  if (error instanceof LlmContentFilterError) return true
+  const message = error instanceof Error ? error.message : String(error)
+  return isContentFilterError(400, message) || message.includes('finish_reason: "content_filter"')
+}
+
 /**
  * Unified Chat Completions call supporting both providers.
  * Returns the raw assistant content string.
  *
- * Retries up to 3 times on content-filter 400 responses with increasing
- * temperature to nudge the model past the filter.
+ * When callers provide `contentFilterRetryUserPrompts`, retries content-filter
+ * failures with those alternate prompts. Prompt-filter 400 responses require a
+ * modified prompt; repeating the same prompt generally fails again.
  */
 export async function callLlmChat(params: CallLlmChatParams): Promise<string> {
-  const { config, systemPrompt, userPrompt, signal, jsonMode = true, jsonSchema, maxTokens, onUsage } = params
+  const {
+    config,
+    systemPrompt,
+    userPrompt,
+    contentFilterRetryUserPrompts = [],
+    signal,
+    jsonMode = true,
+    jsonSchema,
+    maxTokens,
+    onUsage,
+  } = params
 
   if (!config.endpoint.trim()) throw new Error('LLM endpoint is required')
   if (!config.model.trim()) throw new Error('LLM model/deployment is required')
@@ -309,16 +340,21 @@ export async function callLlmChat(params: CallLlmChatParams): Promise<string> {
 
   const url = buildChatCompletionsUrl(config)
   const authHeaders = buildProviderAuthHeaders(config.auth, config.provider)
+  const retryPrompts = contentFilterRetryUserPrompts
+    .map((prompt) => prompt.trim())
+    .filter((prompt) => prompt.length > 0 && prompt !== userPrompt.trim())
+    .slice(0, MAX_CONTENT_FILTER_RETRIES)
 
   let lastErrorText = ''
-  for (let attempt = 0; attempt <= MAX_CONTENT_FILTER_RETRIES; attempt++) {
-    const temperature = 0.3 + attempt * 0.15
+  for (let attempt = 0; attempt <= retryPrompts.length; attempt++) {
+    const temperature = 0.3 + attempt * 0.1
+    const currentUserPrompt = attempt === 0 ? userPrompt : retryPrompts[attempt - 1]
 
     const body = buildChatRequestBody(
       config,
       [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
+        { role: 'user', content: currentUserPrompt },
       ],
       { temperature, maxTokens, jsonMode, jsonSchema },
     )
@@ -351,10 +387,13 @@ export async function callLlmChat(params: CallLlmChatParams): Promise<string> {
       if (isLlmAuthStatus(res.status)) {
         throw new LlmAuthError(res.status, config.auth.mode, errorText.slice(0, 500))
       }
-      if (isContentFilterError(res.status, errorText) && attempt < MAX_CONTENT_FILTER_RETRIES) {
+      if (isContentFilterError(res.status, errorText)) {
         lastErrorText = errorText
-        await new Promise((r) => setTimeout(r, CONTENT_FILTER_RETRY_DELAY_MS * (attempt + 1)))
-        continue
+        if (attempt < retryPrompts.length) {
+          await new Promise((r) => setTimeout(r, CONTENT_FILTER_RETRY_DELAY_MS * (attempt + 1)))
+          continue
+        }
+        throw new LlmContentFilterError(res.status, errorText)
       }
       throw new Error(`LLM request failed (${res.status}): ${errorText.slice(0, 300)}`)
     }
@@ -367,6 +406,14 @@ export async function callLlmChat(params: CallLlmChatParams): Promise<string> {
     // max_tokens limit, the response is incomplete. This is a common issue
     // with local providers where the default completion limit is very low.
     const finishReason = choice?.finish_reason
+    if (finishReason === 'content_filter') {
+      lastErrorText = 'LLM completion was filtered (finish_reason: "content_filter").'
+      if (attempt < retryPrompts.length) {
+        await new Promise((r) => setTimeout(r, CONTENT_FILTER_RETRY_DELAY_MS * (attempt + 1)))
+        continue
+      }
+      throw new LlmContentFilterError(200, lastErrorText)
+    }
     if (finishReason === 'length' && jsonMode) {
       const provider = LOCAL_PROVIDERS.has(config.provider)
         ? (LLM_PROVIDER_LABELS[config.provider]?.en ?? config.provider)
@@ -399,9 +446,7 @@ export async function callLlmChat(params: CallLlmChatParams): Promise<string> {
     return content
   }
 
-  throw new Error(
-    `LLM content filter triggered after ${MAX_CONTENT_FILTER_RETRIES} retries: ${lastErrorText.slice(0, 300)}`,
-  )
+  throw new LlmContentFilterError(400, lastErrorText)
 }
 
 // ─── Embeddings Call ────────────────────────────────────────────────────────

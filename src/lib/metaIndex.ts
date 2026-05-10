@@ -136,6 +136,44 @@ function safeRepresentativeReference(doc?: { id: string; title: string }): strin
   return compactEvidenceTitle(doc.title) ?? doc.id
 }
 
+type EvidenceBlock = { role: string; docId: string; title: string; text: string }
+
+function buildV1ContentFilterRetryUserPrompts(input: {
+  language: Language
+  memberCount: number
+  docs: Array<{ id: string; title: string }>
+  representativeIndices: number[]
+}): string[] {
+  const titleRows = input.representativeIndices
+    .map((index) => {
+      const doc = input.docs[index]
+      if (!doc) return null
+      const title = compactEvidenceTitle(doc.title)
+      return title ? `- ${doc.id}: ${title}` : `- ${doc.id}`
+    })
+    .filter((row): row is string => Boolean(row))
+    .slice(0, 16)
+  const idRows = input.representativeIndices
+    .map((index) => input.docs[index]?.id)
+    .filter((id): id is string => Boolean(id))
+    .slice(0, 16)
+    .map((id) => `- ${id}`)
+
+  if (input.language === 'ja') {
+    const requirements = `制約:\n- label / summary / keywords はクラスタ全体を表すこと。\n- 生の文書本文は content filter 回避のため省略されている。推測しすぎず、与えられた短い title / 文書ID / 文書数だけに基づくこと。\n- 情報が不足している場合は、汎用的で短い label にする。\n\n以下のJSON形式で出力してください:\n{"label": "クラスタを表す短いラベル", "summary": "クラスタの概要", "keywords": ["キーワード1", "キーワード2"]}`
+    return [
+      `クラスタ全体の文書数: ${input.memberCount}\n代表文書数: ${titleRows.length}\n\nAzure OpenAI の content filter により、生の代表文書本文を省略した再試行です。短い title だけを根拠にクラスタ要約を作成してください。\n\n## 代表文書\n${titleRows.join('\n') || 'N/A'}\n\n${requirements}`,
+      `クラスタ全体の文書数: ${input.memberCount}\n代表文書数: ${idRows.length}\n\nAzure OpenAI の content filter により、代表文書の本文と title を省略した再試行です。文書数と代表文書IDだけを根拠に、控えめなクラスタ要約を作成してください。\n\n## 代表文書ID\n${idRows.join('\n') || 'N/A'}\n\n${requirements}`,
+    ]
+  }
+
+  const requirements = `Constraints:\n- label / summary / keywords must describe the whole cluster.\n- Raw document text is omitted for a content-filter retry. Do not over-infer beyond the short titles / document IDs / document count provided.\n- If evidence is insufficient, use a short generic label.\n\nRespond in this JSON format:\n{"label": "Short cluster label", "summary": "Cluster overview", "keywords": ["keyword1", "keyword2"]}`
+  return [
+    `Total documents in cluster: ${input.memberCount}\nRepresentative documents: ${titleRows.length}\n\nRetry after Azure OpenAI content filtering. Raw representative document text is omitted. Summarize the cluster using only these short titles.\n\n## Representative documents\n${titleRows.join('\n') || 'N/A'}\n\n${requirements}`,
+    `Total documents in cluster: ${input.memberCount}\nRepresentative documents: ${idRows.length}\n\nRetry after Azure OpenAI content filtering. Raw document text and titles are omitted. Create a conservative cluster summary using only document count and representative IDs.\n\n## Representative document IDs\n${idRows.join('\n') || 'N/A'}\n\n${requirements}`,
+  ]
+}
+
 export interface ClusterSummary {
   clusterId: string
   label: string
@@ -456,6 +494,12 @@ export async function summarizeClusters(input: {
         config: llmConfig,
         systemPrompt,
         userPrompt,
+        contentFilterRetryUserPrompts: buildV1ContentFilterRetryUserPrompts({
+          language,
+          memberCount: memberIndices.length,
+          docs,
+          representativeIndices: topIndices,
+        }),
         signal,
         jsonMode: true,
         jsonSchema: CLUSTER_LABEL_SCHEMA,
@@ -600,6 +644,13 @@ export async function summarizeClustersV2(input: {
         config: llmConfig,
         systemPrompt,
         userPrompt,
+        contentFilterRetryUserPrompts: buildV2ContentFilterRetryUserPrompts({
+          language,
+          evidenceBlocks,
+          siblingContexts,
+          evidenceStats,
+          topologyMetric,
+        }),
         signal,
         jsonMode: true,
         jsonSchema: CLUSTER_SIGNATURE_SCHEMA,
@@ -803,6 +854,15 @@ export async function summarizeClustersHierarchicalV2(input: {
         config: llmConfig,
         systemPrompt,
         userPrompt,
+        contentFilterRetryUserPrompts: buildHierarchicalAggregationContentFilterRetryUserPrompts({
+          macroId,
+          memberCount: memberIndices.length,
+          children,
+          siblingContexts,
+          topologyMetric,
+          language,
+          tokenBudget: boundedContentTokenBudget,
+        }),
         signal,
         jsonMode: true,
         jsonSchema: CLUSTER_SIGNATURE_SCHEMA,
@@ -1002,6 +1062,67 @@ function buildHierarchicalAggregationPrompt(input: {
     `## Aggregation requirements\n- Use the common higher-level concept across child micro signatures as primaryLabel.\n- Do not promote a proper name that appears in only one child to the whole macro primaryLabel.\n- Merge the main child facets into 2 to 5 macro facets with supportRatio.\n- Make inclusionCriteria / exclusionCriteria distinguish this macro from sibling macro clusters.\n- If ETA is overlapping/diffuse or needsSplit=true, consider splitCandidate=true and explain mixedness with facets.\n- evidenceDocIds must come only from child micro signature evidenceDocIds.`
 }
 
+function buildContentFilterSafeMicroChildren(input: {
+  children: MicroSignatureInput[]
+  language: Language
+  includeLabels: boolean
+}): MicroSignatureInput[] {
+  return input.children.map((child) => {
+    const genericSummary = input.language === 'ja'
+      ? `${child.documentCount} 件の文書を含む micro cluster です。`
+      : `Micro cluster containing ${child.documentCount} documents.`
+    const primaryLabel = input.includeLabels
+      ? compactClusterLabel(child.signature.primaryLabel, child.clusterId)
+      : child.clusterId
+    const shortSummary = input.includeLabels
+      ? compactClusterSummary(child.signature.shortSummary, genericSummary)
+      : genericSummary
+    const facets = input.includeLabels
+      ? child.signature.facets.slice(0, 5).map((facet) => ({
+          label: compactClusterLabel(facet.label, primaryLabel),
+          summary: compactInlineText(facet.summary || facet.label, MAX_FACET_SUMMARY_CHARS),
+          keywords: compactList(facet.keywords, 8, MAX_KEYWORD_CHARS),
+          supportRatio: facet.supportRatio,
+          representativeDocIds: facet.representativeDocIds,
+        }))
+      : []
+    return {
+      clusterId: child.clusterId,
+      documentCount: child.documentCount,
+      signature: {
+        primaryLabel,
+        shortSummary,
+        facets,
+        inclusionCriteria: input.includeLabels ? compactList(child.signature.inclusionCriteria, 6, MAX_CRITERION_CHARS) : [],
+        exclusionCriteria: input.includeLabels ? compactList(child.signature.exclusionCriteria, 6, MAX_CRITERION_CHARS) : [],
+        evidenceDocIds: child.signature.evidenceDocIds,
+        splitCandidate: child.signature.splitCandidate,
+      },
+    }
+  })
+}
+
+function buildHierarchicalAggregationContentFilterRetryUserPrompts(input: {
+  macroId: number
+  memberCount: number
+  children: MicroSignatureInput[]
+  siblingContexts: string[]
+  topologyMetric?: EmbeddingTopologyClusterMetric
+  language: Language
+  tokenBudget: number
+}): string[] {
+  return [
+    buildHierarchicalAggregationPrompt({
+      ...input,
+      children: buildContentFilterSafeMicroChildren({ children: input.children, language: input.language, includeLabels: true }),
+    }),
+    buildHierarchicalAggregationPrompt({
+      ...input,
+      children: buildContentFilterSafeMicroChildren({ children: input.children, language: input.language, includeLabels: false }),
+    }),
+  ]
+}
+
 function buildMacroRepresentativeText(children: MicroSignatureInput[]): string {
   return children.map((child) => {
     const facets = child.signature.facets.map((facet) => `${facet.label}: ${facet.summary}`).join('\n')
@@ -1034,8 +1155,8 @@ function buildEvidenceBlocks(input: {
   docs: Array<{ id: string; title: string; vector: Float32Array }>
   representativeTexts: Map<string, string>
   tokenBudget: number
-}): Array<{ role: string; docId: string; title: string; text: string }> {
-  const blocks: Array<{ role: string; docId: string; title: string; text: string }> = []
+}): EvidenceBlock[] {
+  const blocks: EvidenceBlock[] = []
   let usedTokens = 0
   for (const item of input.evidence) {
     const doc = input.docs[item.index]
@@ -1049,6 +1170,76 @@ function buildEvidenceBlocks(input: {
     usedTokens += tokens
   }
   return blocks
+}
+
+function buildContentFilterSafeEvidenceBlocks(input: {
+  evidenceBlocks: EvidenceBlock[]
+  language: Language
+  includeTitles: boolean
+}): EvidenceBlock[] {
+  const omittedText = input.language === 'ja'
+    ? '[本文は content filter 再試行のため省略]'
+    : '[Content omitted for content-filter retry]'
+  return input.evidenceBlocks.map((block) => {
+    const title = input.includeTitles ? (compactEvidenceTitle(block.title) ?? block.docId) : block.docId
+    return {
+      role: block.role,
+      docId: block.docId,
+      title,
+      text: omittedText,
+    }
+  })
+}
+
+function buildV2ContentFilterRetryUserPrompts(input: {
+  language: Language
+  evidenceBlocks: EvidenceBlock[]
+  siblingContexts: string[]
+  evidenceStats: { memberCount: number; evidenceCount: number; roleCounts: Record<string, number>; distinctTitleCount: number }
+  topologyMetric?: EmbeddingTopologyClusterMetric
+}): string[] {
+  const titleOnlyBlocks = buildContentFilterSafeEvidenceBlocks({
+    evidenceBlocks: input.evidenceBlocks,
+    language: input.language,
+    includeTitles: true,
+  })
+  const idOnlyBlocks = buildContentFilterSafeEvidenceBlocks({
+    evidenceBlocks: input.evidenceBlocks,
+    language: input.language,
+    includeTitles: false,
+  })
+  const titleOnlyStats = buildEvidenceStats({ memberCount: input.evidenceStats.memberCount, evidenceBlocks: titleOnlyBlocks })
+  const idOnlyStats = buildEvidenceStats({ memberCount: input.evidenceStats.memberCount, evidenceBlocks: idOnlyBlocks })
+
+  return input.language === 'ja'
+    ? [
+        buildJapaneseV2Prompt({
+          evidenceBlocks: titleOnlyBlocks,
+          siblingContexts: input.siblingContexts,
+          evidenceStats: titleOnlyStats,
+          topologyMetric: input.topologyMetric,
+        }),
+        buildJapaneseV2Prompt({
+          evidenceBlocks: idOnlyBlocks,
+          siblingContexts: input.siblingContexts,
+          evidenceStats: idOnlyStats,
+          topologyMetric: input.topologyMetric,
+        }),
+      ]
+    : [
+        buildEnglishV2Prompt({
+          evidenceBlocks: titleOnlyBlocks,
+          siblingContexts: input.siblingContexts,
+          evidenceStats: titleOnlyStats,
+          topologyMetric: input.topologyMetric,
+        }),
+        buildEnglishV2Prompt({
+          evidenceBlocks: idOnlyBlocks,
+          siblingContexts: input.siblingContexts,
+          evidenceStats: idOnlyStats,
+          topologyMetric: input.topologyMetric,
+        }),
+      ]
 }
 
 function buildSiblingContexts(input: {
@@ -1086,7 +1277,7 @@ function cosineForPrompt(leftVector: ArrayLike<number>, rightVector: ArrayLike<n
 
 function buildEvidenceStats(input: {
   memberCount: number
-  evidenceBlocks: Array<{ role: string; docId: string; title: string; text: string }>
+  evidenceBlocks: EvidenceBlock[]
 }): { memberCount: number; evidenceCount: number; roleCounts: Record<string, number>; distinctTitleCount: number } {
   const roleCounts: Record<string, number> = {}
   const titles = new Set<string>()
@@ -1104,7 +1295,7 @@ function buildEvidenceStats(input: {
 }
 
 function buildJapaneseV2Prompt(input: {
-  evidenceBlocks: Array<{ role: string; docId: string; title: string; text: string }>
+  evidenceBlocks: EvidenceBlock[]
   siblingContexts: string[]
   evidenceStats: { memberCount: number; evidenceCount: number; roleCounts: Record<string, number>; distinctTitleCount: number }
   topologyMetric?: EmbeddingTopologyClusterMetric
@@ -1118,7 +1309,7 @@ function buildJapaneseV2Prompt(input: {
 }
 
 function buildEnglishV2Prompt(input: {
-  evidenceBlocks: Array<{ role: string; docId: string; title: string; text: string }>
+  evidenceBlocks: EvidenceBlock[]
   siblingContexts: string[]
   evidenceStats: { memberCount: number; evidenceCount: number; roleCounts: Record<string, number>; distinctTitleCount: number }
   topologyMetric?: EmbeddingTopologyClusterMetric
@@ -1162,7 +1353,7 @@ function formatTopologyMetricForPrompt(metric: EmbeddingTopologyClusterMetric | 
 function fallbackSignature(input: {
   clusterId: number
   memberCount: number
-  evidenceBlocks: Array<{ role: string; docId: string; title: string; text: string }>
+  evidenceBlocks: EvidenceBlock[]
   evidenceDocIds: string[]
   language: Language
 }): ClusterSemanticSignature {
