@@ -335,7 +335,8 @@ function parseVectorDoc(
   const id = String(doc[keyField] ?? '')
   if (!id) return null
 
-  const title = titleField ? String(doc[titleField] ?? id) : id
+  const titleRaw = titleField ? getValueByPath(doc, titleField) : null
+  const title = titleRaw === null || titleRaw === undefined ? id : String(titleRaw)
 
   // Extract vector - handle nested field paths (e.g. "field/subfield")
   let vectorRaw: JsonValue = null
@@ -359,6 +360,19 @@ function parseVectorDoc(
   }
 
   return { id, title, vector: vec }
+}
+
+function getValueByPath(doc: Record<string, JsonValue>, fieldPath: string): JsonValue {
+  const parts = fieldPath.split('/')
+  let current: JsonValue = doc
+  for (const part of parts) {
+    if (current && typeof current === 'object' && !Array.isArray(current)) {
+      current = (current as Record<string, JsonValue>)[part]
+    } else {
+      return null
+    }
+  }
+  return current
 }
 
 /** Fisher-Yates shuffle (returns a new array). */

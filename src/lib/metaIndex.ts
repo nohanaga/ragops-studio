@@ -289,6 +289,16 @@ export interface MetaTraceOutput {
   }
 }
 
+export interface MetaTraceIndexFields {
+  sourceIndexName: string
+  keyField: string
+  vectorField: string
+  titleField?: string
+  titleFieldSource?: 'user' | 'auto' | 'key'
+  contentFields: string[]
+  contentFieldSource: 'user' | 'auto' | 'none'
+}
+
 /** Per-cluster LLM trace for debugging meta-index generation. */
 export interface MetaClusterTrace {
   clusterId: number
@@ -306,6 +316,7 @@ export interface MetaClusterTrace {
   representativeDocIds: string[]
   memberCount?: number
   evidenceStats?: { evidenceCount: number; roleCounts: Record<string, number>; distinctTitleCount: number }
+  indexFields?: MetaTraceIndexFields
   pipelineSteps?: MetaTraceStep[]
   output?: MetaTraceOutput
 }
@@ -363,6 +374,7 @@ export async function summarizeClusters(input: {
   representativeTexts: Map<string, string>
   llmConfig: LlmProviderConfig
   language: Language
+  traceIndexFields?: MetaTraceIndexFields
   /** Max representative docs per cluster (upper bound). Budget may reduce this. */
   maxRepresentativeCount?: number
   /** Max input tokens for the model. Used to calculate per-doc char budget. */
@@ -376,6 +388,7 @@ export async function summarizeClusters(input: {
     representativeTexts,
     llmConfig,
     language,
+    traceIndexFields,
     maxRepresentativeCount = 500,
     maxInputTokens = 128_000,
     signal,
@@ -551,6 +564,7 @@ export async function summarizeClusters(input: {
       totalTokens: traceTotalTokens,
       durationMs: Math.round(traceDuration),
       representativeDocIds: repDocIds,
+      indexFields: traceIndexFields,
     })
 
     onProgress?.({ current: c + 1, total: k, currentLabel: label })
@@ -580,6 +594,7 @@ export async function summarizeClustersV2(input: {
   llmConfig: LlmProviderConfig
   language: Language
   traceLevel?: 'flat' | 'micro'
+  traceIndexFields?: MetaTraceIndexFields
   maxInputTokens?: number
   maxEvidenceDocs?: number
   signal?: AbortSignal
@@ -592,6 +607,7 @@ export async function summarizeClustersV2(input: {
     llmConfig,
     language,
     traceLevel = 'flat',
+    traceIndexFields,
     maxInputTokens = 128_000,
     maxEvidenceDocs = 24,
     signal,
@@ -702,6 +718,7 @@ export async function summarizeClustersV2(input: {
       representativeDocIds: evidenceDocIds,
       memberCount: memberIndices.length,
       evidenceStats,
+      indexFields: traceIndexFields,
       pipelineSteps: buildV2TraceSteps({
         clusterId,
         traceLevel,
@@ -757,6 +774,7 @@ export async function summarizeClustersHierarchicalV2(input: {
   representativeTexts: Map<string, string>
   llmConfig: LlmProviderConfig
   language: Language
+  traceIndexFields?: MetaTraceIndexFields
   maxInputTokens?: number
   maxEvidenceDocs?: number
   signal?: AbortSignal
@@ -769,6 +787,7 @@ export async function summarizeClustersHierarchicalV2(input: {
     representativeTexts,
     llmConfig,
     language,
+    traceIndexFields,
     maxInputTokens = 128_000,
     maxEvidenceDocs = 24,
     signal,
@@ -784,6 +803,7 @@ export async function summarizeClustersHierarchicalV2(input: {
     llmConfig,
     language,
     traceLevel: 'micro',
+    traceIndexFields,
     maxInputTokens,
     maxEvidenceDocs,
     signal,
@@ -924,6 +944,7 @@ export async function summarizeClustersHierarchicalV2(input: {
       durationMs: traceDurationMs,
       representativeDocIds: signature.evidenceDocIds,
       memberCount: memberIndices.length,
+      indexFields: traceIndexFields,
       pipelineSteps: buildHsaTraceSteps({
         macroId,
         memberCount: memberIndices.length,

@@ -116,6 +116,15 @@ describe('summarizeClustersV2 fallback safety', () => {
       ]),
       llmConfig: azureLlmConfig,
       language: 'en',
+      traceIndexFields: {
+        sourceIndexName: 'source-index',
+        keyField: 'id',
+        vectorField: 'embedding',
+        titleField: 'title',
+        titleFieldSource: 'user',
+        contentFields: ['content'],
+        contentFieldSource: 'user',
+      },
       maxInputTokens: 8_192,
     })
 
@@ -127,5 +136,14 @@ describe('summarizeClustersV2 fallback safety', () => {
     expect(secondRequest.messages[1].content).toContain('[Content omitted for content-filter retry]')
     expect(result.llmFailureCount).toBe(0)
     expect(result.summaries[0].label).toBe('Recovered label')
+    expect(result.traces[0].indexFields).toEqual({
+      sourceIndexName: 'source-index',
+      keyField: 'id',
+      vectorField: 'embedding',
+      titleField: 'title',
+      titleFieldSource: 'user',
+      contentFields: ['content'],
+      contentFieldSource: 'user',
+    })
   })
 })

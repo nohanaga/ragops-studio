@@ -470,6 +470,19 @@ export function IndexVisualizer({
             </select>
           </label>
 
+          {/* Display title field */}
+          <label className="field">
+            <span className="field__label">{t(language, 'ivDisplayTitleFieldLabel')}</span>
+            <input
+              className="field__input"
+              value={vis.displayTitleField}
+              onChange={(e) => vis.setDisplayTitleField(e.target.value)}
+              placeholder={t(language, 'ivDisplayTitleFieldPlaceholder')}
+              disabled={isRunning}
+            />
+            <span className="field__hint">{t(language, 'ivDisplayTitleFieldHint')}</span>
+          </label>
+
           {/* K value */}
           <label className="field">
             <span className="field__label">{t(language, 'ivClusterCount')}</span>
@@ -971,6 +984,8 @@ export function IndexVisualizer({
                 vis.data.hierarchical,
                 fields.length > 0 ? fields : undefined,
                 summaryMode,
+                vis.titleFieldName,
+                vis.titleFieldSource,
               )
             }}
             disabled={!canGenerateMeta}
@@ -1922,6 +1937,8 @@ function MetaTraceModal({ trace, language, onClose }: {
             </div>
           </div>
 
+          <MetaTraceIndexFieldsPanel trace={trace} language={language} />
+
           {/* Error indicator */}
           {trace.error && (
             <div className="notice notice--error" style={{ marginBottom: '12px' }}>
@@ -2025,6 +2042,53 @@ function MetaTraceModal({ trace, language, onClose }: {
             {trace.response ?? (language === 'ja' ? '(レスポンスなし)' : '(No response)')}
           </TraceSection>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function MetaTraceIndexFieldsPanel({ trace, language }: { trace: MetaClusterTrace; language: Language }) {
+  const fields = trace.indexFields
+  if (!fields) return null
+  const contentFields = fields.contentFields.length > 0
+    ? fields.contentFields.join(', ')
+    : (language === 'ja' ? '未使用（表示タイトル field を fallback 使用）' : 'None (display title field fallback)')
+  const contentSource = fields.contentFieldSource === 'user'
+    ? (language === 'ja' ? 'ユーザー指定' : 'User-specified')
+    : fields.contentFieldSource === 'auto'
+      ? (language === 'ja' ? '自動選択' : 'Auto')
+      : (language === 'ja' ? '未選択' : 'None')
+  const titleSource = fields.titleFieldSource === 'user'
+    ? (language === 'ja' ? 'ユーザー指定' : 'User-specified')
+    : fields.titleFieldSource === 'key'
+      ? (language === 'ja' ? 'キー fallback' : 'Key fallback')
+      : (language === 'ja' ? '自動検出' : 'Auto')
+  const rows = [
+    { label: language === 'ja' ? 'ソース index' : 'Source index', value: fields.sourceIndexName },
+    { label: language === 'ja' ? 'キー field' : 'Key field', value: fields.keyField },
+    { label: language === 'ja' ? 'ベクトル field' : 'Vector field', value: fields.vectorField },
+    { label: language === 'ja' ? `表示タイトル field（${titleSource}）` : `Display title field (${titleSource})`, value: fields.titleField || 'N/A' },
+    { label: language === 'ja' ? `要約本文 field（${contentSource}）` : `Summary content fields (${contentSource})`, value: contentFields },
+  ]
+  const note = language === 'ja'
+    ? '表示タイトル field はユーザー指定できます。空欄の場合は semantic titleField、title/name 系の一般的な field 名、searchable string field、key field の順で自動検出します。文書一覧の表示名と、本文 field がない場合の fallback に使われます。'
+    : 'The display title field can be user-specified. When left empty, it is auto-detected in this order: semantic titleField, common title/name-like field names, searchable string fields, then the key field. It is used for document labels and as a fallback when no content field is available.'
+
+  return (
+    <div className="edgTraceModal__summary" style={{ marginBottom: '14px' }}>
+      <div className="edgTraceModal__queryLabel">
+        {language === 'ja' ? '使用した index field' : 'Index fields used'}
+      </div>
+      <div style={{ color: 'var(--muted)', fontSize: '12px', lineHeight: 1.5, marginTop: '4px' }}>
+        {note}
+      </div>
+      <div style={{ display: 'grid', gap: '6px', marginTop: '8px' }}>
+        {rows.map((row) => (
+          <div key={row.label} style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: '8px', fontSize: '12px' }}>
+            <span style={{ color: 'var(--muted)' }}>{row.label}</span>
+            <span className="mono mono--ellipsesSm" title={row.value}>{row.value}</span>
+          </div>
+        ))}
       </div>
     </div>
   )

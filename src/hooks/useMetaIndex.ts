@@ -31,6 +31,7 @@ import {
   type SummarizeProgress,
   type MetaIndexConfig,
   type MetaClusterTrace,
+  type MetaTraceIndexFields,
 } from '../lib/metaIndex'
 import { getIndexDefinition, type JsonValue } from '../lib/aiSearchRest'
 import { LOCAL_PROVIDERS, resolveMaxInputTokens } from '../lib/llmProvider'
@@ -182,6 +183,8 @@ export function useMetaIndex(input: {
     hierarchical?: HierarchicalClusterResult,
     contentFields?: string[],
     summaryMode: ClusterSummaryMode = 'v1',
+    titleField?: string,
+    titleFieldSource?: MetaTraceIndexFields['titleFieldSource'],
   ) => {
     if (!profile) return
 
@@ -224,6 +227,17 @@ export function useMetaIndex(input: {
             )
             return textField ? [String(textField.name)] : []
           })()
+      const traceIndexFields: MetaTraceIndexFields = {
+        sourceIndexName,
+        keyField: keyFieldName,
+        vectorField,
+        titleField: titleField || undefined,
+        titleFieldSource,
+        contentFields: resolvedTextFields,
+        contentFieldSource: contentFields && contentFields.length > 0
+          ? 'user'
+          : resolvedTextFields.length > 0 ? 'auto' : 'none',
+      }
 
       // 2. Fetch representative texts. v1 fetches centroid-top plus role-aware
       // spread samples; v2 fetches bounded role-aware evidence.
@@ -273,6 +287,7 @@ export function useMetaIndex(input: {
             representativeTexts,
             llmConfig: llm,
             language,
+            traceIndexFields,
             maxInputTokens: effectiveMaxTokens,
             signal: ctrl.signal,
             onProgress: setSummarizeProgress,
@@ -284,6 +299,7 @@ export function useMetaIndex(input: {
             representativeTexts,
             llmConfig: llm,
             language,
+            traceIndexFields,
             maxInputTokens: effectiveMaxTokens,
             signal: ctrl.signal,
             onProgress: setSummarizeProgress,
@@ -294,6 +310,7 @@ export function useMetaIndex(input: {
             representativeTexts,
             llmConfig: llm,
             language,
+            traceIndexFields,
             maxInputTokens: effectiveMaxTokens,
             signal: ctrl.signal,
             onProgress: setSummarizeProgress,
