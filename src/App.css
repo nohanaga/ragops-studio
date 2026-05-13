@@ -4511,6 +4511,8 @@ html[data-theme='light'] .rawJsonViewer {
 
 .resultCard__caption {
   margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
   color: var(--muted);
   word-break: break-word;
   overflow-wrap: break-word;

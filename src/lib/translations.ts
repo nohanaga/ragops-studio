@@ -83,8 +83,17 @@ export const translations = {
     ivSearchTopClusters: 'Top クラスタ数',
     ivSearchTopDocs: 'Top ドキュメント数',
     ivSearchButton: '検索',
-    ivSearchGlobalTitle: 'Global 検索結果 (クラスタ)',
+    ivSearchGlobalTitle: 'Global が拾った候補ノード',
+    ivSearchGlobalHint: '検索クエリが Meta-Index 上で一致した macro / micro / facet / question ノードです。これらのノードから候補文書を作り、Local 検索に渡します。',
     ivSearchLocalTitle: 'Local 検索結果 (ドキュメント)',
+    ivSearchResultTabsTitle: '2段階検索 Results',
+    ivSearchTabLocal: 'Local Results',
+    ivSearchTabGlobal: 'Global Nodes',
+    ivSearchTabTrace: 'Trace',
+    ivSearchTabStats: 'Stats',
+    ivSearchLocalHint: 'Global が作った候補文書集合に対して Source Index で再検索した最終結果です。既存 Results タブと同じカード形式で確認できます。',
+    ivSearchStatsHint: 'Global → Local の候補削減、処理時間、検索モードをまとめた実行サマリです。',
+    ivSearchNoTrace: 'Trace はありません。旧 schema への fallback または trace 未生成の検索結果です。',
     ivSearchStatsTitle: '検索統計',
     ivSearchSpaceReduction: '検索空間削減',
     ivSearchGlobalTime: 'Global 検索時間',
@@ -164,6 +173,27 @@ export const translations = {
     ivGraphCharge: '反発力',
     ivGraphRebuild: 'グラフ再構築',
     ivGraphRebuildHint: 'メタインデックスのセントロイドベクトルからクラスタ関係グラフを再構築します',
+    ivRaptorTreeTitle: 'RAPTOR Retrieval Tree',
+    ivRaptorTreeDescription: 'Meta-Index に保存された検索用 tree node を macro 単位で表示します。Cluster Relationship Graph はクラスタ間の関係、このビューは検索時に使われる micro / facet / question node の構造を確認するためのものです。',
+    ivRaptorTreeMacroList: 'Macro cluster',
+    ivSciInfoGraphTitle: '技術的背景: Cosine Similarity グラフ + Force-directed Layout',
+    ivSciInfoGraphBody:
+      'クラスタ間のセントロイドベクトルの cosine similarity を計算し、閾値以上のペアをエッジとして接続する k-NN 近傍グラフです。\n' +
+      '描画には d3-force の force-directed layout を使用し、charge（クーロン反発）と link distance でノード配置を最適化します。\n' +
+      'エッジの confidence (high / medium / low) はコサイン類似度の絶対値と分散から推定し、bridge ノードは複数クラスタ間をまたぐ結合点を検出します。',
+    ivSciInfoGraphRefs: '参考: Cosine Similarity (Salton & McGill, 1983) / Force-directed Graph Drawing (Fruchterman & Reingold, 1991) / d3-force',
+    ivSciInfoRaptorTitle: '技術的背景: RAPTOR-lite Retrieval Tree',
+    ivSciInfoRaptorBody:
+      'RAPTOR (Recursive Abstractive Processing for Tree-Organized Retrieval) は、文書チャンクを再帰的にクラスタ化・要約し、複数の抽象度から検索する手法です。\n' +
+      '本実装では RAPTOR-lite として、EFLC v2 の hierarchical K-Means で得た macro / micro クラスタから deterministic に retrieval node (question / facet) を生成し、Meta-Index に永続化します。\n' +
+      'Global 検索では tree node 全体を semantic search し、hit node の種類 (macro / micro / question / facet) に応じて ascend / descend / expand の探索戦略を選択し、Local 検索の候補集合を構成します。',
+    ivSciInfoRaptorRefs: '参考: RAPTOR (Sarthi et al., 2024, ICLR) / Hierarchical K-Means / Azure AI Search Semantic Ranker',
+    ivSciInfoClusterLlmTitle: '技術的背景: EFLC クラスタ要約パイプライン',
+    ivSciInfoClusterLlmBody:
+      'EFLC (Embedding-First Lexical Clustering) は、ベクトル空間上の K-Means / 階層 K-Means でドキュメントをクラスタ化し、LLM で各クラスタの意味署名を生成するパイプラインです。\n' +
+      'v2 では Role-aware evidence sampling、複数ファセット抽出、兄弟クラスタとの inclusion / exclusion criteria 差分、ETA (Embedding Topology Analysis) による分散・密度診断を組み合わせ、クラスタの「何が含まれるか」と「何が含まれないか」を構造的に記述します。\n' +
+      '生成された要約は Meta-Index に保存され、2段階検索 (Global → Local) のルーティングに使用されます。',
+    ivSciInfoClusterLlmRefs: '参考: K-Means (Lloyd, 1982) / Hierarchical K-Means / Semantic Kernel Role-based Prompt / Azure AI Search Meta-Index',
     ivGraphPinAll: '全ピン',
     ivGraphUnpinAll: '全解除',
     ivGraphExportPng: 'PNG出力',
@@ -1818,8 +1848,17 @@ export const translations = {
     ivSearchTopClusters: 'Top clusters',
     ivSearchTopDocs: 'Top documents',
     ivSearchButton: 'Search',
-    ivSearchGlobalTitle: 'Global Results (Clusters)',
+    ivSearchGlobalTitle: 'Candidate Nodes Picked by Global',
+    ivSearchGlobalHint: 'These are macro / micro / facet / question nodes matched by the query in the Meta-Index. They are converted into candidate documents for Local search.',
     ivSearchLocalTitle: 'Local Results (Documents)',
+    ivSearchResultTabsTitle: '2-Stage Search Results',
+    ivSearchTabLocal: 'Local Results',
+    ivSearchTabGlobal: 'Global Nodes',
+    ivSearchTabTrace: 'Trace',
+    ivSearchTabStats: 'Stats',
+    ivSearchLocalHint: 'Final Source Index results searched within the candidate document set produced by Global. Shown with the same card pattern as the existing Results tab.',
+    ivSearchStatsHint: 'Execution summary for Global → Local candidate reduction, latency, and search mode.',
+    ivSearchNoTrace: 'No trace is available. This result may have fallen back to the legacy schema or was produced before trace generation.',
     ivSearchStatsTitle: 'Search Stats',
     ivSearchSpaceReduction: 'Search space reduction',
     ivSearchGlobalTime: 'Global search time',
@@ -1899,6 +1938,27 @@ export const translations = {
     ivGraphCharge: 'Charge',
     ivGraphRebuild: 'Rebuild Graph',
     ivGraphRebuildHint: 'Rebuild cluster relationship graph from meta-index centroid vectors',
+    ivRaptorTreeTitle: 'RAPTOR Retrieval Tree',
+    ivRaptorTreeDescription: 'Shows retrieval tree nodes stored in the Meta-Index by macro cluster. The Cluster Relationship Graph explains cluster-to-cluster relationships; this view explains the micro / facet / question nodes used at search time.',
+    ivRaptorTreeMacroList: 'Macro cluster',
+    ivSciInfoGraphTitle: 'Technical background: Cosine Similarity Graph + Force-directed Layout',
+    ivSciInfoGraphBody:
+      'Computes cosine similarity between cluster centroid vectors and connects pairs above a threshold as edges in a k-NN proximity graph.\n' +
+      'Rendered with d3-force\'s force-directed layout, optimizing node placement via charge (Coulomb repulsion) and link distance.\n' +
+      'Edge confidence (high / medium / low) is estimated from absolute cosine similarity and variance; bridge nodes detect junction points spanning multiple clusters.',
+    ivSciInfoGraphRefs: 'See: Cosine Similarity (Salton & McGill, 1983) / Force-directed Graph Drawing (Fruchterman & Reingold, 1991) / d3-force',
+    ivSciInfoRaptorTitle: 'Technical background: RAPTOR-lite Retrieval Tree',
+    ivSciInfoRaptorBody:
+      'RAPTOR (Recursive Abstractive Processing for Tree-Organized Retrieval) recursively clusters and summarizes document chunks, enabling retrieval at multiple abstraction levels.\n' +
+      'This implementation uses RAPTOR-lite: deterministically generating retrieval nodes (question / facet) from EFLC v2 hierarchical K-Means macro / micro clusters and persisting them in the Meta-Index.\n' +
+      'Global search queries all tree nodes via semantic search; the hit node type (macro / micro / question / facet) determines the exploration strategy — ascend / descend / expand — to build the candidate set for Local search.',
+    ivSciInfoRaptorRefs: 'See: RAPTOR (Sarthi et al., 2024, ICLR) / Hierarchical K-Means / Azure AI Search Semantic Ranker',
+    ivSciInfoClusterLlmTitle: 'Technical background: EFLC Cluster Summarization Pipeline',
+    ivSciInfoClusterLlmBody:
+      'EFLC (Embedding-First Lexical Clustering) clusters documents via K-Means / hierarchical K-Means in vector space and generates semantic signatures per cluster using LLM.\n' +
+      'v2 adds role-aware evidence sampling, multi-facet extraction, inclusion / exclusion criteria contrast with sibling clusters, and ETA (Embedding Topology Analysis) for dispersion/density diagnostics — structurally describing what each cluster contains and what it does not.\n' +
+      'Generated summaries are stored in the Meta-Index and used for two-stage search (Global → Local) routing.',
+    ivSciInfoClusterLlmRefs: 'See: K-Means (Lloyd, 1982) / Hierarchical K-Means / Semantic Kernel Role-based Prompt / Azure AI Search Meta-Index',
     ivGraphPinAll: 'Pin All',
     ivGraphUnpinAll: 'Unpin All',
     ivGraphExportPng: 'Export PNG',

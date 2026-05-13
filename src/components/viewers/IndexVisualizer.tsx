@@ -12,7 +12,7 @@ import { useIndexVisualization, type ScannedDoc, type VisualizationData } from '
 import type { ReductionMethod } from '../../lib/dimensionReduction'
 import { useMetaIndex } from '../../hooks/useMetaIndex'
 import { type JsonValue } from '../../lib/aiSearchRest'
-import type { ClusterSummary, ClusterSummaryMode, MetaClusterTrace, MetaTraceAction, MetaTracePhase, MetaTraceStep } from '../../lib/metaIndex'
+import type { ClusterSummary, ClusterSummaryMode, MetaClusterTrace, MetaTraceAction, MetaTracePhase, MetaTraceStep, RaptorRetrievalNode } from '../../lib/metaIndex'
 import type { EmbeddingTopologyClusterMetric } from '../../lib/embeddingTopology'
 import type { HierarchicalSignaturePayload } from '../../lib/clusterSignatureAggregation'
 import type { ClusterEdge, ClusterGraphData, EdgeConfidence, EdgeReason } from '../../lib/clusterGraph'
@@ -784,6 +784,14 @@ export function IndexVisualizer({
         />
       )}
 
+      {meta.raptorNodes.length > 0 && (
+        <RaptorRetrievalTreeView
+          nodes={meta.raptorNodes}
+          clusterSummaries={meta.clusterSummaries}
+          language={language}
+        />
+      )}
+
       {/* ================================================================ */}
       {/* Save / Load Visualization */}
       {/* ================================================================ */}
@@ -1154,6 +1162,14 @@ export function IndexVisualizer({
               <span style={{ marginLeft: '12px', fontSize: '11px', opacity: 0.5, fontWeight: 400 }}>
                 {t(language, 'ivHighlightHint')}
               </span>
+            </div>
+            <div className="edgScienceInfo">
+              <div className="edgScienceInfo__header">
+                <i className="bi bi-mortarboard-fill"></i>
+                <span>{t(language, 'ivSciInfoClusterLlmTitle')}</span>
+              </div>
+              <div className="edgScienceInfo__body">{t(language, 'ivSciInfoClusterLlmBody')}</div>
+              <div className="edgScienceInfo__refs">{t(language, 'ivSciInfoClusterLlmRefs')}</div>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {meta.clusterSummaries.map((cs, idx) => (
@@ -2331,6 +2347,395 @@ function edgeColorForConfidence(confidence?: EdgeConfidence, isLightBg = false, 
   return isLightBg ? `rgba(90,90,90,${alpha})` : `rgba(190,190,190,${alpha})`
 }
 
+const RAPTOR_TREE_SPLIT_STORAGE_KEY = 'ragops:indexVisualizer:raptorTreeSplitPercent'
+const RAPTOR_TREE_SPLIT_DEFAULT_PERCENT = 30
+const RAPTOR_TREE_SPLIT_MIN_PERCENT = 22
+const RAPTOR_TREE_SPLIT_MAX_PERCENT = 45
+
+function clampRaptorTreeSplitPercent(value: number): number {
+  if (!Number.isFinite(value)) return RAPTOR_TREE_SPLIT_DEFAULT_PERCENT
+  return Math.max(RAPTOR_TREE_SPLIT_MIN_PERCENT, Math.min(RAPTOR_TREE_SPLIT_MAX_PERCENT, Math.round(value)))
+}
+
+function readRaptorTreeSplitPercent(): number {
+  try {
+    if (typeof window === 'undefined') return RAPTOR_TREE_SPLIT_DEFAULT_PERCENT
+    const raw = window.localStorage.getItem(RAPTOR_TREE_SPLIT_STORAGE_KEY)
+    return raw === null ? RAPTOR_TREE_SPLIT_DEFAULT_PERCENT : clampRaptorTreeSplitPercent(Number(raw))
+  } catch {
+    return RAPTOR_TREE_SPLIT_DEFAULT_PERCENT
+  }
+}
+
+function writeRaptorTreeSplitPercent(value: number): void {
+  try {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(RAPTOR_TREE_SPLIT_STORAGE_KEY, String(clampRaptorTreeSplitPercent(value)))
+  } catch {
+    // Ignore storage failures such as private-mode quota restrictions.
+  }
+}
+
+function RaptorRetrievalTreeView({ nodes, clusterSummaries, language }: {
+  nodes: RaptorRetrievalNode[]
+  clusterSummaries?: ClusterSummary[] | null
+  language: Language
+}) {
+  const macroSummaries = useMemo(() => clusterSummaries ?? [], [clusterSummaries])
+  const [selectedMacroId, setSelectedMacroId] = useState<string>(() => macroSummaries[0]?.clusterId ?? nodes[0]?.clusterId ?? '')
+  const [macroPaneWidthPercent, setMacroPaneWidthPercent] = useState(readRaptorTreeSplitPercent)
+  const splitContainerRef = useRef<HTMLDivElement>(null)
+  const startSplitterDrag = useCallback((clientX: number) => {
+    const container = splitContainerRef.current
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    const updateWidth = (x: number) => {
+      const next = ((x - rect.left) / rect.width) * 100
+      setMacroPaneWidthPercent(clampRaptorTreeSplitPercent(next))
+    }
+    updateWidth(clientX)
+
+    const handlePointerMove = (event: PointerEvent) => {
+      event.preventDefault()
+      updateWidth(event.clientX)
+    }
+    const handlePointerUp = () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove, { passive: false })
+    window.addEventListener('pointerup', handlePointerUp)
+  }, [])
+  useEffect(() => {
+    writeRaptorTreeSplitPercent(macroPaneWidthPercent)
+  }, [macroPaneWidthPercent])
+  const nodesByParent = useMemo(() => {
+    const map = new Map<string, RaptorRetrievalNode[]>()
+    for (const node of nodes) {
+      const parentId = node.parentId || node.sourceClusterId || node.clusterId
+      const children = map.get(parentId) ?? []
+      children.push(node)
+      map.set(parentId, children)
+    }
+    for (const children of map.values()) {
+      children.sort((left, right) => left.level - right.level || nodeKindOrder(left.nodeKind) - nodeKindOrder(right.nodeKind) || right.memberDocIds.length - left.memberDocIds.length)
+    }
+    return map
+  }, [nodes])
+  const macroOptions = useMemo(() => {
+    const fromSummaries = macroSummaries.map((summary) => ({
+      id: summary.clusterId,
+      label: summary.label,
+      docs: summary.documentCount,
+      childCount: nodesByParent.get(summary.clusterId)?.length ?? 0,
+    }))
+    const known = new Set(fromSummaries.map((item) => item.id))
+    const fromNodes = uniqueTextValues(nodes.map((node) => node.clusterId).filter((id) => !known.has(id))).map((clusterId) => ({
+      id: clusterId,
+      label: clusterId,
+      docs: nodes.filter((node) => node.clusterId === clusterId).reduce((total, node) => total + node.memberDocIds.length, 0),
+      childCount: nodesByParent.get(clusterId)?.length ?? 0,
+    }))
+    return [...fromSummaries, ...fromNodes]
+  }, [macroSummaries, nodes, nodesByParent])
+  const selectedMacro = macroOptions.find((item) => item.id === selectedMacroId) ?? macroOptions[0]
+  const selectedMacroSummary = macroSummaries.find((summary) => summary.clusterId === selectedMacro?.id)
+  const directChildren = selectedMacro ? nodesByParent.get(selectedMacro.id) ?? [] : []
+  const microNodes = directChildren.filter((node) => node.nodeKind === 'micro')
+  const macroSurfaceNodes = directChildren.filter((node) => node.nodeKind !== 'micro')
+  const allSelectedNodes = selectedMacro
+    ? nodes.filter((node) => node.clusterId === selectedMacro.id || node.sourceClusterId === selectedMacro.id)
+    : []
+  const totals = useMemo(() => ({
+    micro: nodes.filter((node) => node.nodeKind === 'micro').length,
+    question: nodes.filter((node) => node.nodeKind === 'retrieval-question').length,
+    facet: nodes.filter((node) => node.nodeKind === 'facet').length,
+    docs: uniqueTextValues(nodes.flatMap((node) => [...node.memberDocIds, ...node.referenceDocIds])).length,
+  }), [nodes])
+
+  if (!selectedMacro) return null
+
+  return (
+    <div className="section" style={{ marginTop: '18px' }}>
+      <div className="section__title">
+        <i className="bi bi-diagram-3 icon--mr6" />
+        {t(language, 'ivRaptorTreeTitle')}
+      </div>
+      <div className="app__hint">
+        {t(language, 'ivRaptorTreeDescription')}
+      </div>
+      <div className="edgScienceInfo">
+        <div className="edgScienceInfo__header">
+          <i className="bi bi-mortarboard-fill"></i>
+          <span>{t(language, 'ivSciInfoRaptorTitle')}</span>
+        </div>
+        <div className="edgScienceInfo__body">{t(language, 'ivSciInfoRaptorBody')}</div>
+        <div className="edgScienceInfo__refs">{t(language, 'ivSciInfoRaptorRefs')}</div>
+      </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+        gap: '8px',
+        marginTop: '10px',
+      }}>
+        <StatCard label="macro" value={`${macroOptions.length}`} />
+        <StatCard label="micro" value={`${totals.micro}`} />
+        <StatCard label="question" value={`${totals.question}`} />
+        <StatCard label="facet" value={`${totals.facet}`} />
+        <StatCard label={language === 'ja' ? '参照候補' : 'candidate refs'} value={`${totals.docs}`} />
+      </div>
+
+      <div ref={splitContainerRef} style={{
+        display: 'grid',
+        gridTemplateColumns: `minmax(220px, ${macroPaneWidthPercent}%) 12px minmax(0, 1fr)`,
+        marginTop: '12px',
+        alignItems: 'start',
+        overflowX: 'auto',
+      }}>
+        <div style={{
+          border: '1px solid var(--border, rgba(128,128,128,.24))',
+          borderRadius: '8px',
+          background: 'var(--panel2)',
+          padding: '8px',
+          maxHeight: '420px',
+          overflowY: 'auto',
+          marginRight: '6px',
+        }}>
+          <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '6px' }}>
+            {t(language, 'ivRaptorTreeMacroList')}
+          </div>
+          <div style={{ display: 'grid', gap: '6px' }}>
+            {macroOptions.map((macro) => {
+              const selected = macro.id === selectedMacro.id
+              return (
+                <button
+                  key={macro.id}
+                  type="button"
+                  onClick={() => setSelectedMacroId(macro.id)}
+                  style={{
+                    textAlign: 'left',
+                    border: selected ? '1px solid rgba(91,157,255,0.55)' : '1px solid rgba(128,128,128,.20)',
+                    background: selected ? 'rgba(91,157,255,0.14)' : 'transparent',
+                    color: 'inherit',
+                    borderRadius: '6px',
+                    padding: '7px 8px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{macro.label}</span>
+                    <span style={{ fontSize: '10px', color: 'var(--muted)', flex: '0 0 auto' }}>{macro.childCount}</span>
+                  </div>
+                  <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px' }}>
+                    {macro.docs.toLocaleString()} docs / {macro.id}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-valuemin={22}
+          aria-valuemax={45}
+          aria-valuenow={macroPaneWidthPercent}
+          tabIndex={0}
+          title={language === 'ja' ? '左右ペイン幅をドラッグで調整' : 'Drag to resize panes'}
+          onPointerDown={(event) => {
+            event.preventDefault()
+            startSplitterDrag(event.clientX)
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+            event.preventDefault()
+            setMacroPaneWidthPercent((current) => {
+              const delta = event.key === 'ArrowLeft' ? -2 : 2
+              return clampRaptorTreeSplitPercent(current + delta)
+            })
+          }}
+          style={{
+            alignSelf: 'stretch',
+            minHeight: '420px',
+            cursor: 'col-resize',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: '6px',
+            borderLeft: '1px solid rgba(91,157,255,0.28)',
+            borderRight: '1px solid rgba(53,199,164,0.28)',
+            background: 'linear-gradient(90deg, rgba(91,157,255,0.05), rgba(53,199,164,0.05))',
+            boxShadow: 'inset 1px 0 rgba(255,255,255,0.05), inset -1px 0 rgba(0,0,0,0.08)',
+            outline: 'none',
+          }}
+        >
+          <span style={{
+            display: 'block',
+            width: '3px',
+            height: '64px',
+            borderRadius: '999px',
+            background: 'linear-gradient(180deg, rgba(91,157,255,0.62), rgba(53,199,164,0.62))',
+            boxShadow: '0 0 0 3px rgba(91,157,255,0.08)',
+          }} />
+        </div>
+
+        <div style={{ minWidth: 0, marginLeft: '6px' }}>
+          <div style={{
+            border: '1px solid var(--border, rgba(128,128,128,.24))',
+            borderRadius: '8px',
+            background: 'linear-gradient(180deg, rgba(91,157,255,0.07), rgba(53,199,164,0.035))',
+            padding: '10px',
+            marginBottom: '10px',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'start', flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                  <NodeKindBadge kind="macro" />
+                  <span style={{ fontWeight: 700 }}>{selectedMacro.label}</span>
+                </div>
+                {selectedMacroSummary?.summary && (
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '5px', lineHeight: 1.45 }}>
+                    {selectedMacroSummary.summary}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <span className="edgTraceNode__badge">{microNodes.length} micro</span>
+                <span className="edgTraceNode__badge">{macroSurfaceNodes.length} surface</span>
+                <span className="edgTraceNode__badge">{allSelectedNodes.length} nodes</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gap: '10px' }}>
+            {macroSurfaceNodes.length > 0 && (
+              <RaptorNodeGroup
+                title={language === 'ja' ? 'Macro 直下の検索面' : 'Macro-level retrieval surfaces'}
+                nodes={macroSurfaceNodes}
+                nodesByParent={nodesByParent}
+                language={language}
+              />
+            )}
+            {microNodes.length > 0 && (
+              <RaptorNodeGroup
+                title={language === 'ja' ? 'Micro ノード' : 'Micro nodes'}
+                nodes={microNodes}
+                nodesByParent={nodesByParent}
+                language={language}
+              />
+            )}
+            {directChildren.length === 0 && (
+              <div className="app__hint" style={{ padding: '10px' }}>
+                {language === 'ja'
+                  ? 'この macro には RAPTOR retrieval node がありません。EFLC v2 + 階層クラスタリングで Meta-Index を再生成すると表示されます。'
+                  : 'This macro has no RAPTOR retrieval nodes. Regenerate the meta-index with EFLC v2 + hierarchical clustering to populate this view.'}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function nodeKindOrder(kind: RaptorRetrievalNode['nodeKind']): number {
+  if (kind === 'root') return 0
+  if (kind === 'macro') return 1
+  if (kind === 'micro') return 2
+  if (kind === 'retrieval-question') return 3
+  if (kind === 'facet') return 4
+  return 5
+}
+
+function uniqueTextValues(values: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const value of values) {
+    const normalized = value.trim()
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push(normalized)
+  }
+  return result
+}
+
+function RaptorNodeGroup({ title, nodes, nodesByParent, language }: {
+  title: string
+  nodes: RaptorRetrievalNode[]
+  nodesByParent: Map<string, RaptorRetrievalNode[]>
+  language: Language
+}) {
+  return (
+    <div>
+      <div style={{ fontWeight: 600, fontSize: '12px', marginBottom: '6px' }}>{title}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '8px' }}>
+        {nodes.map((node) => (
+          <RaptorNodeCard key={node.id} node={node} childNodes={nodesByParent.get(node.id) ?? []} language={language} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RaptorNodeCard({ node, childNodes, language }: {
+  node: RaptorRetrievalNode
+  childNodes: RaptorRetrievalNode[]
+  language: Language
+}) {
+  return (
+    <div style={{
+      border: '1px solid rgba(128,128,128,.22)',
+      borderRadius: '8px',
+      background: 'var(--panel2)',
+      padding: '8px',
+      minWidth: 0,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', minWidth: 0 }}>
+          <NodeKindBadge kind={node.nodeKind} />
+          <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={node.label}>{node.label}</span>
+        </div>
+        <span style={{ fontSize: '10px', color: 'var(--muted)', flex: '0 0 auto' }}>L{node.level}</span>
+      </div>
+      <div style={{ fontFamily: 'monospace', fontSize: '10px', color: 'var(--muted)', marginTop: '4px', overflowWrap: 'anywhere' }}>
+        {node.parentId ? `${node.parentId} / ${node.id}` : node.id}
+      </div>
+      <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '5px', lineHeight: 1.45 }}>
+        {truncate(node.summary || node.retrievalText, 140)}
+      </div>
+      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '6px' }}>
+        <span className="edgTraceNode__badge">{node.memberDocIds.length} docs</span>
+        {node.referenceDocIds.length > 0 && <span className="edgTraceNode__badge">{node.referenceDocIds.length} refs</span>}
+        {node.retrievalIntents.slice(0, 2).map((intent) => <span key={intent} className="edgTraceNode__badge">{intent}</span>)}
+      </div>
+      {node.generatedQuestions.length > 0 && (
+        <ChipRow icon="bi-question-circle" items={node.generatedQuestions.slice(0, 2)} maxChars={48} />
+      )}
+      {node.facetLabels.length > 0 && (
+        <ChipRow icon="bi-tags" items={node.facetLabels.slice(0, 4)} maxChars={30} />
+      )}
+      {childNodes.length > 0 && (
+        <div style={{ marginTop: '7px', paddingTop: '6px', borderTop: '1px solid rgba(128,128,128,.16)' }}>
+          <div style={{ fontSize: '10px', color: 'var(--muted)', marginBottom: '4px' }}>
+            {language === 'ja' ? '子ノード' : 'Child nodes'}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+            {childNodes.slice(0, 8).map((child) => (
+              <span key={child.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', border: '1px solid rgba(128,128,128,.20)', borderRadius: '999px', padding: '1px 6px', fontSize: '10px' }}>
+                <NodeKindBadge kind={child.nodeKind} />
+                {truncate(child.label, 26)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, metaTraces, onBrowseCluster }: {
   graph: ClusterGraphData
   data?: VisualizationData | null
@@ -2933,6 +3338,14 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, met
           .replace('{edges}', String(filteredEdges.length))
           .replace('{bridges}', String(bridges.length))}
       </div>
+      <div className="edgScienceInfo">
+        <div className="edgScienceInfo__header">
+          <i className="bi bi-mortarboard-fill"></i>
+          <span>{t(language, 'ivSciInfoGraphTitle')}</span>
+        </div>
+        <div className="edgScienceInfo__body">{t(language, 'ivSciInfoGraphBody')}</div>
+        <div className="edgScienceInfo__refs">{t(language, 'ivSciInfoGraphRefs')}</div>
+      </div>
 
       {data?.hierarchical && (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px', marginTop: '8px', fontSize: '12px' }}>
@@ -3472,93 +3885,439 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, met
 // 2-Stage Search Results
 // ============================================================================
 
+type TwoStageSearchResultTab = 'local' | 'global' | 'trace' | 'stats'
+
 function TwoStageSearchResults({ result, language }: {
   result: import('../../lib/metaIndex').TwoStageSearchResult
   language: Language
 }) {
+  const trace = result.trace
+  const [activeTab, setActiveTab] = useState<TwoStageSearchResultTab>('global')
+  const globalRequest = trace?.globalRequest
+  const globalRequestObject = typeof globalRequest === 'object' && globalRequest !== null && !Array.isArray(globalRequest)
+    ? globalRequest as Record<string, JsonValue>
+    : null
+  const queryText = typeof globalRequestObject?.search === 'string' ? globalRequestObject.search : ''
+  const tabs: Array<{ id: TwoStageSearchResultTab; label: string; icon: string; count?: number }> = [
+    { id: 'global', label: t(language, 'ivSearchTabGlobal'), icon: 'bi-globe', count: result.clusters.length },
+    { id: 'local', label: t(language, 'ivSearchTabLocal'), icon: 'bi-file-earmark-text', count: result.documents.length },
+    { id: 'trace', label: t(language, 'ivSearchTabTrace'), icon: 'bi-diagram-3', count: trace?.nodeDecisions.length ?? 0 },
+    { id: 'stats', label: t(language, 'ivSearchTabStats'), icon: 'bi-speedometer2' },
+  ]
+
   return (
-    <div style={{ marginTop: '16px' }}>
-      {/* Stats */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-        gap: '8px',
-        marginBottom: '16px',
-      }}>
-        <StatCard label={t(language, 'ivSearchSpaceReduction')} value={`${result.stats.searchSpaceReduction}%`} />
-        <StatCard label={t(language, 'ivSearchGlobalTime')} value={`${result.stats.globalSearchTimeMs}ms`} />
-        <StatCard label={t(language, 'ivSearchLocalTime')} value={`${result.stats.localSearchTimeMs}ms`} />
-        <StatCard label={t(language, 'ivSearchTotalTime')} value={`${result.stats.totalTimeMs}ms`} />
+    <div className="resultViewPanel" style={{ marginTop: '16px' }}>
+      <div className="section__subtitle resultViewPanel__header" style={{ marginBottom: '8px' }}>
+        <div className="resultViewPanel__headerLeft">
+          <i className="bi bi-window-sidebar" />
+          <span>{t(language, 'ivSearchResultTabsTitle')}</span>
+          <span className={`run__type run__type--${trace?.mode === 'raptor-lite' ? 'semantic_hybrid' : 'query'}`}>
+            {trace?.mode === 'raptor-lite' ? 'RAPTOR' : 'Legacy'}
+          </span>
+        </div>
       </div>
 
-      {/* Global results - clusters */}
-      <div className="section__subtitle" style={{ marginBottom: '6px' }}>
-        <i className="bi bi-globe icon--mr6" />
-        {t(language, 'ivSearchGlobalTitle')}
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px' }}>
-        {result.clusters.map((c, idx) => (
-          <div
-            key={c.clusterId}
+      <div
+        className="tabs tabs--center"
+        role="tablist"
+        aria-label={t(language, 'ivSearchResultTabsTitle')}
+        style={{
+          marginTop: 0,
+          padding: '4px 8px 0',
+          borderBottomWidth: '2px',
+          background: 'color-mix(in srgb, var(--surface2) 64%, transparent)',
+          gap: '3px',
+        }}
+      >
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            tabIndex={activeTab === tab.id ? 0 : -1}
+            className={`tab ${activeTab === tab.id ? 'tab--active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
             style={{
-              background: 'var(--panel2)',
-              borderRadius: '8px',
-              padding: '8px 12px',
-              borderLeft: `3px solid ${CLUSTER_COLORS[idx % CLUSTER_COLORS.length]}`,
+              padding: '5px 10px',
+              fontSize: '12px',
+              gap: '5px',
+              marginBottom: '-2px',
+              borderBottomWidth: '2px',
+              boxShadow: activeTab === tab.id ? '0 -1px 3px rgba(0, 0, 0, 0.06)' : 'none',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 600 }}>{c.label}</span>
-              <span style={{ fontSize: '11px', opacity: 0.6 }}>
-                score: {c.score.toFixed(4)} | {c.documentCount} docs
-              </span>
-            </div>
-            <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '2px' }}>
-              {c.summary}
-            </div>
-          </div>
+            <i className={`bi ${tab.icon}`} />
+            <span>{tab.label}</span>
+            {typeof tab.count === 'number' && <span className="edgTraceNode__badge">{tab.count}</span>}
+          </button>
         ))}
-        {result.clusters.length === 0 && (
-          <div style={{ opacity: 0.5, fontStyle: 'italic' }}>No matching clusters found.</div>
-        )}
       </div>
 
-      {/* Local results - documents */}
-      <div className="section__subtitle" style={{ marginBottom: '6px' }}>
-        <i className="bi bi-file-earmark-text icon--mr6" />
-        {t(language, 'ivSearchLocalTitle')}
-      </div>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--color-border, #444)' }}>
-              <th style={{ padding: '4px 8px', textAlign: 'left' }}>#</th>
-              <th style={{ padding: '4px 8px', textAlign: 'left' }}>ID</th>
-              <th style={{ padding: '4px 8px', textAlign: 'right' }}>Score</th>
-              <th style={{ padding: '4px 8px', textAlign: 'left' }}>Fields</th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.documents.map((doc, idx) => (
-              <tr key={doc.id || idx} style={{ borderBottom: '1px solid var(--color-border, #333)' }}>
-                <td style={{ padding: '4px 8px', opacity: 0.5 }}>{idx + 1}</td>
-                <td style={{ padding: '4px 8px', fontFamily: 'monospace', fontSize: '11px' }}>
-                  {truncate(doc.id, 30)}
-                </td>
-                <td style={{ padding: '4px 8px', textAlign: 'right' }}>
-                  {doc.score.toFixed(4)}
-                </td>
-                <td style={{ padding: '4px 8px', fontSize: '11px', maxWidth: '400px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {summarizeFields(doc.fields)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {result.documents.length === 0 && (
-          <div style={{ opacity: 0.5, fontStyle: 'italic', padding: '8px' }}>No documents found.</div>
+      <div style={{ paddingTop: '12px' }}>
+        {activeTab === 'stats' && (
+          <>
+            <div className="app__hint" style={{ marginBottom: '8px' }}>{t(language, 'ivSearchStatsHint')}</div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+              gap: '8px',
+            }}>
+              <StatCard label={language === 'ja' ? '検索モード' : 'Search mode'} value={trace?.mode === 'raptor-lite' ? 'RAPTOR' : 'Legacy'} />
+              <StatCard label={language === 'ja' ? 'Global node' : 'Global nodes'} value={`${result.stats.globalNodeCount ?? result.clusters.length}`} />
+              <StatCard label={language === 'ja' ? '候補文書' : 'Candidate docs'} value={`${result.stats.candidateDocCount ?? result.stats.filteredDocs}`} />
+              <StatCard label={t(language, 'ivSearchSpaceReduction')} value={`${result.stats.searchSpaceReduction}%`} />
+              <StatCard label={t(language, 'ivSearchGlobalTime')} value={`${result.stats.globalSearchTimeMs}ms`} />
+              <StatCard label={t(language, 'ivSearchLocalTime')} value={`${result.stats.localSearchTimeMs}ms`} />
+              <StatCard label={t(language, 'ivSearchTotalTime')} value={`${result.stats.totalTimeMs}ms`} />
+            </div>
+            {(queryText || trace?.fallbackReason) && (
+              <div className="kv" style={{ marginTop: '10px' }}>
+                {queryText && (
+                  <div className="kv__row">
+                    <div className="kv__k">query</div>
+                    <div className="kv__v kv__v--strong">{queryText}</div>
+                  </div>
+                )}
+                {trace?.fallbackReason && (
+                  <div className="kv__row">
+                    <div className="kv__k">fallback</div>
+                    <div className="kv__v">{trace.fallbackReason}</div>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === 'trace' && (
+          trace ? <RaptorTraceVisualization result={result} language={language} /> : <div className="empty">{t(language, 'ivSearchNoTrace')}</div>
+        )}
+
+        {activeTab === 'global' && (
+          <>
+            <div className="section__subtitle" style={{ marginBottom: '6px' }}>
+              <i className="bi bi-globe icon--mr6" />
+              {t(language, 'ivSearchGlobalTitle')}
+            </div>
+            <div className="app__hint" style={{ marginBottom: '8px' }}>{t(language, 'ivSearchGlobalHint')}</div>
+            <div className="resultList">
+              {result.clusters.map((cluster, idx) => (
+                <div key={cluster.nodeId ?? cluster.clusterId} className="resultCard" style={{ borderLeft: `3px solid ${CLUSTER_COLORS[idx % CLUSTER_COLORS.length]}` }}>
+                  <div className="resultCard__index">#{idx + 1}</div>
+                  <div className="resultCard__top">
+                    <div className="resultCard__topMain">
+                      <NodeKindBadge kind={cluster.nodeKind ?? 'macro'} />
+                      <div className="resultCard__title" title={cluster.label}>{cluster.label}</div>
+                    </div>
+                    <div className="resultCard__scores">
+                      <div className="resultCard__score">score {cluster.score.toFixed(4)}</div>
+                      <div className="resultCard__score">{cluster.documentCount} docs</div>
+                    </div>
+                  </div>
+                  <div className="resultCard__caption" style={{ lineHeight: 1.55 }}>{cluster.summary}</div>
+                  {(cluster.treePath && cluster.treePath.length > 0) && (
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px', marginTop: '8px', fontSize: '11px', color: 'var(--muted)' }}>
+                      <i className="bi bi-diagram-3" />
+                      {cluster.treePath.map((nodeId, pathIndex) => (
+                        <span key={`${cluster.nodeId ?? cluster.clusterId}-${nodeId}-${pathIndex}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          {pathIndex > 0 && <span style={{ opacity: 0.5 }}>/</span>}
+                          <code style={{ fontSize: '10px' }}>{truncate(nodeId, 28)}</code>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {cluster.nodeDecision && (
+                    <div style={{ marginTop: '8px', display: 'grid', gap: '5px' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                        <i className="bi bi-signpost-split icon--mr6" />
+                        {cluster.nodeDecision.action}: {cluster.nodeDecision.selectedDocIds.length} docs
+                      </div>
+                      {(cluster.generatedQuestions && cluster.generatedQuestions.length > 0) && (
+                        <ChipRow icon="bi-question-circle" items={cluster.generatedQuestions.slice(0, 3)} maxChars={52} />
+                      )}
+                      {(cluster.facetLabels && cluster.facetLabels.length > 0) && (
+                        <ChipRow icon="bi-tags" items={cluster.facetLabels.slice(0, 5)} maxChars={32} />
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {result.clusters.length === 0 && <div className="empty">No matching clusters found.</div>}
+            </div>
+          </>
+        )}
+
+        {activeTab === 'local' && (
+          <>
+            <div className="section__subtitle" style={{ marginBottom: '6px' }}>
+              <i className="bi bi-file-earmark-text icon--mr6" />
+              {t(language, 'ivSearchLocalTitle')}
+            </div>
+            <div className="app__hint" style={{ marginBottom: '8px' }}>{t(language, 'ivSearchLocalHint')}</div>
+            {result.documents.length > 0 && (
+              <div className="resultInfo">
+                <div className="resultInfo__text">
+                  Showing 1-{result.documents.length} of {result.documents.length} results
+                </div>
+              </div>
+            )}
+            <div className="resultList">
+              {result.documents.map((doc, idx) => {
+                const title = twoStageDocumentTitle(doc)
+                const fieldSummary = summarizeFields(doc.fields)
+                return (
+                  <div key={doc.id || idx} className="resultCard">
+                    <div className="resultCard__index">#{idx + 1}</div>
+                    <div className="resultCard__top">
+                      <div className="resultCard__topMain">
+                        <div className="resultCard__title" title={title}>{title}</div>
+                      </div>
+                      <div className="resultCard__scores">
+                        <div className="resultCard__score">score {doc.score.toFixed(4)}</div>
+                      </div>
+                    </div>
+                    <div className="kv">
+                      <div className="kv__row">
+                        <div className="kv__k">id</div>
+                        <div className="kv__v mono kv__v--breakAll">{doc.id}</div>
+                      </div>
+                    </div>
+                    {fieldSummary && <div className="resultCard__text">{fieldSummary}</div>}
+                    <details className="resultCard__details">
+                      <summary className="resultCard__summary">
+                        <span className="resultCard__summaryIcon">▶</span>
+                        <span className="resultCard__summaryText">FIELDS</span>
+                      </summary>
+                      <pre className="mono resultCard__pre">{stringifyJson(doc.fields)}</pre>
+                    </details>
+                  </div>
+                )
+              })}
+              {result.documents.length === 0 && <div className="empty">No documents found.</div>}
+            </div>
+          </>
         )}
       </div>
+    </div>
+  )
+}
+
+function twoStageDocumentTitle(doc: import('../../lib/metaIndex').TwoStageSearchResult['documents'][number]): string {
+  const titleFields = ['title', 'name', 'chunkTitle', 'metadata_storage_name', 'source', 'filepath', 'fileName']
+  for (const field of titleFields) {
+    const value = doc.fields[field]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return doc.id || '(no id)'
+}
+
+function stringifyJson(value: JsonValue): string {
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function NodeKindBadge({ kind }: { kind: import('../../lib/metaIndex').RaptorNodeKind }) {
+  const palette: Record<string, { bg: string; border: string; color: string; icon: string; label: string }> = {
+    macro: { bg: 'rgba(91,157,255,0.12)', border: 'rgba(91,157,255,0.45)', color: '#7fb1ff', icon: 'bi-bounding-box', label: 'macro' },
+    micro: { bg: 'rgba(53,199,164,0.12)', border: 'rgba(53,199,164,0.45)', color: '#54d7bd', icon: 'bi-bullseye', label: 'micro' },
+    'retrieval-question': { bg: 'rgba(244,190,92,0.14)', border: 'rgba(244,190,92,0.48)', color: '#f0c36a', icon: 'bi-question-diamond', label: 'question' },
+    facet: { bg: 'rgba(196,144,255,0.12)', border: 'rgba(196,144,255,0.45)', color: '#c69cff', icon: 'bi-tags', label: 'facet' },
+    bridge: { bg: 'rgba(255,132,111,0.12)', border: 'rgba(255,132,111,0.45)', color: '#ff947e', icon: 'bi-intersect', label: 'bridge' },
+    root: { bg: 'rgba(160,174,192,0.12)', border: 'rgba(160,174,192,0.45)', color: '#b7c2d4', icon: 'bi-diagram-2', label: 'root' },
+  }
+  const style = palette[kind] ?? palette.macro
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '4px',
+      border: `1px solid ${style.border}`,
+      background: style.bg,
+      color: style.color,
+      borderRadius: '6px',
+      padding: '1px 6px',
+      fontSize: '10px',
+      lineHeight: 1.5,
+      flex: '0 0 auto',
+    }}>
+      <i className={`bi ${style.icon}`} />
+      {style.label}
+    </span>
+  )
+}
+
+function ChipRow({ icon, items, maxChars }: { icon: string; items: string[]; maxChars: number }) {
+  if (items.length === 0) return null
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+      <i className={`bi ${icon}`} style={{ fontSize: '11px', opacity: 0.62 }} />
+      {items.map((item) => (
+        <span
+          key={item}
+          style={{
+            border: '1px solid var(--border, rgba(128,128,128,.28))',
+            borderRadius: '999px',
+            padding: '1px 6px',
+            fontSize: '10px',
+            opacity: 0.82,
+            maxWidth: '100%',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={item}
+        >
+          {truncate(item, maxChars)}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function RaptorTraceVisualization({ result, language }: {
+  result: import('../../lib/metaIndex').TwoStageSearchResult
+  language: Language
+}) {
+  const trace = result.trace
+  if (!trace) return null
+  const decisions = trace.nodeDecisions.slice(0, 8)
+  const selectedDocCount = trace.candidateDocIds.length
+  const localDocsCount = result.documents.length
+  const globalRequest = trace.globalRequest && typeof trace.globalRequest === 'object'
+    ? trace.globalRequest as Record<string, unknown>
+    : {}
+  const queryText = String(globalRequest.search ?? '')
+  const title = language === 'ja' ? 'RAPTOR-lite 検索トレース' : 'RAPTOR-lite Search Trace'
+  const globalLabel = language === 'ja' ? 'Global が拾った retrieval nodes' : 'Retrieval nodes picked by Global'
+  const candidateLabel = language === 'ja' ? 'Candidate Docs' : 'Candidate Docs'
+  const localLabel = language === 'ja' ? 'Local Search' : 'Local Search'
+
+  return (
+    <div style={{
+      marginBottom: '16px',
+      border: '1px solid var(--border, rgba(128,128,128,.24))',
+      borderRadius: '8px',
+      background: 'linear-gradient(180deg, rgba(91,157,255,0.08), rgba(53,199,164,0.04))',
+      padding: '12px',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '10px' }}>
+        <div style={{ fontWeight: 700, fontSize: '13px' }}>
+          <i className="bi bi-diagram-3 icon--mr6" />
+          {title}
+        </div>
+        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {trace.retrievalSurfaceFields.slice(0, 5).map((field) => (
+            <span key={field} className="edgTraceNode__badge">{field}</span>
+          ))}
+        </div>
+      </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'minmax(112px, 150px) minmax(300px, 1fr) minmax(112px, 140px) minmax(112px, 140px)',
+        gap: '8px',
+        alignItems: 'start',
+        overflowX: 'auto',
+        paddingBottom: '2px',
+      }}>
+        <TraceFlowStage
+          icon="bi-chat-square-text"
+          label={language === 'ja' ? '検索クエリ' : 'Search query'}
+          value={truncate(queryText, 42) || (trace.mode === 'raptor-lite' ? 'RAPTOR' : 'legacy')}
+          detail={trace.mode === 'raptor-lite' ? 'RAPTOR route' : 'legacy'}
+          size="text"
+        />
+        <div style={{
+          border: '1px solid rgba(91,157,255,0.26)',
+          borderRadius: '8px',
+          padding: '8px',
+          background: 'rgba(0,0,0,0.08)',
+          minWidth: 0,
+          boxSizing: 'border-box',
+        }}>
+          <div style={{ fontSize: '11px', opacity: 0.65, marginBottom: '6px' }}>{globalLabel}</div>
+          <div style={{ display: 'grid', gap: '6px', maxHeight: '340px', overflowY: 'auto', paddingRight: '2px' }}>
+            {decisions.map((decision) => (
+              <div key={decision.hitNodeId} style={{
+                border: '1px solid rgba(128,128,128,.22)',
+                borderRadius: '6px',
+                padding: '6px',
+                background: 'var(--panel2)',
+                minWidth: 0,
+                maxWidth: '100%',
+                boxSizing: 'border-box',
+              }}>
+                <div style={{ display: 'flex', gap: '6px', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <NodeKindBadge kind={decision.nodeKind} />
+                  <span style={{ fontSize: '10px', opacity: 0.6 }}>{decision.action}</span>
+                </div>
+                <div style={{ fontFamily: 'monospace', fontSize: '10px', marginTop: '4px', opacity: 0.78, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                  {decision.treePath.join(' / ') || decision.hitNodeId}
+                </div>
+                <div style={{ fontSize: '10px', marginTop: '4px', color: 'var(--muted)', lineHeight: 1.4, overflowWrap: 'anywhere' }}>
+                  {truncate(decision.reason, 110)}
+                </div>
+              </div>
+            ))}
+            {decisions.length === 0 && (
+              <div style={{ fontSize: '12px', opacity: 0.55 }}>{language === 'ja' ? 'hit node なし' : 'No hit nodes'}</div>
+            )}
+          </div>
+        </div>
+        <TraceFlowStage icon="bi-funnel" label={candidateLabel} value={`${selectedDocCount}`} muted={selectedDocCount === 0} />
+        <TraceFlowStage icon="bi-file-earmark-text" label={localLabel} value={`${localDocsCount}`} muted={!trace.localFilterApplied} />
+      </div>
+
+      {trace.fallbackReason && (
+        <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--muted)' }}>
+          <i className="bi bi-info-circle icon--mr6" />
+          {language === 'ja' ? 'RAPTOR-lite 検索は legacy query にフォールバックしました: ' : 'RAPTOR-lite search fell back to legacy query: '}
+          {truncate(trace.fallbackReason, 180)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TraceFlowStage({ icon, label, value, detail, muted = false, size = 'metric' }: {
+  icon: string
+  label: string
+  value: string
+  detail?: string
+  muted?: boolean
+  size?: 'metric' | 'text'
+}) {
+  return (
+    <div style={{
+      border: '1px solid rgba(128,128,128,.22)',
+      borderRadius: '8px',
+      padding: '8px 10px',
+      background: 'var(--panel2)',
+      minHeight: size === 'text' ? '64px' : '72px',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      opacity: muted ? 0.62 : 1,
+      minWidth: 0,
+    }}>
+      <div style={{ fontSize: '11px', opacity: 0.62 }}>
+        <i className={`bi ${icon} icon--mr6`} />
+        {label}
+      </div>
+      <div style={{
+        fontSize: size === 'text' ? '13px' : '22px',
+        lineHeight: size === 'text' ? 1.35 : 1.2,
+        fontWeight: 700,
+        marginTop: '4px',
+        overflowWrap: 'anywhere',
+      }}>{value}</div>
+      {detail && (
+        <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px' }}>{detail}</div>
+      )}
     </div>
   )
 }

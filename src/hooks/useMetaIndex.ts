@@ -21,10 +21,12 @@ import {
   fetchRepresentativeTexts,
   checkMetaIndexExists,
   fetchExistingSummaries,
+  fetchExistingRaptorNodes,
   fetchExistingMetaDocIds,
   deleteMetaDocuments,
   generateMetaIndexName,
   flattenHierarchicalMicroClusters,
+  buildRaptorRetrievalNodes,
   type ClusterSummary,
   type ClusterSummaryMode,
   type TwoStageSearchResult,
@@ -32,6 +34,7 @@ import {
   type MetaIndexConfig,
   type MetaClusterTrace,
   type MetaTraceIndexFields,
+  type RaptorRetrievalNode,
 } from '../lib/metaIndex'
 import { getIndexDefinition, type JsonValue } from '../lib/aiSearchRest'
 import { LOCAL_PROVIDERS, resolveMaxInputTokens } from '../lib/llmProvider'
@@ -66,6 +69,7 @@ export function useMetaIndex(input: {
   const [metaIndexName, setMetaIndexName] = useState<string | null>(null)
   const [metaTokenUsage, setMetaTokenUsage] = useState<{ prompt: number; completion: number; total: number }>({ prompt: 0, completion: 0, total: 0 })
   const [metaTraces, setMetaTraces] = useState<MetaClusterTrace[]>([])
+  const [raptorNodes, setRaptorNodes] = useState<RaptorRetrievalNode[]>([])
 
   // 2-stage search state
   const [searchQuery, setSearchQuery] = useState('')
@@ -83,12 +87,14 @@ export function useMetaIndex(input: {
       setMetaIndexExists(null)
       setMetaIndexName(null)
       setClusterSummaries(null)
+      setRaptorNodes([])
       setMetaPhase('idle')
       return
     }
 
     // Reset previous state
     setClusterSummaries(null)
+    setRaptorNodes([])
     setMetaTraces([])
     setMetaError(null)
     setMetaWarning(null)
@@ -114,7 +120,14 @@ export function useMetaIndex(input: {
           language,
         })
         if (summaries && summaries.length > 0) {
+          const nodes = await fetchExistingRaptorNodes({
+            profile,
+            apiVersion,
+            metaIndexName: foundName,
+            language,
+          })
           setClusterSummaries(summaries)
+          setRaptorNodes(nodes)
           setMetaPhase('done')
         } else {
           setMetaPhase('idle')
@@ -157,7 +170,14 @@ export function useMetaIndex(input: {
         language,
       })
       if (summaries && summaries.length > 0) {
+        const nodes = await fetchExistingRaptorNodes({
+          profile,
+          apiVersion,
+          metaIndexName: foundName,
+          language,
+        })
         setClusterSummaries(summaries)
+        setRaptorNodes(nodes)
         setMetaPhase('done')
       } else {
         setMetaError(language === 'ja'
@@ -317,7 +337,17 @@ export function useMetaIndex(input: {
           })
       if (ctrl.signal.aborted) return
       const summaries = summarizeResult.summaries
+      const raptorNodes = summaryMode === 'v2' && hierarchical
+        ? buildRaptorRetrievalNodes({
+            macroSummaries: summaries,
+            traces: summarizeResult.traces,
+            hierarchical,
+            docs,
+            language,
+          })
+        : []
       setClusterSummaries(summaries)
+      setRaptorNodes(raptorNodes)
       setMetaTokenUsage({
         prompt: summarizeResult.promptTokens,
         completion: summarizeResult.completionTokens,
@@ -358,7 +388,7 @@ export function useMetaIndex(input: {
       // (e.g. previous run had k=5, now k=3 — delete cluster-3, cluster-4).
       // This is done in-place to avoid the timing/eventual-consistency issues
       // that occur when deleting and immediately recreating an index.
-      const newIds = new Set(summaries.map((s) => s.clusterId))
+      const newIds = new Set([...summaries.map((summary) => summary.clusterId), ...raptorNodes.map((node) => node.id)])
       try {
         const existingIds = await fetchExistingMetaDocIds({
           profile,
@@ -396,6 +426,7 @@ export function useMetaIndex(input: {
         apiVersion,
         metaIndexName: newMetaName,
         summaries,
+        raptorNodes,
         metaConfig,
         language,
       })
@@ -421,6 +452,7 @@ export function useMetaIndex(input: {
       setMetaIndexExists(false)
       setMetaIndexName(null)
       setClusterSummaries(null)
+      setRaptorNodes([])
       setSearchResult(null)
     } else {
       setMetaError(`Delete failed: ${result.error?.message || 'Unknown'}`)
@@ -476,6 +508,7 @@ export function useMetaIndex(input: {
     metaIndexExists?: boolean | null
   }) => {
     setClusterSummaries(summaries)
+    setRaptorNodes([])
     setMetaTraces(options?.traces ?? [])
     setMetaTokenUsage(options?.tokenUsage ?? { prompt: 0, completion: 0, total: 0 })
     if (options && 'metaIndexName' in options) setMetaIndexName(options.metaIndexName ?? null)
@@ -496,6 +529,7 @@ export function useMetaIndex(input: {
       setMetaIndexName(null)
     }
     setClusterSummaries(null)
+    setRaptorNodes([])
     setMetaTokenUsage({ prompt: 0, completion: 0, total: 0 })
     setMetaTraces([])
     setSummarizeProgress({ current: 0, total: 0 })
@@ -515,6 +549,7 @@ export function useMetaIndex(input: {
     metaIndexExists,
     metaTokenUsage,
     metaTraces,
+    raptorNodes,
     checkExists,
     generateMetaIndex,
     loadExisting,

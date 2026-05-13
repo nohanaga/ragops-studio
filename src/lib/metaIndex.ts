@@ -192,6 +192,17 @@ export interface ClusterSummary {
   qualityJson?: string
   topologyJson?: string
   hierarchyJson?: string
+  nodeKind?: RaptorNodeKind
+  level?: number
+  parentId?: string
+  childIds?: string[]
+  sourceClusterId?: string
+  localClusterId?: string
+  retrievalText?: string
+  generatedQuestions?: string[]
+  retrievalIntents?: string[]
+  referenceDocIds?: string[]
+  retrievalSignatureJson?: string
 }
 
 export interface ClusterFacet {
@@ -218,6 +229,65 @@ export interface ClusterSemanticSignature {
     childCount?: number
     strategy?: string
   }
+}
+
+export type RaptorNodeKind =
+  | 'root'
+  | 'macro'
+  | 'micro'
+  | 'retrieval-question'
+  | 'facet'
+  | 'bridge'
+
+export interface ClusterRetrievalSignature {
+  taxonomyPath: string[]
+  retrievalIntents: string[]
+  generatedQuestions: string[]
+  positiveQueryExamples: string[]
+  negativeQueryExamples: string[]
+  facetQueries: Array<{ facet: string; query: string }>
+  referenceDocIds: string[]
+}
+
+export interface RaptorRetrievalNode {
+  id: string
+  nodeKind: RaptorNodeKind
+  level: number
+  clusterId: string
+  parentId?: string
+  childIds: string[]
+  label: string
+  summary: string
+  keywords: string[]
+  retrievalText: string
+  generatedQuestions: string[]
+  retrievalIntents: string[]
+  facetLabels: string[]
+  facetSummaries?: string[]
+  inclusionCriteria: string[]
+  exclusionCriteria: string[]
+  memberDocIds: string[]
+  referenceDocIds: string[]
+  centroidVector?: number[]
+  signatureJson?: string
+  retrievalSignatureJson?: string
+  topologyJson?: string
+  hierarchyJson?: string
+  sourceClusterId?: string
+  localClusterId?: string
+}
+
+export interface RaptorTreeDecision {
+  hitNodeId: string
+  nodeKind: RaptorNodeKind
+  action: 'use-node' | 'ascend-parent' | 'descend-children' | 'expand-bridge'
+  selectedClusterIds: string[]
+  selectedDocIds: string[]
+  reason: string
+  treePath: string[]
+  matchedQuestions: string[]
+  matchedFacets: string[]
+  retrievalIntents: string[]
 }
 
 export interface ClusterSignatureQuality {
@@ -333,11 +403,24 @@ export interface MetaIndexConfig {
 export interface TwoStageSearchResult {
   /** Matching clusters from global search */
   clusters: Array<{
+    nodeId?: string
+    nodeKind?: RaptorNodeKind
+    level?: number
     clusterId: string
     label: string
     summary: string
     score: number
     documentCount: number
+    parentId?: string
+    childIds?: string[]
+    sourceClusterId?: string
+    localClusterId?: string
+    generatedQuestions?: string[]
+    retrievalIntents?: string[]
+    facetLabels?: string[]
+    referenceDocIds?: string[]
+    treePath?: string[]
+    nodeDecision?: RaptorTreeDecision
   }>
   /** Final documents from local search */
   documents: Array<{
@@ -353,6 +436,19 @@ export interface TwoStageSearchResult {
     searchSpaceReduction: number
     totalDocs: number
     filteredDocs: number
+    globalNodeCount?: number
+    candidateDocCount?: number
+    localFilterApplied?: boolean
+  }
+  trace?: {
+    mode: 'raptor-lite' | 'legacy'
+    globalRequest: JsonValue
+    localRequest?: JsonValue
+    retrievalSurfaceFields: string[]
+    nodeDecisions: RaptorTreeDecision[]
+    candidateDocIds: string[]
+    localFilterApplied: boolean
+    fallbackReason?: string
   }
 }
 
@@ -360,6 +456,418 @@ export interface SummarizeProgress {
   current: number
   total: number
   currentLabel?: string
+}
+
+const RAPTOR_META_SEARCH_FIELDS = [
+  'label',
+  'summary',
+  'retrievalText',
+  'generatedQuestions',
+  'retrievalIntents',
+  'facetLabels',
+  'facetSummaries',
+  'inclusionCriteria',
+]
+
+const RAPTOR_META_SELECT = [
+  'id',
+  'clusterId',
+  'nodeKind',
+  'level',
+  'parentId',
+  'childIds',
+  'sourceClusterId',
+  'localClusterId',
+  'label',
+  'summary',
+  'documentCount',
+  'memberDocIds',
+  'referenceDocIds',
+  'generatedQuestions',
+  'retrievalIntents',
+  'facetLabels',
+  'retrievalSignatureJson',
+  'signatureJson',
+  'qualityJson',
+  'topologyJson',
+  'hierarchyJson',
+]
+
+const LEGACY_META_SELECT = [
+  'clusterId',
+  'label',
+  'summary',
+  'documentCount',
+  'memberDocIds',
+]
+
+const META_SUMMARY_SELECT = [
+  'id',
+  'clusterId',
+  'nodeKind',
+  'level',
+  'parentId',
+  'childIds',
+  'sourceClusterId',
+  'localClusterId',
+  'label',
+  'summary',
+  'keywords',
+  'documentCount',
+  'memberDocIds',
+  'centroidVector',
+  'representativeText',
+  'summaryVersion',
+  'facetLabels',
+  'facetSummaries',
+  'inclusionCriteria',
+  'exclusionCriteria',
+  'retrievalText',
+  'generatedQuestions',
+  'retrievalIntents',
+  'referenceDocIds',
+  'retrievalSignatureJson',
+  'signatureJson',
+  'qualityJson',
+  'topologyJson',
+  'hierarchyJson',
+  'sourceIndex',
+  'vectorField',
+  'createdAt',
+]
+
+const LEGACY_META_SUMMARY_SELECT = [
+  'id',
+  'clusterId',
+  'label',
+  'summary',
+  'keywords',
+  'documentCount',
+  'memberDocIds',
+  'centroidVector',
+  'representativeText',
+  'summaryVersion',
+  'facetLabels',
+  'facetSummaries',
+  'inclusionCriteria',
+  'exclusionCriteria',
+  'signatureJson',
+  'qualityJson',
+  'topologyJson',
+  'hierarchyJson',
+  'sourceIndex',
+  'vectorField',
+  'createdAt',
+]
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => String(item ?? '').trim()).filter(Boolean)
+}
+
+function uniqueDocIds(values: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const value of values) {
+    const normalized = value.trim()
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push(normalized)
+  }
+  return result
+}
+
+function parseClusterOrdinal(clusterId: string): number | null {
+  const match = /^cluster-(\d+)$/.exec(clusterId.trim())
+  return match ? Number(match[1]) : null
+}
+
+function buildGeneratedQuestions(input: {
+  label: string
+  summary: string
+  facetLabels: string[]
+  inclusionCriteria: string[]
+  language: Language
+}): string[] {
+  const label = compactClusterLabel(input.label, input.language === 'ja' ? 'このクラスタ' : 'this cluster')
+  const facets = input.facetLabels.slice(0, 3)
+  const criteria = input.inclusionCriteria.slice(0, 2)
+  const questions = input.language === 'ja'
+    ? [
+        `${label}について概要を知りたい`,
+        `${label}に関係する文書を探したい`,
+        ...facets.map((facet) => `${label}の${facet}に関する情報はどこにあるか`),
+        ...criteria.map((criterion) => `${criterion}に該当する情報を確認したい`),
+      ]
+    : [
+        `What is the overview of ${label}?`,
+        `Find documents related to ${label}.`,
+        ...facets.map((facet) => `Where is information about ${facet} in ${label}?`),
+        ...criteria.map((criterion) => `Find information that matches ${criterion}.`),
+      ]
+  return compactList(questions, 6, 180)
+}
+
+function buildRetrievalIntents(input: {
+  facetLabels: string[]
+  exclusionCriteria: string[]
+  signatureJson?: string
+  topologyJson?: string
+}): string[] {
+  const intents = ['overview', 'drilldown']
+  if (input.facetLabels.length > 0) intents.push('facet')
+  if (input.exclusionCriteria.length > 0) intents.push('disambiguation')
+  const topologyText = `${input.signatureJson ?? ''} ${input.topologyJson ?? ''}`.toLowerCase()
+  if (topologyText.includes('split') || topologyText.includes('mixed') || topologyText.includes('overlapping') || topologyText.includes('diffuse')) {
+    intents.push('mixed-cluster')
+  }
+  return uniqueStrings(intents)
+}
+
+function buildClusterRetrievalSignature(input: {
+  taxonomyPath: string[]
+  label: string
+  summary: string
+  keywords: string[]
+  facetLabels: string[]
+  inclusionCriteria: string[]
+  exclusionCriteria: string[]
+  referenceDocIds: string[]
+  signatureJson?: string
+  topologyJson?: string
+  language: Language
+}): ClusterRetrievalSignature {
+  const generatedQuestions = buildGeneratedQuestions({
+    label: input.label,
+    summary: input.summary,
+    facetLabels: input.facetLabels,
+    inclusionCriteria: input.inclusionCriteria,
+    language: input.language,
+  })
+  const retrievalIntents = buildRetrievalIntents({
+    facetLabels: input.facetLabels,
+    exclusionCriteria: input.exclusionCriteria,
+    signatureJson: input.signatureJson,
+    topologyJson: input.topologyJson,
+  })
+  const facetQueries = input.facetLabels.slice(0, 6).map((facet) => ({
+    facet,
+    query: input.language === 'ja'
+      ? `${input.label} ${facet} 関連文書`
+      : `${input.label} ${facet} related documents`,
+  }))
+  return {
+    taxonomyPath: compactList(input.taxonomyPath, 6, MAX_CLUSTER_LABEL_CHARS),
+    retrievalIntents,
+    generatedQuestions,
+    positiveQueryExamples: generatedQuestions.slice(0, 4),
+    negativeQueryExamples: compactList(input.exclusionCriteria, 4, MAX_CRITERION_CHARS),
+    facetQueries,
+    referenceDocIds: uniqueDocIds(input.referenceDocIds).slice(0, 24),
+  }
+}
+
+function buildRetrievalText(input: {
+  label: string
+  summary: string
+  keywords: string[]
+  facetLabels: string[]
+  facetSummaries?: string[]
+  inclusionCriteria: string[]
+  exclusionCriteria: string[]
+  generatedQuestions: string[]
+  retrievalIntents: string[]
+}): string {
+  return uniqueStrings([
+    input.label,
+    input.summary,
+    ...input.keywords,
+    ...input.facetLabels,
+    ...(input.facetSummaries ?? []),
+    ...input.inclusionCriteria,
+    ...input.exclusionCriteria,
+    ...input.generatedQuestions,
+    ...input.retrievalIntents,
+  ]).join('\n')
+}
+
+function buildRetrievalSignatureForSummary(summary: ClusterSummary, language: Language): ClusterRetrievalSignature {
+  const semanticSignature = parseSignatureFromSummary(summary)
+  const referenceDocIds = uniqueDocIds([
+    ...(summary.referenceDocIds ?? []),
+    ...semanticSignature.evidenceDocIds,
+    ...semanticSignature.facets.flatMap((facet) => facet.representativeDocIds),
+    ...summary.memberDocIds.slice(0, 12),
+  ])
+  return buildClusterRetrievalSignature({
+    taxonomyPath: [summary.label || summary.clusterId],
+    label: summary.label,
+    summary: summary.summary,
+    keywords: summary.keywords,
+    facetLabels: summary.facetLabels ?? semanticSignature.facets.map((facet) => facet.label),
+    inclusionCriteria: summary.inclusionCriteria ?? semanticSignature.inclusionCriteria,
+    exclusionCriteria: summary.exclusionCriteria ?? semanticSignature.exclusionCriteria,
+    referenceDocIds,
+    signatureJson: summary.signatureJson,
+    topologyJson: summary.topologyJson,
+    language,
+  })
+}
+
+function buildRaptorNodeDocument(input: {
+  node: RaptorRetrievalNode
+  metaConfig: MetaIndexConfig
+}): Record<string, JsonValue> {
+  const node = input.node
+  return {
+    '@search.action': 'upload',
+    id: node.id,
+    clusterId: node.clusterId,
+    nodeKind: node.nodeKind,
+    level: node.level,
+    parentId: node.parentId ?? '',
+    childIds: node.childIds.slice(0, 200),
+    sourceClusterId: node.sourceClusterId ?? node.clusterId,
+    localClusterId: node.localClusterId ?? '',
+    label: compactClusterLabel(node.label, node.id),
+    summary: compactClusterSummary(node.summary, node.label || node.id),
+    keywords: compactList(node.keywords, 16, MAX_KEYWORD_CHARS),
+    documentCount: node.memberDocIds.length,
+    memberDocIds: uniqueDocIds(node.memberDocIds).slice(0, 1000),
+    referenceDocIds: uniqueDocIds(node.referenceDocIds).slice(0, 100),
+    centroidVector: node.centroidVector ?? [],
+    representativeText: truncateUtf8Bytes(node.retrievalText, 32_000),
+    retrievalText: truncateUtf8Bytes(node.retrievalText, 32_000),
+    generatedQuestions: compactList(node.generatedQuestions, 8, 180),
+    retrievalIntents: compactList(node.retrievalIntents, 8, MAX_CLUSTER_LABEL_CHARS),
+    summaryVersion: 'v2',
+    facetLabels: compactList(node.facetLabels, 8, MAX_CLUSTER_LABEL_CHARS),
+    facetSummaries: compactList(node.facetSummaries ?? [], 8, MAX_FACET_SUMMARY_CHARS),
+    inclusionCriteria: compactList(node.inclusionCriteria, 8, MAX_CRITERION_CHARS),
+    exclusionCriteria: compactList(node.exclusionCriteria, 8, MAX_CRITERION_CHARS),
+    signatureJson: truncateUtf8Bytes(node.signatureJson ?? '', 32_000),
+    retrievalSignatureJson: truncateUtf8Bytes(node.retrievalSignatureJson ?? '', 32_000),
+    qualityJson: '',
+    topologyJson: truncateUtf8Bytes(node.topologyJson ?? '', 32_000),
+    hierarchyJson: truncateUtf8Bytes(node.hierarchyJson ?? '', 32_000),
+    sourceIndex: input.metaConfig.sourceIndexName,
+    vectorField: input.metaConfig.vectorField,
+    createdAt: input.metaConfig.createdAt,
+  }
+}
+
+function parseRaptorNodeKind(value: unknown): RaptorNodeKind {
+  const text = String(value ?? 'macro')
+  if (text === 'root' || text === 'macro' || text === 'micro' || text === 'retrieval-question' || text === 'facet' || text === 'bridge') {
+    return text
+  }
+  return 'macro'
+}
+
+function buildTreePathForGlobalDoc(doc: Record<string, JsonValue>): string[] {
+  return uniqueStrings([
+    String(doc.sourceClusterId ?? doc.clusterId ?? ''),
+    String(doc.parentId ?? ''),
+    String(doc.id ?? doc.clusterId ?? ''),
+  ]).filter(Boolean)
+}
+
+function buildRaptorDecisionForGlobalDoc(input: {
+  doc: Record<string, JsonValue>
+  language?: Language
+}): RaptorTreeDecision {
+  const doc = input.doc
+  const nodeKind = parseRaptorNodeKind(doc.nodeKind)
+  const memberDocIds = asStringArray(doc.memberDocIds)
+  const referenceDocIds = asStringArray(doc.referenceDocIds)
+  const selectedDocIds = uniqueDocIds([...referenceDocIds, ...memberDocIds])
+  const sourceClusterId = String(doc.sourceClusterId ?? doc.clusterId ?? '')
+  const localClusterId = String(doc.localClusterId ?? '')
+  const selectedClusterIds = uniqueStrings([sourceClusterId, localClusterId]).filter(Boolean)
+  const language = input.language ?? 'en'
+
+  if (nodeKind === 'retrieval-question') {
+    return {
+      hitNodeId: String(doc.id ?? doc.clusterId ?? ''),
+      nodeKind,
+      action: 'ascend-parent',
+      selectedClusterIds,
+      selectedDocIds,
+      reason: language === 'ja'
+        ? 'generated question が一致したため、親ノードへ戻して reference docs と候補文書を優先します。'
+        : 'Generated question matched; ascend to the parent node and prioritize reference/candidate documents.',
+      treePath: buildTreePathForGlobalDoc(doc),
+      matchedQuestions: asStringArray(doc.generatedQuestions),
+      matchedFacets: asStringArray(doc.facetLabels),
+      retrievalIntents: asStringArray(doc.retrievalIntents),
+    }
+  }
+
+  if (nodeKind === 'facet') {
+    return {
+      hitNodeId: String(doc.id ?? doc.clusterId ?? ''),
+      nodeKind,
+      action: 'ascend-parent',
+      selectedClusterIds,
+      selectedDocIds,
+      reason: language === 'ja'
+        ? 'facet node が一致したため、該当観点の親クラスタ候補を Local 検索へ渡します。'
+        : 'Facet node matched; route the parent cluster candidates for local search.',
+      treePath: buildTreePathForGlobalDoc(doc),
+      matchedQuestions: asStringArray(doc.generatedQuestions),
+      matchedFacets: asStringArray(doc.facetLabels),
+      retrievalIntents: asStringArray(doc.retrievalIntents),
+    }
+  }
+
+  if (nodeKind === 'micro') {
+    return {
+      hitNodeId: String(doc.id ?? doc.clusterId ?? ''),
+      nodeKind,
+      action: 'use-node',
+      selectedClusterIds,
+      selectedDocIds,
+      reason: language === 'ja'
+        ? 'micro node が直接一致したため、macro 全体ではなく micro member docs に絞ります。'
+        : 'Micro node matched directly; narrow local search to micro member documents.',
+      treePath: buildTreePathForGlobalDoc(doc),
+      matchedQuestions: asStringArray(doc.generatedQuestions),
+      matchedFacets: asStringArray(doc.facetLabels),
+      retrievalIntents: asStringArray(doc.retrievalIntents),
+    }
+  }
+
+  if (nodeKind === 'bridge') {
+    return {
+      hitNodeId: String(doc.id ?? doc.clusterId ?? ''),
+      nodeKind,
+      action: 'expand-bridge',
+      selectedClusterIds,
+      selectedDocIds,
+      reason: language === 'ja'
+        ? 'bridge node が一致したため、境界にある候補文書を広げて検索します。'
+        : 'Bridge node matched; expand to boundary candidate documents.',
+      treePath: buildTreePathForGlobalDoc(doc),
+      matchedQuestions: asStringArray(doc.generatedQuestions),
+      matchedFacets: asStringArray(doc.facetLabels),
+      retrievalIntents: asStringArray(doc.retrievalIntents),
+    }
+  }
+
+  return {
+    hitNodeId: String(doc.id ?? doc.clusterId ?? ''),
+    nodeKind,
+    action: asStringArray(doc.childIds).length > 0 ? 'descend-children' : 'use-node',
+    selectedClusterIds,
+    selectedDocIds,
+    reason: language === 'ja'
+      ? 'macro node が一致したため、macro member docs を候補化し、必要に応じて child node を確認します。'
+      : 'Macro node matched; use macro member documents and inspect child nodes when needed.',
+    treePath: buildTreePathForGlobalDoc(doc),
+    matchedQuestions: asStringArray(doc.generatedQuestions),
+    matchedFacets: asStringArray(doc.facetLabels),
+    retrievalIntents: asStringArray(doc.retrievalIntents),
+  }
 }
 
 // ─── Cluster Summarization ──────────────────────────────────────────────────
@@ -1018,6 +1526,231 @@ function collectMicroIdsForMacro(hierarchical: HierarchicalClusterResult, macroI
     if (hierarchical.microToMacro[microId] === macroId) result.push(microId)
   }
   return result
+}
+
+export function buildRaptorRetrievalNodes(input: {
+  macroSummaries: ClusterSummary[]
+  traces: MetaClusterTrace[]
+  hierarchical: HierarchicalClusterResult
+  docs: Array<{ id: string; title: string; vector: Float32Array }>
+  language: Language
+}): RaptorRetrievalNode[] {
+  const microClusters = flattenHierarchicalMicroClusters(input.hierarchical)
+  const tracesByMicroId = new Map<number, MetaClusterTrace>()
+  for (const trace of input.traces) {
+    if (trace.traceLevel === 'micro') tracesByMicroId.set(trace.clusterId, trace)
+  }
+
+  const nodes: RaptorRetrievalNode[] = []
+
+  for (let macroIndex = 0; macroIndex < input.macroSummaries.length; macroIndex++) {
+    const macroSummary = input.macroSummaries[macroIndex]
+    const macroId = parseClusterOrdinal(macroSummary.clusterId) ?? macroIndex
+    const macroSignature = buildRetrievalSignatureForSummary(macroSummary, input.language)
+    const macroRetrievalText = buildRetrievalText({
+      label: macroSummary.label,
+      summary: macroSummary.summary,
+      keywords: macroSummary.keywords,
+      facetLabels: macroSummary.facetLabels ?? [],
+      facetSummaries: macroSummary.facetSummaries,
+      inclusionCriteria: macroSummary.inclusionCriteria ?? [],
+      exclusionCriteria: macroSummary.exclusionCriteria ?? [],
+      generatedQuestions: macroSignature.generatedQuestions,
+      retrievalIntents: macroSignature.retrievalIntents,
+    })
+    const macroDerivedNodes = buildDerivedRaptorChildNodes({
+      parent: {
+        id: macroSummary.clusterId,
+        nodeKind: 'macro',
+        level: 1,
+        clusterId: macroSummary.clusterId,
+        childIds: [],
+        label: macroSummary.label,
+        summary: macroSummary.summary,
+        keywords: macroSummary.keywords,
+        retrievalText: macroRetrievalText,
+        generatedQuestions: macroSignature.generatedQuestions,
+        retrievalIntents: macroSignature.retrievalIntents,
+        facetLabels: macroSummary.facetLabels ?? [],
+        facetSummaries: macroSummary.facetSummaries,
+        inclusionCriteria: macroSummary.inclusionCriteria ?? [],
+        exclusionCriteria: macroSummary.exclusionCriteria ?? [],
+        memberDocIds: macroSummary.memberDocIds,
+        referenceDocIds: macroSignature.referenceDocIds,
+        centroidVector: macroSummary.centroidVector,
+        signatureJson: macroSummary.signatureJson,
+        retrievalSignatureJson: JSON.stringify(macroSignature),
+        topologyJson: macroSummary.topologyJson,
+        hierarchyJson: macroSummary.hierarchyJson,
+        sourceClusterId: macroSummary.clusterId,
+      },
+      language: input.language,
+    })
+    nodes.push(...macroDerivedNodes)
+
+    for (const microId of collectMicroIdsForMacro(input.hierarchical, macroId)) {
+      const trace = tracesByMicroId.get(microId)
+      const traceOutput = trace?.output
+      const memberIndices = collectMemberIndices(microClusters, microId, input.docs.length)
+      const memberDocIds = memberIndices.map((docIndex) => input.docs[docIndex]?.id).filter((docId): docId is string => Boolean(docId))
+      const referenceDocIds = uniqueDocIds([
+        ...(trace?.representativeDocIds ?? []),
+        ...(traceOutput?.evidenceDocIds ?? []),
+        ...memberDocIds.slice(0, 12),
+      ])
+      const fallbackLabel = input.language === 'ja'
+        ? `${macroSummary.label} / micro ${microId}`
+        : `${macroSummary.label} / micro ${microId}`
+      const label = compactClusterLabel(traceOutput?.primaryLabel ?? trace?.label, fallbackLabel)
+      const summary = compactClusterSummary(traceOutput?.shortSummary ?? trace?.response, label)
+      const facetLabels = compactList(traceOutput?.facetLabels ?? [], 8, MAX_CLUSTER_LABEL_CHARS)
+      const inclusionCriteria = compactList(traceOutput?.inclusionCriteria ?? [], 8, MAX_CRITERION_CHARS)
+      const exclusionCriteria = compactList(traceOutput?.exclusionCriteria ?? [], 8, MAX_CRITERION_CHARS)
+      const signature = buildClusterRetrievalSignature({
+        taxonomyPath: [macroSummary.label, label],
+        label,
+        summary,
+        keywords: facetLabels,
+        facetLabels,
+        inclusionCriteria,
+        exclusionCriteria,
+        referenceDocIds,
+        topologyJson: traceOutput?.topology ? JSON.stringify(traceOutput.topology) : undefined,
+        language: input.language,
+      })
+      const retrievalText = buildRetrievalText({
+        label,
+        summary,
+        keywords: facetLabels,
+        facetLabels,
+        inclusionCriteria,
+        exclusionCriteria,
+        generatedQuestions: signature.generatedQuestions,
+        retrievalIntents: signature.retrievalIntents,
+      })
+      const microNode: RaptorRetrievalNode = {
+        id: `${macroSummary.clusterId}__micro-${microId}`,
+        nodeKind: 'micro',
+        level: 2,
+        clusterId: macroSummary.clusterId,
+        parentId: macroSummary.clusterId,
+        childIds: [],
+        label,
+        summary,
+        keywords: facetLabels,
+        retrievalText,
+        generatedQuestions: signature.generatedQuestions,
+        retrievalIntents: signature.retrievalIntents,
+        facetLabels,
+        inclusionCriteria,
+        exclusionCriteria,
+        memberDocIds,
+        referenceDocIds: signature.referenceDocIds,
+        centroidVector: Array.from(microClusters.centroids[microId] ?? []),
+        signatureJson: traceOutput ? JSON.stringify(traceOutput) : undefined,
+        retrievalSignatureJson: JSON.stringify(signature),
+        topologyJson: traceOutput?.topology ? JSON.stringify(traceOutput.topology) : undefined,
+        hierarchyJson: JSON.stringify({ level: 'micro', parentClusterId: macroSummary.clusterId, childCount: 0 }),
+        sourceClusterId: macroSummary.clusterId,
+        localClusterId: `micro-${microId}`,
+      }
+      const derivedNodes = buildDerivedRaptorChildNodes({ parent: microNode, language: input.language })
+      microNode.childIds = derivedNodes.map((node) => node.id)
+      nodes.push(microNode, ...derivedNodes)
+    }
+  }
+
+  return nodes
+}
+
+function buildDerivedRaptorChildNodes(input: {
+  parent: RaptorRetrievalNode
+  language: Language
+}): RaptorRetrievalNode[] {
+  const parent = input.parent
+  const questionNodes = parent.generatedQuestions.slice(0, 3).map((question, questionIndex): RaptorRetrievalNode => ({
+    id: `${parent.id}__question-${questionIndex}`,
+    nodeKind: 'retrieval-question',
+    level: parent.level + 1,
+    clusterId: parent.clusterId,
+    parentId: parent.id,
+    childIds: [],
+    label: question,
+    summary: parent.summary,
+    keywords: parent.keywords,
+    retrievalText: buildRetrievalText({
+      label: question,
+      summary: parent.summary,
+      keywords: parent.keywords,
+      facetLabels: parent.facetLabels,
+      facetSummaries: parent.facetSummaries,
+      inclusionCriteria: parent.inclusionCriteria,
+      exclusionCriteria: parent.exclusionCriteria,
+      generatedQuestions: [question],
+      retrievalIntents: uniqueStrings(['question-answering', ...parent.retrievalIntents]),
+    }),
+    generatedQuestions: [question],
+    retrievalIntents: uniqueStrings(['question-answering', ...parent.retrievalIntents]),
+    facetLabels: parent.facetLabels,
+    facetSummaries: parent.facetSummaries,
+    inclusionCriteria: parent.inclusionCriteria,
+    exclusionCriteria: parent.exclusionCriteria,
+    memberDocIds: parent.memberDocIds.slice(0, 500),
+    referenceDocIds: parent.referenceDocIds,
+    centroidVector: parent.centroidVector,
+    signatureJson: parent.signatureJson,
+    retrievalSignatureJson: parent.retrievalSignatureJson,
+    topologyJson: parent.topologyJson,
+    hierarchyJson: parent.hierarchyJson,
+    sourceClusterId: parent.sourceClusterId,
+    localClusterId: parent.localClusterId,
+  }))
+
+  const facetNodes = parent.facetLabels.slice(0, 4).map((facet, facetIndex): RaptorRetrievalNode => {
+    const facetSummary = parent.facetSummaries?.[facetIndex] ?? facet
+    const facetQuery = input.language === 'ja'
+      ? `${parent.label} ${facet} 関連文書`
+      : `${parent.label} ${facet} related documents`
+    return {
+      id: `${parent.id}__facet-${facetIndex}`,
+      nodeKind: 'facet',
+      level: parent.level + 1,
+      clusterId: parent.clusterId,
+      parentId: parent.id,
+      childIds: [],
+      label: facet,
+      summary: facetSummary,
+      keywords: uniqueStrings([facet, ...parent.keywords]),
+      retrievalText: buildRetrievalText({
+        label: facet,
+        summary: facetSummary,
+        keywords: parent.keywords,
+        facetLabels: [facet],
+        facetSummaries: [facetSummary],
+        inclusionCriteria: parent.inclusionCriteria,
+        exclusionCriteria: parent.exclusionCriteria,
+        generatedQuestions: [facetQuery],
+        retrievalIntents: uniqueStrings(['facet', ...parent.retrievalIntents]),
+      }),
+      generatedQuestions: [facetQuery],
+      retrievalIntents: uniqueStrings(['facet', ...parent.retrievalIntents]),
+      facetLabels: [facet],
+      facetSummaries: [facetSummary],
+      inclusionCriteria: parent.inclusionCriteria,
+      exclusionCriteria: parent.exclusionCriteria,
+      memberDocIds: parent.memberDocIds.slice(0, 500),
+      referenceDocIds: parent.referenceDocIds,
+      centroidVector: parent.centroidVector,
+      signatureJson: parent.signatureJson,
+      retrievalSignatureJson: parent.retrievalSignatureJson,
+      topologyJson: parent.topologyJson,
+      hierarchyJson: parent.hierarchyJson,
+      sourceClusterId: parent.sourceClusterId,
+      localClusterId: parent.localClusterId,
+    }
+  })
+
+  return [...questionNodes, ...facetNodes]
 }
 
 function parseSignatureFromSummary(summary: ClusterSummary): ClusterSemanticSignature {
@@ -1704,6 +2437,17 @@ export function buildMetaIndexSchema(
     fields: [
       { name: 'id', type: 'Edm.String', key: true, filterable: true },
       { name: 'clusterId', type: 'Edm.String', filterable: true, searchable: false },
+      { name: 'nodeKind', type: 'Edm.String', filterable: true, searchable: false },
+      { name: 'level', type: 'Edm.Int32', filterable: true, sortable: true },
+      { name: 'parentId', type: 'Edm.String', filterable: true, searchable: false },
+      {
+        name: 'childIds',
+        type: 'Collection(Edm.String)',
+        searchable: false,
+        filterable: true,
+      },
+      { name: 'sourceClusterId', type: 'Edm.String', filterable: true, searchable: false },
+      { name: 'localClusterId', type: 'Edm.String', filterable: true, searchable: false },
       { name: 'label', type: 'Edm.String', searchable: true, filterable: false },
       { name: 'summary', type: 'Edm.String', searchable: true, filterable: false },
       {
@@ -1729,6 +2473,25 @@ export function buildMetaIndexSchema(
         vectorSearchProfile: 'eflc-vector-profile',
       },
       { name: 'representativeText', type: 'Edm.String', searchable: true },
+      { name: 'retrievalText', type: 'Edm.String', searchable: true },
+      {
+        name: 'generatedQuestions',
+        type: 'Collection(Edm.String)',
+        searchable: true,
+        filterable: false,
+      },
+      {
+        name: 'retrievalIntents',
+        type: 'Collection(Edm.String)',
+        searchable: true,
+        filterable: true,
+      },
+      {
+        name: 'referenceDocIds',
+        type: 'Collection(Edm.String)',
+        searchable: false,
+        filterable: true,
+      },
       { name: 'summaryVersion', type: 'Edm.String', filterable: true, searchable: false },
       {
         name: 'facetLabels',
@@ -1755,6 +2518,7 @@ export function buildMetaIndexSchema(
         filterable: false,
       },
       { name: 'signatureJson', type: 'Edm.String', searchable: false, retrievable: true },
+      { name: 'retrievalSignatureJson', type: 'Edm.String', searchable: false, retrievable: true },
       { name: 'qualityJson', type: 'Edm.String', searchable: false, retrievable: true },
       { name: 'topologyJson', type: 'Edm.String', searchable: false, retrievable: true },
       { name: 'hierarchyJson', type: 'Edm.String', searchable: false, retrievable: true },
@@ -1790,12 +2554,18 @@ export function buildMetaIndexSchema(
             titleField: { fieldName: 'label' },
             prioritizedContentFields: [
               { fieldName: 'summary' },
+              { fieldName: 'retrievalText' },
               { fieldName: 'facetSummaries' },
               { fieldName: 'inclusionCriteria' },
               { fieldName: 'exclusionCriteria' },
               { fieldName: 'representativeText' },
             ],
-            prioritizedKeywordsFields: [{ fieldName: 'keywords' }, { fieldName: 'facetLabels' }],
+            prioritizedKeywordsFields: [
+              { fieldName: 'keywords' },
+              { fieldName: 'facetLabels' },
+              { fieldName: 'generatedQuestions' },
+              { fieldName: 'retrievalIntents' },
+            ],
           },
         },
       ],
@@ -1927,31 +2697,67 @@ export async function uploadMetaDocuments(input: {
   apiVersion: SearchApiVersion
   metaIndexName: string
   summaries: ClusterSummary[]
+  raptorNodes?: RaptorRetrievalNode[]
   metaConfig: MetaIndexConfig
   language?: Language
 }): Promise<RestResult> {
-  const { profile, apiVersion, metaIndexName, summaries, metaConfig } = input
+  const { profile, apiVersion, metaIndexName, summaries, raptorNodes = [], metaConfig, language = 'en' } = input
+  const childIdsByParent = new Map<string, string[]>()
+  for (const node of raptorNodes) {
+    if (!node.parentId) continue
+    const childIds = childIdsByParent.get(node.parentId) ?? []
+    childIds.push(node.id)
+    childIdsByParent.set(node.parentId, childIds)
+  }
 
-  const documents = summaries.map((s) => {
+  const documents: Array<Record<string, JsonValue>> = summaries.map((s) => {
     const fallbackLabel = s.clusterId || 'Cluster'
+    const retrievalSignature = s.retrievalSignatureJson
+      ? null
+      : buildRetrievalSignatureForSummary(s, language)
+    const generatedQuestions = s.generatedQuestions ?? retrievalSignature?.generatedQuestions ?? []
+    const retrievalIntents = s.retrievalIntents ?? retrievalSignature?.retrievalIntents ?? []
+    const referenceDocIds = s.referenceDocIds ?? retrievalSignature?.referenceDocIds ?? []
+    const retrievalText = s.retrievalText ?? buildRetrievalText({
+      label: s.label,
+      summary: s.summary,
+      keywords: s.keywords,
+      facetLabels: s.facetLabels ?? [],
+      facetSummaries: s.facetSummaries,
+      inclusionCriteria: s.inclusionCriteria ?? [],
+      exclusionCriteria: s.exclusionCriteria ?? [],
+      generatedQuestions,
+      retrievalIntents,
+    })
     return {
       '@search.action': 'upload',
       id: s.clusterId,
       clusterId: s.clusterId,
+      nodeKind: s.nodeKind ?? 'macro',
+      level: s.level ?? 1,
+      parentId: s.parentId ?? '',
+      childIds: s.childIds ?? childIdsByParent.get(s.clusterId) ?? [],
+      sourceClusterId: s.sourceClusterId ?? s.clusterId,
+      localClusterId: s.localClusterId ?? '',
       label: compactClusterLabel(s.label, fallbackLabel),
       summary: compactClusterSummary(s.summary, fallbackLabel),
       keywords: compactList(s.keywords, 16, MAX_KEYWORD_CHARS),
       documentCount: s.documentCount,
       memberDocIds: s.memberDocIds.slice(0, 1000), // Limit for field size
+      referenceDocIds: uniqueDocIds(referenceDocIds).slice(0, 100),
       centroidVector: s.centroidVector,
       // Azure AI Search rejects single terms > 32766 UTF-8 bytes. Keep a safety margin.
       representativeText: truncateUtf8Bytes(s.representativeText, 32_000),
+      retrievalText: truncateUtf8Bytes(retrievalText, 32_000),
+      generatedQuestions: compactList(generatedQuestions, 8, 180),
+      retrievalIntents: compactList(retrievalIntents, 8, MAX_CLUSTER_LABEL_CHARS),
       summaryVersion: s.summaryVersion ?? 'v1',
       facetLabels: compactList(s.facetLabels ?? [], 8, MAX_CLUSTER_LABEL_CHARS),
       facetSummaries: compactList(s.facetSummaries ?? [], 8, MAX_FACET_SUMMARY_CHARS),
       inclusionCriteria: compactList(s.inclusionCriteria ?? [], 8, MAX_CRITERION_CHARS),
       exclusionCriteria: compactList(s.exclusionCriteria ?? [], 8, MAX_CRITERION_CHARS),
       signatureJson: truncateUtf8Bytes(s.signatureJson ?? '', 32_000),
+      retrievalSignatureJson: truncateUtf8Bytes(s.retrievalSignatureJson ?? JSON.stringify(retrievalSignature ?? {}), 32_000),
       qualityJson: truncateUtf8Bytes(s.qualityJson ?? '', 32_000),
       topologyJson: truncateUtf8Bytes(s.topologyJson ?? '', 32_000),
       hierarchyJson: truncateUtf8Bytes(s.hierarchyJson ?? '', 32_000),
@@ -1960,6 +2766,7 @@ export async function uploadMetaDocuments(input: {
       createdAt: metaConfig.createdAt,
     }
   })
+  documents.push(...raptorNodes.map((node) => buildRaptorNodeDocument({ node, metaConfig })))
 
   const result = await indexDocuments({
     profile,
@@ -2032,23 +2839,54 @@ export async function twoStageSearch(input: {
   const t0 = performance.now()
 
   // Step 1: Global search on meta-index
-  const globalBody: JsonValue = {
+  const raptorTopNodes = Math.min(50, Math.max(topClusters, topClusters * 6))
+  const raptorGlobalBody: JsonValue = {
+    search: query,
+    queryType: 'semantic',
+    semanticConfiguration: 'eflc-semantic',
+    searchFields: RAPTOR_META_SEARCH_FIELDS.join(','),
+    filter: "search.in(nodeKind, 'macro,micro,retrieval-question,facet,bridge', ',')",
+    top: raptorTopNodes,
+    select: RAPTOR_META_SELECT.join(','),
+    count: true,
+  }
+  const legacyGlobalBody: JsonValue = {
     search: query,
     queryType: 'semantic',
     semanticConfiguration: 'eflc-semantic',
     top: topClusters,
-    select: 'clusterId,label,summary,documentCount,memberDocIds',
+    select: LEGACY_META_SELECT.join(','),
     count: true,
   }
 
-  const globalResult = await searchDocuments({
+  let globalBody = raptorGlobalBody
+  let globalMode: 'raptor-lite' | 'legacy' = 'raptor-lite'
+  let fallbackReason: string | undefined
+  let globalResult = await searchDocuments({
     profile,
     indexName: metaIndexName,
     apiVersion,
-    body: globalBody,
+    body: raptorGlobalBody,
     language,
     signal,
   })
+
+  if (!globalResult.ok) {
+    fallbackReason = globalResult.error?.message || 'RAPTOR-lite global search failed'
+    const legacyResult = await searchDocuments({
+      profile,
+      indexName: metaIndexName,
+      apiVersion,
+      body: legacyGlobalBody,
+      language,
+      signal,
+    })
+    if (legacyResult.ok) {
+      globalBody = legacyGlobalBody
+      globalMode = 'legacy'
+      globalResult = legacyResult
+    }
+  }
 
   const t1 = performance.now()
 
@@ -2064,28 +2902,47 @@ export async function twoStageSearch(input: {
   const globalResp = globalResult.response as Record<string, JsonValue>
   const globalDocs = (globalResp.value as Array<Record<string, JsonValue>>) || []
   const totalDocs = (globalResp['@odata.count'] as number) || 0
+  const nodeDecisions = globalDocs.map((doc) => buildRaptorDecisionForGlobalDoc({ doc, language }))
 
-  const clusters = globalDocs.map((doc) => ({
-    clusterId: String(doc.clusterId ?? ''),
-    label: String(doc.label ?? ''),
-    summary: String(doc.summary ?? ''),
-    score: Number(doc['@search.score'] ?? 0),
-    documentCount: Number(doc.documentCount ?? 0),
-  }))
+  const clusters = globalDocs.map((doc, docIndex) => {
+    const nodeDecision = nodeDecisions[docIndex]
+    return {
+      nodeId: String(doc.id ?? doc.clusterId ?? ''),
+      nodeKind: parseRaptorNodeKind(doc.nodeKind),
+      level: Number(doc.level ?? 1),
+      clusterId: String(doc.clusterId ?? ''),
+      label: String(doc.label ?? ''),
+      summary: String(doc.summary ?? ''),
+      score: Number(doc['@search.score'] ?? 0),
+      documentCount: Number(doc.documentCount ?? 0),
+      parentId: String(doc.parentId ?? '') || undefined,
+      childIds: asStringArray(doc.childIds),
+      sourceClusterId: String(doc.sourceClusterId ?? '') || undefined,
+      localClusterId: String(doc.localClusterId ?? '') || undefined,
+      generatedQuestions: asStringArray(doc.generatedQuestions),
+      retrievalIntents: asStringArray(doc.retrievalIntents),
+      facetLabels: asStringArray(doc.facetLabels),
+      referenceDocIds: asStringArray(doc.referenceDocIds),
+      treePath: nodeDecision.treePath,
+      nodeDecision,
+    }
+  })
 
   // Collect all member doc IDs from matched clusters
   const allMemberIds: string[] = []
-  for (const doc of globalDocs) {
-    const ids = doc.memberDocIds as string[] | undefined
-    if (ids) allMemberIds.push(...ids)
+  for (const decision of nodeDecisions) {
+    allMemberIds.push(...decision.selectedDocIds)
   }
+  const candidateDocIds = uniqueDocIds(allMemberIds)
 
   // Step 2: Local search on source index, filtered to cluster members
   let documents: TwoStageSearchResult['documents'] = []
+  let localRequest: JsonValue | undefined
+  let localFilterApplied = false
 
-  if (allMemberIds.length > 0) {
+  if (candidateDocIds.length > 0) {
     // Build filter using search.in for efficiency (max ~65K chars in filter)
-    const idBatch = allMemberIds.slice(0, 500) // Limit to avoid filter size issues
+    const idBatch = candidateDocIds.slice(0, 500) // Limit to avoid filter size issues
     const filterValue = idBatch.map((id) => id.replace(/'/g, "''" )).join(',')
 
     // Need to know the key field name
@@ -2109,6 +2966,8 @@ export async function twoStageSearch(input: {
       top: topDocs,
       count: true,
     }
+    localRequest = localBody
+    localFilterApplied = true
 
     const localResult = await searchDocuments({
       profile,
@@ -2126,6 +2985,8 @@ export async function twoStageSearch(input: {
         top: topDocs,
         count: true,
       }
+      localRequest = retryBody
+      localFilterApplied = false
       const retryResult = await searchDocuments({
         profile,
         indexName: sourceIndexName,
@@ -2170,10 +3031,23 @@ export async function twoStageSearch(input: {
       localSearchTimeMs: Math.round(t2 - t1),
       totalTimeMs: Math.round(t2 - t0),
       searchSpaceReduction: totalDocs > 0
-        ? Number(((1 - allMemberIds.length / totalDocs) * 100).toFixed(1))
+        ? Number(((1 - candidateDocIds.length / Math.max(totalDocs, candidateDocIds.length)) * 100).toFixed(1))
         : 0,
       totalDocs,
-      filteredDocs: allMemberIds.length,
+      filteredDocs: candidateDocIds.length,
+      globalNodeCount: globalDocs.length,
+      candidateDocCount: candidateDocIds.length,
+      localFilterApplied,
+    },
+    trace: {
+      mode: globalMode,
+      globalRequest: globalBody,
+      localRequest,
+      retrievalSurfaceFields: globalMode === 'raptor-lite' ? RAPTOR_META_SEARCH_FIELDS : ['label', 'summary', 'keywords'],
+      nodeDecisions,
+      candidateDocIds: candidateDocIds.slice(0, 500),
+      localFilterApplied,
+      fallbackReason,
     },
   }
 }
@@ -2266,22 +3140,40 @@ export async function fetchExistingSummaries(input: {
   metaIndexName: string
   language?: Language
 }): Promise<ClusterSummary[] | null> {
-  const result = await searchDocuments({
+  let result = await searchDocuments({
     profile: input.profile,
     indexName: input.metaIndexName,
     apiVersion: input.apiVersion,
     body: {
       search: '*',
-      top: 100,
+      top: 1000,
       orderby: 'documentCount desc',
-      select: 'id,clusterId,label,summary,keywords,documentCount,memberDocIds,centroidVector,representativeText,summaryVersion,facetLabels,facetSummaries,inclusionCriteria,exclusionCriteria,signatureJson,qualityJson,topologyJson,hierarchyJson,sourceIndex,vectorField,createdAt',
+      select: META_SUMMARY_SELECT.join(','),
     },
     language: input.language,
   })
+  if (!result.ok) {
+    result = await searchDocuments({
+      profile: input.profile,
+      indexName: input.metaIndexName,
+      apiVersion: input.apiVersion,
+      body: {
+        search: '*',
+        top: 1000,
+        orderby: 'documentCount desc',
+        select: LEGACY_META_SUMMARY_SELECT.join(','),
+      },
+      language: input.language,
+    })
+  }
   if (!result.ok || !result.response) return null
 
   const resp = result.response as Record<string, JsonValue>
-  const docs = resp.value as Array<Record<string, JsonValue>> | undefined
+  const docs = (resp.value as Array<Record<string, JsonValue>> | undefined)
+    ?.filter((doc) => {
+      const nodeKind = String(doc.nodeKind ?? 'macro')
+      return nodeKind === 'macro' || nodeKind === ''
+    })
   if (!docs || docs.length === 0) return null
 
   return docs.map((d) => {
@@ -2305,6 +3197,76 @@ export async function fetchExistingSummaries(input: {
       qualityJson: String(d.qualityJson ?? ''),
       topologyJson: String(d.topologyJson ?? ''),
       hierarchyJson: String(d.hierarchyJson ?? ''),
+      nodeKind: parseRaptorNodeKind(d.nodeKind),
+      level: Number(d.level ?? 1),
+      parentId: String(d.parentId ?? '') || undefined,
+      childIds: asStringArray(d.childIds),
+      sourceClusterId: String(d.sourceClusterId ?? '') || undefined,
+      localClusterId: String(d.localClusterId ?? '') || undefined,
+      retrievalText: String(d.retrievalText ?? ''),
+      generatedQuestions: compactList(d.generatedQuestions, 8, 180),
+      retrievalIntents: compactList(d.retrievalIntents, 8, MAX_CLUSTER_LABEL_CHARS),
+      referenceDocIds: asStringArray(d.referenceDocIds),
+      retrievalSignatureJson: String(d.retrievalSignatureJson ?? ''),
+    }
+  })
+}
+
+export async function fetchExistingRaptorNodes(input: {
+  profile: ConnectionProfile
+  apiVersion: SearchApiVersion
+  metaIndexName: string
+  language?: Language
+}): Promise<RaptorRetrievalNode[]> {
+  const result = await searchDocuments({
+    profile: input.profile,
+    indexName: input.metaIndexName,
+    apiVersion: input.apiVersion,
+    body: {
+      search: '*',
+      filter: "search.in(nodeKind, 'root,micro,retrieval-question,facet,bridge', ',')",
+      top: 1000,
+      orderby: 'level asc, documentCount desc',
+      select: META_SUMMARY_SELECT.join(','),
+    },
+    language: input.language,
+  })
+  if (!result.ok || !result.response) return []
+
+  const resp = result.response as Record<string, JsonValue>
+  const docs = resp.value as Array<Record<string, JsonValue>> | undefined
+  if (!docs || docs.length === 0) return []
+
+  return docs.map((doc) => {
+    const id = String(doc.id ?? doc.clusterId ?? '')
+    const clusterId = String(doc.clusterId ?? '')
+    const fallbackLabel = id || clusterId || 'RAPTOR node'
+    return {
+      id,
+      nodeKind: parseRaptorNodeKind(doc.nodeKind),
+      level: Number(doc.level ?? 2),
+      clusterId,
+      parentId: String(doc.parentId ?? '') || undefined,
+      childIds: asStringArray(doc.childIds),
+      label: compactClusterLabel(doc.label, fallbackLabel),
+      summary: compactClusterSummary(doc.summary, fallbackLabel),
+      keywords: compactList(doc.keywords, 16, MAX_KEYWORD_CHARS),
+      retrievalText: String(doc.retrievalText ?? doc.representativeText ?? ''),
+      generatedQuestions: compactList(doc.generatedQuestions, 8, 180),
+      retrievalIntents: compactList(doc.retrievalIntents, 8, MAX_CLUSTER_LABEL_CHARS),
+      facetLabels: compactList(doc.facetLabels, 8, MAX_CLUSTER_LABEL_CHARS),
+      facetSummaries: compactList(doc.facetSummaries, 8, MAX_FACET_SUMMARY_CHARS),
+      inclusionCriteria: compactList(doc.inclusionCriteria, 8, MAX_CRITERION_CHARS),
+      exclusionCriteria: compactList(doc.exclusionCriteria, 8, MAX_CRITERION_CHARS),
+      memberDocIds: asStringArray(doc.memberDocIds),
+      referenceDocIds: asStringArray(doc.referenceDocIds),
+      centroidVector: Array.isArray(doc.centroidVector) ? doc.centroidVector.map(Number) : undefined,
+      signatureJson: String(doc.signatureJson ?? ''),
+      retrievalSignatureJson: String(doc.retrievalSignatureJson ?? ''),
+      topologyJson: String(doc.topologyJson ?? ''),
+      hierarchyJson: String(doc.hierarchyJson ?? ''),
+      sourceClusterId: String(doc.sourceClusterId ?? clusterId) || undefined,
+      localClusterId: String(doc.localClusterId ?? '') || undefined,
     }
   })
 }
