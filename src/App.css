@@ -5220,6 +5220,79 @@ html[data-theme='light'] .rawJsonViewer {
   gap: 16px;
 }
 
+.builder__grid--resizable {
+  grid-template-columns: minmax(180px, var(--index-builder-list-pane, 26%)) 12px minmax(0, 1fr);
+  gap: 0;
+  align-items: start;
+}
+
+.builder__listPane,
+.builder__mainPane {
+  min-width: 0;
+}
+
+.builder__listPane {
+  margin-right: 6px;
+}
+
+.builder__mainPane {
+  margin-left: 6px;
+}
+
+.indexBuilderSplitter {
+  align-self: stretch;
+  min-height: 420px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-left: 1px solid rgba(91, 157, 255, 0.28);
+  border-right: 1px solid rgba(53, 199, 164, 0.28);
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(91, 157, 255, 0.05), rgba(53, 199, 164, 0.05));
+  box-shadow: inset 1px 0 rgba(255, 255, 255, 0.05), inset -1px 0 rgba(0, 0, 0, 0.08);
+  cursor: col-resize;
+  outline: none;
+}
+
+.indexBuilderSplitter:hover,
+.indexBuilderSplitter--active,
+.indexBuilderSplitter:focus-visible {
+  border-left-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-right-color: color-mix(in srgb, #35c7a4 55%, var(--border));
+  background: linear-gradient(90deg, rgba(91, 157, 255, 0.1), rgba(53, 199, 164, 0.1));
+}
+
+.indexBuilderSplitter:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.indexBuilderSplitter__bar {
+  display: block;
+  width: 3px;
+  height: 64px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(91, 157, 255, 0.62), rgba(53, 199, 164, 0.62));
+  box-shadow: 0 0 0 3px rgba(91, 157, 255, 0.08);
+}
+
+@media (max-width: 760px) {
+  .builder__grid--resizable {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .builder__grid--resizable .indexBuilderSplitter {
+    display: none;
+  }
+
+  .builder__listPane,
+  .builder__mainPane {
+    margin-right: 0;
+    margin-left: 0;
+  }
+}
+
 .builder__sidebarTitle {
   margin-bottom: 8px;
   font-weight: 600;
@@ -5253,6 +5326,30 @@ html[data-theme='light'] .rawJsonViewer {
 
 .builder__actions {
   margin-top: 16px;
+}
+
+.indexBuilderSubTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.indexBuilderSubtabPanel {
+  margin-top: 12px;
+}
+
+.indexBuilderSubtabPanel[hidden] {
+  display: none;
+}
+
+.indexBuilderSubtabPanel > .indexSchemaWorkbench,
+.indexBuilderSubtabPanel > .indexCloneAssistant {
+  margin-top: 0;
+}
+
+.indexBuilderJsonSection .builder__jsonViewBox {
+  max-height: calc(100vh - 372px);
 }
 
 .indexSchemaWorkbench {
@@ -5536,6 +5633,15 @@ html[data-theme='light'] .rawJsonViewer {
   border-bottom: none;
 }
 
+.indexSchemaFieldMatrix tbody tr {
+  cursor: pointer;
+}
+
+.indexSchemaFieldMatrix tbody tr:hover td,
+.indexSchemaFieldMatrix__row--selected td {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
 .indexSchemaFieldMatrix__name {
   display: grid;
   gap: 2px;
@@ -5587,10 +5693,689 @@ html[data-theme='light'] .rawJsonViewer {
   margin-top: 7px;
 }
 
+.indexSchemaFieldSettings {
+  display: grid;
+  gap: 10px;
+}
+
+.indexSchemaFieldSettings__empty {
+  margin-top: 6px;
+}
+
+.indexSchemaFieldSettings__layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.indexSchemaFieldSettings__rail {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  max-height: 520px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.indexSchemaFieldSettings__fieldBtn {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+}
+
+.indexSchemaFieldSettings__fieldBtn:hover,
+.indexSchemaFieldSettings__fieldBtn--active {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.indexSchemaFieldSettings__fieldPath,
+.indexSchemaFieldSettings__selectedName,
+.indexSchemaFieldSettings__label,
+.indexSchemaFieldSettings__inputLabel {
+  font-weight: 700;
+}
+
+.indexSchemaFieldSettings__fieldPath,
+.indexSchemaFieldSettings__selectedName {
+  overflow-wrap: anywhere;
+}
+
+.indexSchemaFieldSettings__fieldType,
+.indexSchemaFieldSettings__selectedType,
+.indexSchemaFieldSettings__note {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.indexSchemaFieldSettings__detail {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.indexSchemaFieldSettings__summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.indexSchemaFieldSettings__selectedName {
+  color: var(--fg);
+  font-size: 14px;
+}
+
+.indexSchemaFieldSettings__cards {
+  display: grid;
+  gap: 10px;
+}
+
+.indexSchemaFieldSettings__card {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.indexSchemaFieldSettings__cardTitle {
+  margin-bottom: 8px;
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.indexSchemaFieldSettings__toggleGrid,
+.indexSchemaFieldSettings__formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.indexSchemaFieldSettings__formGrid--compact {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.indexSchemaFieldSettings__toggle,
+.indexSchemaFieldSettings__inputField {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+}
+
+.indexSchemaFieldSettings__toggle {
+  grid-template-columns: auto 24px minmax(0, 1fr);
+  align-items: start;
+}
+
+.indexSchemaFieldSettings__toggle--safe,
+.indexSchemaFieldSettings__status--safe {
+  border-left-color: #14b8a6;
+}
+
+.indexSchemaFieldSettings__toggle--review,
+.indexSchemaFieldSettings__status--review {
+  border-left-color: #f59e0b;
+}
+
+.indexSchemaFieldSettings__toggle--rebuild,
+.indexSchemaFieldSettings__status--rebuild {
+  border-left-color: #ef4444;
+}
+
+.indexSchemaFieldSettings__toggle input {
+  margin-top: 4px;
+}
+
+.indexSchemaFieldSettings__toggleIcon {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  color: var(--accent);
+}
+
+.indexSchemaFieldSettings__toggleText {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.indexSchemaFieldSettings__status {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.indexSchemaFieldSettings__status--safe {
+  background: color-mix(in srgb, #14b8a6 15%, var(--surface));
+  color: color-mix(in srgb, #14b8a6 82%, var(--fg));
+}
+
+.indexSchemaFieldSettings__status--review {
+  background: color-mix(in srgb, #f59e0b 15%, var(--surface));
+  color: color-mix(in srgb, #f59e0b 82%, var(--fg));
+}
+
+.indexSchemaFieldSettings__status--rebuild {
+  background: color-mix(in srgb, #ef4444 13%, var(--surface));
+  color: color-mix(in srgb, #ef4444 82%, var(--fg));
+}
+
+.indexSchemaFieldSettings__inputLabel {
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.indexSchemaConfigEditor {
+  display: grid;
+  gap: 10px;
+  container-type: inline-size;
+  --index-config-input-bg: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
+  --index-config-input-border: color-mix(in srgb, var(--accent) 32%, var(--border));
+  --index-config-disabled-bg: color-mix(in srgb, var(--panel-2) 82%, transparent);
+  --vector-profile-color: #2563eb;
+  --vector-algorithm-color: #059669;
+  --vectorizer-color: #7c3aed;
+  --vector-compression-color: #d97706;
+}
+
+.indexSchemaConfigEditor .field__input:not(:disabled):not([readonly]),
+.indexSchemaConfigEditor .field__textarea:not(:disabled):not([readonly]) {
+  border-color: var(--index-config-input-border);
+  background: var(--index-config-input-bg);
+}
+
+.indexSchemaConfigEditor .field--vectorProfile .field__input:not(:disabled):not([readonly]),
+.indexSchemaConfigEditor .field--vectorProfile .field__textarea:not(:disabled):not([readonly]),
+.indexSchemaConfigEditor .field--vectorAlgorithm .field__input:not(:disabled):not([readonly]),
+.indexSchemaConfigEditor .field--vectorAlgorithm .field__textarea:not(:disabled):not([readonly]),
+.indexSchemaConfigEditor .field--vectorizer .field__input:not(:disabled):not([readonly]),
+.indexSchemaConfigEditor .field--vectorizer .field__textarea:not(:disabled):not([readonly]),
+.indexSchemaConfigEditor .field--vectorCompression .field__input:not(:disabled):not([readonly]),
+.indexSchemaConfigEditor .field--vectorCompression .field__textarea:not(:disabled):not([readonly]) {
+  border-color: color-mix(in srgb, var(--vector-section-color) 46%, var(--border));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--vector-section-color) 14%, transparent), transparent 64%),
+    color-mix(in srgb, var(--surface) 88%, var(--vector-section-color) 12%);
+}
+
+.indexSchemaConfigEditor .field--vectorProfile .field__label,
+.indexSchemaConfigEditor .field--vectorAlgorithm .field__label,
+.indexSchemaConfigEditor .field--vectorizer .field__label,
+.indexSchemaConfigEditor .field--vectorCompression .field__label {
+  color: color-mix(in srgb, var(--vector-section-color) 72%, var(--fg));
+}
+
+.indexSchemaConfigEditor__checkbox.field--vectorProfile,
+.indexSchemaConfigEditor__checkbox.field--vectorAlgorithm,
+.indexSchemaConfigEditor__checkbox.field--vectorizer,
+.indexSchemaConfigEditor__checkbox.field--vectorCompression {
+  border-color: color-mix(in srgb, var(--vector-section-color) 46%, var(--border));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--vector-section-color) 14%, transparent), transparent 64%),
+    color-mix(in srgb, var(--surface) 88%, var(--vector-section-color) 12%);
+}
+
+.indexSchemaConfigEditor__checkbox.field--vectorProfile .indexSchemaConfigEditor__checkboxLabel,
+.indexSchemaConfigEditor__checkbox.field--vectorAlgorithm .indexSchemaConfigEditor__checkboxLabel,
+.indexSchemaConfigEditor__checkbox.field--vectorizer .indexSchemaConfigEditor__checkboxLabel,
+.indexSchemaConfigEditor__checkbox.field--vectorCompression .indexSchemaConfigEditor__checkboxLabel {
+  color: color-mix(in srgb, var(--vector-section-color) 72%, var(--fg));
+}
+
+.indexSchemaConfigEditor .field__input:disabled,
+.indexSchemaConfigEditor .field__textarea:disabled {
+  border-color: color-mix(in srgb, var(--border) 74%, transparent);
+  background: var(--index-config-disabled-bg);
+  opacity: 0.68;
+}
+
+.indexSchemaConfigEditor__tabs,
+.indexSchemaConfigEditor__toolbar,
+.indexSchemaConfigEditor__cardHeader,
+.indexSchemaConfigEditor__subHeader {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.indexSchemaConfigEditor__tabs,
+.indexSchemaConfigEditor__subHeader {
+  align-items: center;
+}
+
+.indexSchemaConfigEditor__toolbar,
+.indexSchemaConfigEditor__cardHeader {
+  align-items: flex-end;
+}
+
+.indexSchemaConfigEditor__toolbar > .btn,
+.indexSchemaConfigEditor__cardHeader > .btn {
+  align-self: flex-end;
+  min-height: 38px;
+}
+
+.indexSchemaConfigEditor__tabs {
+  margin-top: 8px;
+}
+
+.indexSchemaConfigEditor__body,
+.indexSchemaConfigEditor__section,
+.indexSchemaConfigEditor__cards,
+.indexSchemaConfigEditor__nestedCards {
+  display: grid;
+  gap: 10px;
+}
+
+.indexSchemaConfigEditor__toolbar {
+  justify-content: space-between;
+}
+
+.indexSchemaConfigEditor__toolbarField {
+  flex: 1 1 260px;
+  min-width: 220px;
+}
+
+.indexSchemaConfigEditor__card {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.indexSchemaConfigEditor__card--vectorProfile,
+.indexSchemaConfigEditor__card--vectorAlgorithm,
+.indexSchemaConfigEditor__card--vectorizer,
+.indexSchemaConfigEditor__card--vectorCompression {
+  border-color: color-mix(in srgb, var(--vector-section-color) 42%, var(--border));
+  border-left-width: 4px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--vector-section-color) 12%, transparent), transparent 42%),
+    color-mix(in srgb, var(--panel-2) 94%, var(--vector-section-color) 6%);
+}
+
+.indexSchemaConfigEditor__card--vectorProfile,
+.indexSchemaConfigEditor__nestedCard--vectorProfile,
+.field--vectorProfile {
+  --vector-section-color: var(--vector-profile-color);
+}
+
+.indexSchemaConfigEditor__card--vectorAlgorithm,
+.indexSchemaConfigEditor__nestedCard--vectorAlgorithm,
+.field--vectorAlgorithm {
+  --vector-section-color: var(--vector-algorithm-color);
+}
+
+.indexSchemaConfigEditor__card--vectorizer,
+.indexSchemaConfigEditor__nestedCard--vectorizer,
+.field--vectorizer {
+  --vector-section-color: var(--vectorizer-color);
+}
+
+.indexSchemaConfigEditor__card--vectorCompression,
+.indexSchemaConfigEditor__nestedCard--vectorCompression,
+.field--vectorCompression {
+  --vector-section-color: var(--vector-compression-color);
+}
+
+.indexSchemaConfigEditor__card--vectorProfile .indexSchemaConfigEditor__subHeader > span:first-child,
+.indexSchemaConfigEditor__card--vectorAlgorithm .indexSchemaConfigEditor__subHeader > span:first-child,
+.indexSchemaConfigEditor__card--vectorizer .indexSchemaConfigEditor__subHeader > span:first-child,
+.indexSchemaConfigEditor__card--vectorCompression .indexSchemaConfigEditor__subHeader > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: color-mix(in srgb, var(--vector-section-color) 78%, var(--fg));
+}
+
+.indexSchemaConfigEditor__card--vectorProfile .indexSchemaConfigEditor__subHeader > span:first-child::before,
+.indexSchemaConfigEditor__card--vectorAlgorithm .indexSchemaConfigEditor__subHeader > span:first-child::before,
+.indexSchemaConfigEditor__card--vectorizer .indexSchemaConfigEditor__subHeader > span:first-child::before,
+.indexSchemaConfigEditor__card--vectorCompression .indexSchemaConfigEditor__subHeader > span:first-child::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--vector-section-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--vector-section-color) 18%, transparent);
+}
+
+.indexSchemaConfigEditor__cardHeader {
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.indexSchemaConfigEditor__cardHeader > .field {
+  flex: 1 1 210px;
+  min-width: 180px;
+}
+
+.indexSchemaConfigEditor__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.indexSchemaConfigEditor__grid--compact {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.indexSchemaConfigEditor__grid .field--full,
+.indexSchemaConfigEditor__grid .indexSchemaConfigEditor__checkbox,
+.indexSchemaConfigEditor__grid > .indexSchemaConfigEditor__grid,
+.indexSchemaConfigEditor__grid > .field:has(textarea) {
+  grid-column: 1 / -1;
+}
+
+.indexSchemaConfigEditor .field__label,
+.indexSchemaConfigEditor__checkboxLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.indexSchemaConfigEditor .field__label .infoTooltip,
+.indexSchemaConfigEditor__checkboxLabel .infoTooltip {
+  flex: 0 0 auto;
+  margin-left: 0;
+}
+
+.indexSchemaConfigEditor__subHeader {
+  justify-content: space-between;
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.indexSchemaConfigEditor__subHeader--top {
+  padding-top: 2px;
+}
+
+.indexSchemaConfigEditor__nestedCard {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+}
+
+.indexSchemaConfigEditor__nestedCard--vectorProfile,
+.indexSchemaConfigEditor__nestedCard--vectorAlgorithm,
+.indexSchemaConfigEditor__nestedCard--vectorizer,
+.indexSchemaConfigEditor__nestedCard--vectorCompression {
+  border-color: color-mix(in srgb, var(--vector-section-color) 32%, var(--border));
+  background: color-mix(in srgb, var(--surface) 86%, var(--vector-section-color) 14%);
+}
+
+.indexSchemaConfigEditor__componentGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 10px;
+}
+
+.indexSchemaConfigEditor__checkbox {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--index-config-input-border);
+  border-radius: 7px;
+  background: var(--index-config-input-bg);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.indexSchemaConfigEditor__checkbox:has(input:disabled) {
+  border-color: color-mix(in srgb, var(--border) 74%, transparent);
+  background: var(--index-config-disabled-bg);
+  opacity: 0.68;
+}
+
+.indexSchemaConfigEditor__empty {
+  margin-top: 0;
+}
+
+.indexSchemaConfigEditor__guide {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.indexSchemaConfigEditor__guide--scoring {
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.42fr);
+  align-items: stretch;
+}
+
+.indexSchemaConfigEditor__guide--vector {
+  grid-template-columns: minmax(140px, 0.42fr) minmax(0, 1fr);
+  align-items: center;
+}
+
+.indexSchemaConfigEditor__guideText {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+}
+
+.indexSchemaConfigEditor__guideTitle {
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.indexSchemaConfigEditor__guideDesc,
+.indexSchemaConfigEditor__guideHint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.indexSchemaConfigEditor__guideHint {
+  padding-top: 4px;
+}
+
+.indexSchemaConfigEditor__curve {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+}
+
+.indexSchemaConfigEditor__curveMeta,
+.indexSchemaConfigEditor__curveAxes,
+.indexSchemaConfigEditor__curveBoost {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.indexSchemaConfigEditor__curveMeta strong,
+.indexSchemaConfigEditor__curveBoost {
+  color: var(--fg);
+}
+
+.indexSchemaConfigEditor__curve svg {
+  width: 100%;
+  height: 100px;
+}
+
+.indexSchemaConfigEditor__curve line {
+  stroke: color-mix(in srgb, var(--muted) 35%, transparent);
+  stroke-width: 1.5;
+}
+
+.indexSchemaConfigEditor__curve path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.indexSchemaConfigEditor__curve circle {
+  fill: var(--accent);
+}
+
+.indexSchemaConfigEditor__vectorFlow {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(92px, 0.68fr) minmax(12px, auto) minmax(80px, 0.42fr) minmax(12px, auto) minmax(128px, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.indexSchemaConfigEditor__flowNode,
+.indexSchemaConfigEditor__flowStack > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  overflow: hidden;
+}
+
+.indexSchemaConfigEditor__flowNode:first-child {
+  border-color: color-mix(in srgb, var(--vector-profile-color) 44%, var(--border));
+  background: color-mix(in srgb, var(--panel) 82%, var(--vector-profile-color) 18%);
+}
+
+.indexSchemaConfigEditor__flowNode--accent {
+  border-color: color-mix(in srgb, var(--vector-profile-color) 58%, var(--border));
+  background: color-mix(in srgb, var(--panel) 76%, var(--vector-profile-color) 24%);
+}
+
+.indexSchemaConfigEditor__flowStack > div:nth-child(1) {
+  border-color: color-mix(in srgb, var(--vector-algorithm-color) 48%, var(--border));
+  background: color-mix(in srgb, var(--panel) 82%, var(--vector-algorithm-color) 18%);
+}
+
+.indexSchemaConfigEditor__flowStack > div:nth-child(2) {
+  border-color: color-mix(in srgb, var(--vectorizer-color) 48%, var(--border));
+  background: color-mix(in srgb, var(--panel) 82%, var(--vectorizer-color) 18%);
+}
+
+.indexSchemaConfigEditor__flowStack > div:nth-child(3) {
+  border-color: color-mix(in srgb, var(--vector-compression-color) 48%, var(--border));
+  background: color-mix(in srgb, var(--panel) 82%, var(--vector-compression-color) 18%);
+}
+
+.indexSchemaConfigEditor__flowNode span,
+.indexSchemaConfigEditor__flowStack span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.indexSchemaConfigEditor__flowNode strong,
+.indexSchemaConfigEditor__flowStack strong {
+  min-width: 0;
+  color: var(--fg);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.indexSchemaConfigEditor__flowStack {
+  display: grid;
+  gap: 6px;
+}
+
+.indexSchemaConfigEditor__flowStack em {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+@container (max-width: 760px) {
+  .indexSchemaConfigEditor__guide--vector,
+  .indexSchemaConfigEditor__vectorFlow {
+    grid-template-columns: 1fr;
+  }
+
+  .indexSchemaConfigEditor__flowArrow {
+    display: none;
+  }
+}
+
+.indexSchemaConfigEditor__flowArrow {
+  color: var(--accent);
+  font-weight: 800;
+  text-align: center;
+}
+
+.indexSchemaConfigEditor textarea.field__input {
+  min-height: 76px;
+  resize: vertical;
+  font-family: var(--font-mono, 'Consolas', monospace);
+  font-size: 12px;
+}
+
 @media (max-width: 1120px) {
   .indexSchemaWorkbench__panels,
   .indexSchemaMetrics {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .indexSchemaFieldSettings__layout {
+    grid-template-columns: 1fr;
+  }
+
+  .indexSchemaConfigEditor__guide--scoring,
+  .indexSchemaConfigEditor__guide--vector,
+  .indexSchemaConfigEditor__vectorFlow {
+    grid-template-columns: 1fr;
+  }
+
+  .indexSchemaConfigEditor__flowArrow {
+    display: none;
   }
 }
 
@@ -5635,10 +6420,6 @@ html[data-theme='light'] .rawJsonViewer {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--panel-2);
-}
-
-.indexCloneAssistant--collapsed {
-  padding: 8px 10px;
 }
 
 .indexCloneAssistant__header {

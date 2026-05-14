@@ -97,13 +97,11 @@ export function IndexCloneAssistant(props: IndexCloneAssistantProps) {
     skippedSourceFieldNames: [],
     missingTargetFieldNames: [],
   })
-  const [isExpanded, setIsExpanded] = useState(false)
   const workerRef = useRef<Worker | null>(null)
   const workerRequestIdRef = useRef(0)
 
   const canRun = !!profile && !!apiVersion && apiVersion.trim().length > 0
   const isRunning = progress.phase === 'preparing' || progress.phase === 'creating' || progress.phase === 'copying'
-  const shouldShowBody = isExpanded || isRunning
   const progressPercent = useMemo(() => {
     if (!progress.totalDocuments || progress.totalDocuments <= 0) return 0
     return Math.max(0, Math.min(100, Math.round((progress.readDocuments / progress.totalDocuments) * 100)))
@@ -244,7 +242,6 @@ export function IndexCloneAssistant(props: IndexCloneAssistantProps) {
 
   const prepareCloneJson = async () => {
     if (!canRun || !profile || !apiVersion) return
-    setIsExpanded(true)
     const sourceName = sourceIndexName.trim()
     const targetName = targetIndexName.trim()
     if (!sourceName) {
@@ -286,7 +283,6 @@ export function IndexCloneAssistant(props: IndexCloneAssistantProps) {
 
   const createAndCopy = async () => {
     if (!canRun || !profile || !apiVersion) return
-    setIsExpanded(true)
     const sourceName = sourceIndexName.trim()
     if (!sourceName) {
       setProgress((previous) => ({ ...previous, phase: 'error', message: t('indexCloneSelectSourceError') }))
@@ -363,7 +359,7 @@ export function IndexCloneAssistant(props: IndexCloneAssistantProps) {
   }
 
   return (
-    <div className={`indexCloneAssistant ${shouldShowBody ? '' : 'indexCloneAssistant--collapsed'}`}>
+    <div className="indexCloneAssistant">
       <div className="indexCloneAssistant__header">
         <div>
           <div className="indexCloneAssistant__title">
@@ -371,20 +367,9 @@ export function IndexCloneAssistant(props: IndexCloneAssistantProps) {
             {t('indexCloneAssistant')}
           </div>
         </div>
-        <button
-          type="button"
-          className="btn btn--mini"
-          onClick={() => setIsExpanded((value) => !value)}
-          aria-expanded={shouldShowBody}
-          disabled={isRunning}
-        >
-          <i className={`bi ${shouldShowBody ? 'bi-chevron-up' : 'bi-chevron-down'} icon--mr6`}></i>
-          {shouldShowBody ? t('indexCloneCollapse') : t('indexCloneExpand')}
-        </button>
       </div>
 
-      {shouldShowBody ? (
-        <div className="indexCloneAssistant__body">
+      <div className="indexCloneAssistant__body">
           <div className="indexCloneAssistant__desc">{t('indexCloneAssistantDesc')}</div>
 
           <div className="notice notice--warning indexCloneAssistant__notice">
@@ -505,8 +490,7 @@ export function IndexCloneAssistant(props: IndexCloneAssistantProps) {
               ) : null}
             </div>
           ) : null}
-        </div>
-      ) : null}
+      </div>
     </div>
   )
 }
