@@ -3246,6 +3246,28 @@ html[data-theme='solarized'] .run__type--auto_tuning {
   color: var(--muted);
 }
 
+.jsonViewer__facetValue {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  padding: 0 2px;
+  text-align: left;
+}
+
+.jsonViewer__facetValue:hover,
+.jsonViewer__facetValue:focus-visible {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  outline: none;
+}
+
+.jsonViewer__facetValue:disabled {
+  cursor: default;
+}
+
 .kv {
   display: grid;
   gap: 6px;

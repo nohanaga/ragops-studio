@@ -2024,6 +2024,7 @@ export const translations = {
     dbFirstExperimentDescription: '最初のExperiment（自動作成）',
     // Portal
     portalTab: 'Portal',
+    applyFacetToFilter: 'この facet を Request Builder の filter に追加',
   },
   en: {
     // Header
@@ -4040,6 +4041,7 @@ export const translations = {
     dbFirstExperimentDescription: 'First Experiment (auto-created)',
     // Portal
     portalTab: 'Portal',
+    applyFacetToFilter: 'Add this facet to the Request Builder filter',
   },
 } as const
 

@@ -215,6 +215,7 @@ function App() {
 
   const {
     isLoadingRequestBuilderSchema,
+    requestBuilderFacetFieldInfos,
     requestBuilderKeyFieldName,
     requestBuilderIndexFieldNames,
     requestBuilderSearchableFieldNames,
@@ -957,6 +958,7 @@ function App() {
       knowledgeBaseNameOptions={knowledgeBaseNameOptions}
       availableKnowledgeSources={availableKnowledgeSources}
       isLoadingRequestBuilderSchema={isLoadingRequestBuilderSchema}
+      requestBuilderFacetFieldInfos={requestBuilderFacetFieldInfos}
       requestBuilderIndexFieldNames={requestBuilderIndexFieldNames}
       requestBuilderSearchableFieldNames={requestBuilderSearchableFieldNames}
       requestBuilderVectorFieldNames={requestBuilderVectorFieldNames}

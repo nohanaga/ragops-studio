@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState, type Dispatch, type ReactElement, type RefObject, type SetStateAction } from 'react'
+import { lazy, Suspense, useCallback, useMemo, useState, type Dispatch, type ReactElement, type RefObject, type SetStateAction } from 'react'
 import type {
   CenterTab,
   KnowledgeSourceInfo,
@@ -7,6 +7,7 @@ import type {
 } from '../types'
 import type { JsonValue } from '../lib/aiSearchRest'
 import type { TranslationKey, Language } from '../lib/translations'
+import { buildFacetFilterExpression, type FacetFieldInfo } from '../utils/facetFilter'
 import {
   AppHeader,
   BuilderTabPane,
@@ -133,6 +134,7 @@ export function AppLayout(props: {
   availableKnowledgeSources: KnowledgeSourceInfo[]
 
   isLoadingRequestBuilderSchema: boolean
+  requestBuilderFacetFieldInfos: FacetFieldInfo[]
   requestBuilderIndexFieldNames: string[]
   requestBuilderSearchableFieldNames: string[]
   requestBuilderVectorFieldNames: string[]
@@ -343,6 +345,7 @@ export function AppLayout(props: {
     knowledgeBaseNameOptions,
     availableKnowledgeSources,
     isLoadingRequestBuilderSchema,
+    requestBuilderFacetFieldInfos,
     requestBuilderSearchableFieldNames,
     requestBuilderVectorFieldNames,
     requestBuilderSuggesterNames,
@@ -371,6 +374,18 @@ export function AppLayout(props: {
     setIsFilterBuilderOpen,
     availableIndexNames,
   } = props
+
+  const handleFacetFilterSelect = useCallback((fieldName: string, bucket: Record<string, unknown>) => {
+    const nextExpression = buildFacetFilterExpression(fieldName, bucket, requestBuilderFacetFieldInfos)
+    if (!nextExpression) return
+
+    setSearchForm((prev) => {
+      const currentFilter = prev.filter.trim()
+      const nextFilter = currentFilter ? `(${currentFilter}) and (${nextExpression})` : nextExpression
+      return { ...prev, filter: nextFilter }
+    })
+    setCenterTab('builder')
+  }, [requestBuilderFacetFieldInfos, setCenterTab, setSearchForm])
 
   const {
     analyzerFilterText,
@@ -1364,6 +1379,7 @@ export function AppLayout(props: {
               jsonViewerRequestData={jsonViewerRequestData}
               jsonViewerResponseData={jsonViewerResponseData}
               jsonViewerFacets={jsonViewerFacets}
+              onFacetFilterSelect={handleFacetFilterSelect}
               onCollapse={() => setIsRightPaneCollapsed(true)}
               t={t}
             />
