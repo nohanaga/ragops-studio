@@ -1,8 +1,9 @@
 import type { Dispatch, SetStateAction } from 'react'
-import type { AgenticFormState, AnalyzeFormState, CenterTab, LatestResponse, SearchFormState } from '../types'
+import type { AgenticFormState, AnalyzeFormState, AutocompleteFormState, CenterTab, LatestResponse, SearchFormState, SuggestFormState } from '../types'
 import type { AppSettings, Run } from '../lib/model'
 import { translations, type Language, type TranslationKey } from '../lib/translations'
 import { clearLastViewedRunId } from '../app/persistedLatestRun'
+import { DEFAULT_AUTOCOMPLETE_FORM, DEFAULT_SEARCH_FORM, DEFAULT_SUGGEST_FORM } from '../app/defaults'
 
 function clearPersistedLatestRunId(selectedExperimentId: string | null) {
   if (!selectedExperimentId) return
@@ -33,6 +34,8 @@ export function useClearAll(params: {
   setSearchForm: Dispatch<SetStateAction<SearchFormState>>
   setAgenticForm: Dispatch<SetStateAction<AgenticFormState>>
   setAnalyzeForm: Dispatch<SetStateAction<AnalyzeFormState>>
+  setAutocompleteForm: Dispatch<SetStateAction<AutocompleteFormState>>
+  setSuggestForm: Dispatch<SetStateAction<SuggestFormState>>
   setRequestJson: Dispatch<SetStateAction<string>>
   setRunNote: Dispatch<SetStateAction<string>>
   setLatestResponse: Dispatch<SetStateAction<LatestResponse | null>>
@@ -48,6 +51,8 @@ export function useClearAll(params: {
     setSearchForm,
     setAgenticForm,
     setAnalyzeForm,
+    setAutocompleteForm,
+    setSuggestForm,
     setRequestJson,
     setRunNote,
     setLatestResponse,
@@ -63,58 +68,7 @@ export function useClearAll(params: {
     }
 
     // Reset search form to initial state
-    setSearchForm({
-      search: '',
-      queryType: 'simple',
-      top: 10,
-      skip: 0,
-      count: true,
-      select: '',
-      filter: '',
-      orderby: '',
-      searchMode: '',
-      searchFields: '',
-      facets: '',
-      highlight: '',
-      highlightPreTag: '',
-      highlightPostTag: '',
-      scoringProfile: '',
-      scoringParameters: '',
-      queryRewrites: '',
-      debug: '',
-      semanticQuery: '',
-      minimumCoverage: '',
-      scoringStatistics: '',
-      sessionId: '',
-      speller: '',
-      semanticErrorHandling: '',
-      semanticMaxWaitInMilliseconds: '',
-      semanticFields: '',
-      vectorFilterMode: '',
-      hybridMaxTextRecallSize: '',
-      hybridCountAndFacetMode: '',
-      semanticConfiguration: 'default',
-      queryLanguage: 'ja-jp',
-      captions: 'extractive',
-      answers: 'extractive|count-3',
-      vectorEnabled: false,
-      vectorQueries: [],
-      vectorKind: 'text',
-      vectorText: '',
-      vectorQueryRewrites: '',
-      vector: '',
-      vectorImageUrl: '',
-      vectorBase64Image: '',
-      vectorFields: '',
-      vectorK: 10,
-      vectorExhaustive: false,
-      vectorWeight: 1.0,
-      vectorThresholdKind: '',
-      vectorThresholdValue: 0,
-      vectorOversampling: '',
-      vectorPerDocumentVectorLimit: '',
-      vectorFilterOverride: '',
-    })
+    setSearchForm({ ...DEFAULT_SEARCH_FORM })
 
     // Reset agentic form to initial state
     setAgenticForm({
@@ -136,6 +90,9 @@ export function useClearAll(params: {
       charFilters: '',
       tokenFilters: '',
     })
+
+    setAutocompleteForm({ ...DEFAULT_AUTOCOMPLETE_FORM })
+    setSuggestForm({ ...DEFAULT_SUGGEST_FORM })
 
     // Clear request JSON
     setRequestJson('')

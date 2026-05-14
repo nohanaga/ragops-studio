@@ -132,6 +132,8 @@ export function buildAgenticBodyFromForm(s: AgenticFormState): JsonValue {
 export function inferRunType(body: JsonValue, mode: LabMode): Run['runType'] {
   if (mode === 'agentic') return 'agentic_retrieve'
   if (mode === 'analyze') return 'analyze'
+  if (mode === 'autocomplete') return 'autocomplete'
+  if (mode === 'suggest') return 'suggest'
 
   const obj = isJsonObject(body) ? body : null
 
@@ -155,6 +157,14 @@ export function validateRequest(mode: LabMode, body: JsonValue, language: Langua
   if (mode === 'agentic' || mode === 'analyze') return
 
   const obj = isJsonObject(body) ? body : null
+
+  if (mode === 'autocomplete' || mode === 'suggest') {
+    const search = typeof obj?.search === 'string' ? obj.search.trim() : ''
+    const suggesterName = typeof obj?.suggesterName === 'string' ? obj.suggesterName.trim() : ''
+    if (!search) throw new Error(translations[language].typeaheadSearchRequired)
+    if (!suggesterName) throw new Error(translations[language].suggesterNameRequired)
+  }
+
   // Spec requirement: semantic empty query is not allowed
   if (obj?.queryType === 'semantic') {
     const s = typeof obj.search === 'string' ? obj.search.trim() : ''

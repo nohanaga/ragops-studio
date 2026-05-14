@@ -1,4 +1,4 @@
-import type { SearchFormState } from '../types'
+import type { AutocompleteFormState, SearchFormState, SuggestFormState } from '../types'
 
 export const DEFAULT_SEARCH_FORM: SearchFormState = {
   // These defaults are chosen to be usable out-of-the-box.
@@ -52,4 +52,31 @@ export const DEFAULT_SEARCH_FORM: SearchFormState = {
   vectorOversampling: '',
   vectorPerDocumentVectorLimit: '',
   vectorFilterOverride: '',
+}
+
+export const DEFAULT_AUTOCOMPLETE_FORM: AutocompleteFormState = {
+  search: '',
+  suggesterName: '',
+  autocompleteMode: 'oneTermWithContext',
+  searchFields: '',
+  filter: '',
+  top: 5,
+  minimumCoverage: '',
+  useFuzzyMatching: false,
+  liveTest: true,
+}
+
+export const DEFAULT_SUGGEST_FORM: SuggestFormState = {
+  search: '',
+  suggesterName: '',
+  searchFields: '',
+  select: '',
+  filter: '',
+  orderby: '',
+  top: 5,
+  minimumCoverage: '',
+  useFuzzyMatching: false,
+  highlightPreTag: '<em>',
+  highlightPostTag: '</em>',
+  liveTest: true,
 }

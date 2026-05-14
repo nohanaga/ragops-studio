@@ -10,10 +10,10 @@ import { createContext, useContext, useState, useMemo, useCallback, useEffect, t
 import type { Node, Edge } from '@xyflow/react'
 import type { AppSettings, ConnectionProfile, Run } from '../lib/model'
 import type { JsonValue } from '../lib/aiSearchRest'
-import type { ThemePreference, LabMode, BuilderMode, SearchFormState, AgenticFormState, AnalyzeFormState, LatestResponse, UiLogEntry } from '../types'
+import type { ThemePreference, LabMode, BuilderMode, SearchFormState, AgenticFormState, AnalyzeFormState, AutocompleteFormState, SuggestFormState, LatestResponse, UiLogEntry } from '../types'
 import type { Language } from '../lib/translations'
 import { getInitialThemePreference, getBrowserLanguage } from '../utils'
-import { DEFAULT_SEARCH_FORM } from '../app/defaults'
+import { DEFAULT_AUTOCOMPLETE_FORM, DEFAULT_SEARCH_FORM, DEFAULT_SUGGEST_FORM } from '../app/defaults'
 import { RIGHT_PANE_COLLAPSED_KEY } from '../app/constants'
 import { translations } from '../lib/translations'
 import { deleteSkillPipeline, getSkillPipeline, listSkillPipelines, updateSkillEditorDrafts as persistDraftsToSkillset, upsertSkillPipeline, type PersistedSkillPipelineItem } from '../app/persistedSkillPipeline'
@@ -468,6 +468,10 @@ type BuilderStateContextValue = {
   setAgenticForm: Dispatch<SetStateAction<AgenticFormState>>
   analyzeForm: AnalyzeFormState
   setAnalyzeForm: Dispatch<SetStateAction<AnalyzeFormState>>
+  autocompleteForm: AutocompleteFormState
+  setAutocompleteForm: Dispatch<SetStateAction<AutocompleteFormState>>
+  suggestForm: SuggestFormState
+  setSuggestForm: Dispatch<SetStateAction<SuggestFormState>>
   requestJson: string
   setRequestJson: Dispatch<SetStateAction<string>>
   runNote: string
@@ -501,6 +505,8 @@ export function BuilderStateProvider(props: { children: ReactNode; language: Lan
     charFilters: '',
     tokenFilters: '',
   })
+  const [autocompleteForm, setAutocompleteForm] = useState<AutocompleteFormState>(() => ({ ...DEFAULT_AUTOCOMPLETE_FORM }))
+  const [suggestForm, setSuggestForm] = useState<SuggestFormState>(() => ({ ...DEFAULT_SUGGEST_FORM }))
   const [requestJson, setRequestJson] = useState('')
   const [runNote, setRunNote] = useState('')
   const [indexName, setIndexName] = useState('')
@@ -518,6 +524,10 @@ export function BuilderStateProvider(props: { children: ReactNode; language: Lan
       setAgenticForm,
       analyzeForm,
       setAnalyzeForm,
+      autocompleteForm,
+      setAutocompleteForm,
+      suggestForm,
+      setSuggestForm,
       requestJson,
       setRequestJson,
       runNote,
@@ -527,7 +537,7 @@ export function BuilderStateProvider(props: { children: ReactNode; language: Lan
       knowledgeBaseName,
       setKnowledgeBaseName,
     }),
-    [labMode, builderMode, searchForm, agenticForm, analyzeForm, requestJson, runNote, indexName, knowledgeBaseName]
+    [labMode, builderMode, searchForm, agenticForm, analyzeForm, autocompleteForm, suggestForm, requestJson, runNote, indexName, knowledgeBaseName]
   )
 
   return <BuilderStateContext.Provider value={value}>{props.children}</BuilderStateContext.Provider>

@@ -175,11 +175,34 @@ function getAnalyzeSourceText(latestResponse: LatestResponse | null): string {
   return typeof requestBody.text === 'string' ? requestBody.text : ''
 }
 
+function getValueItems(latestResponse: LatestResponse | null): JsonValue[] {
+  if (!latestResponse || !isJsonObject(latestResponse.body)) return []
+  return Array.isArray(latestResponse.body.value) ? latestResponse.body.value : []
+}
+
+function getTypeaheadTitle(mode: LabMode, item: JsonValue): string {
+  if (!isJsonObject(item)) return '(empty)'
+  if (mode === 'autocomplete') {
+    return typeof item.text === 'string'
+      ? item.text
+      : typeof item.queryPlusText === 'string'
+        ? item.queryPlusText
+        : '(empty)'
+  }
+  return typeof item['@search.text'] === 'string'
+    ? item['@search.text']
+    : typeof item.text === 'string'
+      ? item.text
+      : '(empty)'
+}
+
 export function ResultViewPanel({ view, currentPage, onPageChange, t, compareMode, onCompareModeChange, compareBaseline, settings }: ResultViewPanelProps) {
   const latestResponse = view.response
   const rawDetailsResetKey = `${view.id}|${view.runId ?? ''}|${latestResponse?.requestId ?? ''}|${latestResponse?.at ?? ''}`
   const labMode: LabMode = view.runType === 'agentic_retrieve' ? 'agentic' 
     : view.runType === 'analyze' ? 'analyze'
+    : view.runType === 'autocomplete' ? 'autocomplete'
+    : view.runType === 'suggest' ? 'suggest'
     : 'semantic-vector'
 
   if (!latestResponse) {
@@ -301,6 +324,34 @@ export function ResultViewPanel({ view, currentPage, onPageChange, t, compareMod
                   <div key={r.k} className="kv__row">
                     <div className="kv__k">{r.k}</div>
                     <div className="kv__v mono">{r.v && r.v.trim().length > 0 ? r.v : '\u00A0'}</div>
+                  </div>
+                ))}
+              </>
+            )
+          })()}
+          {(labMode === 'autocomplete' || labMode === 'suggest') && (() => {
+            const requestBody = latestResponse.requestBody
+            const requestObj = isJsonObject(requestBody) ? requestBody : null
+            const rows: Array<{ k: string; v: string }> = [
+              { k: 'suggesterName', v: typeof requestObj?.suggesterName === 'string' ? requestObj.suggesterName : '' },
+              { k: 'searchFields', v: typeof requestObj?.searchFields === 'string' ? requestObj.searchFields : '' },
+              { k: 'filter', v: typeof requestObj?.filter === 'string' ? requestObj.filter : '' },
+            ]
+            if (labMode === 'autocomplete') {
+              rows.splice(1, 0, { k: 'autocompleteMode', v: typeof requestObj?.autocompleteMode === 'string' ? requestObj.autocompleteMode : '' })
+            } else {
+              rows.push(
+                { k: 'select', v: typeof requestObj?.select === 'string' ? requestObj.select : '' },
+                { k: 'orderby', v: typeof requestObj?.orderby === 'string' ? requestObj.orderby : '' },
+              )
+            }
+
+            return (
+              <>
+                {rows.map((row) => (
+                  <div key={row.k} className="kv__row">
+                    <div className="kv__k">{row.k}</div>
+                    <div className="kv__v mono">{row.v && row.v.trim().length > 0 ? row.v : '\u00A0'}</div>
                   </div>
                 ))}
               </>
@@ -831,8 +882,63 @@ export function ResultViewPanel({ view, currentPage, onPageChange, t, compareMod
             </div>
           )
         })()}
+        {(labMode === 'autocomplete' || labMode === 'suggest') && (() => {
+          const items = getValueItems(latestResponse)
+
+          if (items.length === 0) {
+            return <div className="empty">{t('typeaheadRealtimeNoResults')}</div>
+          }
+
+          return (
+            <div className="tokensSection">
+              <div className="tokensSection__title">
+                {labMode === 'autocomplete' ? t('autocomplete') : t('suggest')} ({items.length})
+              </div>
+              <div className="resultList">
+                {items.map((item, idx) => {
+                  const itemObj = isJsonObject(item) ? item : null
+                  const title = getTypeaheadTitle(labMode, item)
+                  const queryPlusText = typeof itemObj?.queryPlusText === 'string' ? itemObj.queryPlusText : ''
+
+                  return (
+                    <div key={idx} className="resultCard resultCard--typeahead">
+                      <div className="resultCard__top">
+                        <div className="resultCard__topMain">
+                          <div className="resultCard__index">#{idx + 1}</div>
+                          <div className="resultCard__title">
+                            <div>{title}</div>
+                            {queryPlusText && queryPlusText !== title ? (
+                              <div className="resultCard__text-preview">{queryPlusText}</div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                      <LazyDetails
+                        key={`${rawDetailsResetKey}:raw-typeahead:${idx}`}
+                        className="resultCard__details"
+                        summaryText="RAW ITEM"
+                        render={() => (
+                          <div className="mono jsonViewer__body rawJsonViewer">
+                            <JsonViewer
+                              data={item}
+                              initialOpenDepth={2}
+                              maxStringLength={JSON_VIEWER_MAX_STRING_LENGTH}
+                              hideRootObjectToggle
+                              collapseArraysByDefault
+                              t={t}
+                            />
+                          </div>
+                        )}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()}
         
-        {labMode !== 'agentic' && labMode !== 'analyze' && (
+        {labMode !== 'agentic' && labMode !== 'analyze' && labMode !== 'autocomplete' && labMode !== 'suggest' && (
           <>
             {!compareMode && (() => {
               const body = latestResponse.body

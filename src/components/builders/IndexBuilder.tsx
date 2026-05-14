@@ -16,6 +16,7 @@ import { deleteIndex, getIndexDefinition, getIndexStatistics, listIndexes, type 
 import { translations, type Language } from '../../lib/translations'
 import { useIndexPublishFlow } from '../../hooks/useIndexPublishFlow'
 import { PublishDiffModal } from './PublishDiffModal'
+import { IndexCloneAssistant } from './IndexCloneAssistant'
 
 type IndexBuilderProps = {
   profile: ConnectionProfile | null
@@ -390,6 +391,22 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
     }
   }
 
+  const onApplyCloneJson = (cloneDefinition: JsonValue, sourceIndexName: string, targetIndexName: string) => {
+    const text = JSON.stringify(cloneDefinition ?? {}, null, 2)
+    setDefinition(cloneDefinition)
+    setSelectedName('')
+    setEditedJson(text)
+    setBaselineJson('')
+    setMessage({ type: 'success', text: format('indexClonePrepared', { source: sourceIndexName, target: targetIndexName }) })
+  }
+
+  const onCloneCompleted = async (targetIndexName: string) => {
+    await loadIndexes()
+    setSelectedName(targetIndexName)
+    await loadDefinition(targetIndexName)
+    await loadStats(targetIndexName)
+  }
+
   useEffect(() => {
     setIndexNames([])
     setSelectedName('')
@@ -590,6 +607,17 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
                 </button>
               </div>
             </div>
+
+            <IndexCloneAssistant
+              profile={profile}
+              apiVersion={apiVersion}
+              language={language}
+              indexNames={indexNames}
+              selectedIndexName={selectedName}
+              editedJson={editedJson}
+              onApplyCloneJson={onApplyCloneJson}
+              onCloneCompleted={onCloneCompleted}
+            />
 
             <div className="section" style={{ marginTop: 12 }}>
               {loadingDef && <div className="empty">{t('loading')}…</div>}

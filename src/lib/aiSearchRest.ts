@@ -304,6 +304,145 @@ export async function searchDocuments(input: {
   };
 }
 
+async function postIndexDocumentsOperation(input: {
+  profile: ConnectionProfile;
+  indexName: string;
+  apiVersion: SearchApiVersion;
+  body: JsonValue;
+  language?: Language;
+  signal?: AbortSignal;
+  operation: 'autocomplete' | 'suggest';
+}): Promise<RestResult> {
+  const lang = getLang(input.language);
+  const endpoint = normalizeEndpoint(input.profile.endpoint);
+  const directEndpoint = normalizeRawEndpoint(input.profile.endpoint);
+  const indexName = input.indexName.trim();
+  if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
+  if (!indexName) throw new Error(tr(lang, 'restErrorIndexNameUnset'));
+
+  const clientRequestId = uuidv4();
+  const url = `${endpoint}/indexes/${encodeURIComponent(indexName)}/docs/${input.operation}?api-version=${encodeURIComponent(input.apiVersion)}`;
+
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    'x-ms-client-request-id': clientRequestId,
+    ...makeAuthHeaders(input.profile, lang),
+  };
+  if (isUsingDevProxy(input.profile)) headers['x-ais-idempotent'] = 'true';
+  const qsa = getQuerySourceAuthorizationHeaderValue(input.profile);
+  if (qsa) headers['x-ms-query-source-authorization'] = qsa;
+
+  const fallbackUrl = `${directEndpoint}/indexes/${encodeURIComponent(indexName)}/docs/${input.operation}?api-version=${encodeURIComponent(input.apiVersion)}`;
+  const fallbackHeaders: Record<string, string> = {
+    'content-type': 'application/json',
+    'x-ms-client-request-id': clientRequestId,
+    ...makeAuthHeaders(input.profile, lang, { useDevProxy: false }),
+  };
+  if (qsa) fallbackHeaders['x-ms-query-source-authorization'] = qsa;
+
+  let res: Response;
+  let resultUrl = url;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(input.body ?? {}),
+      signal: input.signal,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+
+    if (isUsingDevProxy(input.profile)) {
+      try {
+        res = await fetch(fallbackUrl, {
+          method: 'POST',
+          headers: fallbackHeaders,
+          body: JSON.stringify(input.body ?? {}),
+          signal: input.signal,
+        });
+        resultUrl = fallbackUrl;
+      } catch (fallbackError) {
+        const fallbackMsg = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+        return {
+          ok: false,
+          status: 0,
+          requestId: clientRequestId,
+          clientRequestId,
+          url: fallbackUrl,
+          error: {
+            message: makeNetworkErrorMessage(lang, fallbackMsg),
+          },
+        };
+      }
+    } else {
+      return {
+        ok: false,
+        status: 0,
+        requestId: clientRequestId,
+        clientRequestId,
+        url,
+        error: {
+          message: makeNetworkErrorMessage(lang, msg),
+        },
+      };
+    }
+  }
+
+  const requestId = getServiceRequestId(res) ?? clientRequestId;
+  const parsed = await readJsonOrText(res);
+  const elapsedTimeHeader = res.headers.get('elapsed-time');
+  const elapsedTimeMs = elapsedTimeHeader ? parseFloat(elapsedTimeHeader) : undefined;
+
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      requestId,
+      clientRequestId,
+      url: resultUrl,
+      error: {
+        message: extractErrorMessage(res.status, parsed),
+        response: parsed.json,
+        responseText: parsed.text,
+      },
+      elapsedTimeMs,
+    };
+  }
+
+  return {
+    ok: true,
+    status: res.status,
+    requestId,
+    clientRequestId,
+    url: resultUrl,
+    response: (parsed.json ?? (parsed.text as unknown as JsonValue)) ?? null,
+    responseText: parsed.text,
+    elapsedTimeMs,
+  };
+}
+
+export async function autocompleteDocuments(input: {
+  profile: ConnectionProfile;
+  indexName: string;
+  apiVersion: SearchApiVersion;
+  body: JsonValue;
+  language?: Language;
+  signal?: AbortSignal;
+}): Promise<RestResult> {
+  return postIndexDocumentsOperation({ ...input, operation: 'autocomplete' });
+}
+
+export async function suggestDocuments(input: {
+  profile: ConnectionProfile;
+  indexName: string;
+  apiVersion: SearchApiVersion;
+  body: JsonValue;
+  language?: Language;
+  signal?: AbortSignal;
+}): Promise<RestResult> {
+  return postIndexDocumentsOperation({ ...input, operation: 'suggest' });
+}
+
 export async function analyzeIndex(input: {
   profile: ConnectionProfile;
   indexName: string;
@@ -450,6 +589,7 @@ export async function getIndexDefinition(input: {
   indexName: string;
   apiVersion: SearchApiVersion;
   language?: Language;
+  signal?: AbortSignal;
 }): Promise<RestResult> {
   const lang = getLang(input.language);
   const endpoint = normalizeEndpoint(input.profile.endpoint);
@@ -469,7 +609,7 @@ export async function getIndexDefinition(input: {
 
   let res: Response;
   try {
-    res = await fetch(url, { method: 'GET', headers });
+    res = await fetch(url, { method: 'GET', headers, signal: input.signal });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return {
@@ -2170,6 +2310,7 @@ export async function createOrUpdateIndex(input: {
   apiVersion: SearchApiVersion;
   body: JsonValue;
   language?: Language;
+  signal?: AbortSignal;
 }): Promise<RestResult> {
   const lang = getLang(input.language);
   const endpoint = normalizeEndpoint(input.profile.endpoint);
@@ -2192,6 +2333,7 @@ export async function createOrUpdateIndex(input: {
       method: 'PUT',
       headers,
       body: JSON.stringify(input.body),
+      signal: input.signal,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -2241,6 +2383,7 @@ export async function indexDocuments(input: {
   apiVersion: SearchApiVersion;
   body: JsonValue;
   language?: Language;
+  signal?: AbortSignal;
 }): Promise<RestResult> {
   const lang = getLang(input.language);
   const endpoint = normalizeEndpoint(input.profile.endpoint);
@@ -2263,6 +2406,7 @@ export async function indexDocuments(input: {
       method: 'POST',
       headers,
       body: JSON.stringify(input.body),
+      signal: input.signal,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

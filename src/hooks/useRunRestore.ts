@@ -2,9 +2,10 @@ import type { Dispatch, SetStateAction } from 'react'
 import { getRun, listArtifactsByRun } from '../lib/db'
 import type { JsonValue } from '../lib/aiSearchRest'
 import type { Run } from '../lib/model'
-import type { AgenticFormState, AnalyzeFormState, CenterTab, LabMode, LatestResponse, SearchFormState } from '../types'
+import type { AgenticFormState, AnalyzeFormState, AutocompleteFormState, CenterTab, LabMode, LatestResponse, SearchFormState, SuggestFormState } from '../types'
 import { isJsonObject, type JsonObject } from '../app/json'
 import type { TranslationKey } from '../lib/translations'
+import { DEFAULT_AUTOCOMPLETE_FORM, DEFAULT_SUGGEST_FORM } from '../app/defaults'
 
 type TFunction = (key: TranslationKey) => string
 
@@ -19,6 +20,8 @@ export function useRunRestore(params: {
   setAgenticForm: Dispatch<SetStateAction<AgenticFormState>>
   setIndexName: Dispatch<SetStateAction<string>>
   setAnalyzeForm: Dispatch<SetStateAction<AnalyzeFormState>>
+  setAutocompleteForm: Dispatch<SetStateAction<AutocompleteFormState>>
+  setSuggestForm: Dispatch<SetStateAction<SuggestFormState>>
   setSearchForm: Dispatch<SetStateAction<SearchFormState>>
   setRunNote: Dispatch<SetStateAction<string>>
   setQpsTesterRestoreRunId: Dispatch<SetStateAction<string | null>>
@@ -39,6 +42,8 @@ export function useRunRestore(params: {
     setAgenticForm,
     setIndexName,
     setAnalyzeForm,
+    setAutocompleteForm,
+    setSuggestForm,
     setSearchForm,
     setRunNote,
     setQpsTesterRestoreRunId,
@@ -194,6 +199,55 @@ export function useRunRestore(params: {
             : typeof requestObj.tokenFilters === 'string'
               ? requestObj.tokenFilters
               : '',
+        })
+      } else if (run.runType === 'autocomplete') {
+        setLabMode('autocomplete')
+        setBuilderMode('form')
+
+        if (run.context.indexName) {
+          setIndexName(run.context.indexName)
+        }
+
+        const autocompleteModeRaw = getString('autocompleteMode', DEFAULT_AUTOCOMPLETE_FORM.autocompleteMode)
+        const autocompleteMode: AutocompleteFormState['autocompleteMode'] =
+          autocompleteModeRaw === 'oneTerm' ||
+          autocompleteModeRaw === 'twoTerms' ||
+          autocompleteModeRaw === 'oneTermWithContext'
+            ? autocompleteModeRaw
+            : DEFAULT_AUTOCOMPLETE_FORM.autocompleteMode
+
+        setAutocompleteForm({
+          ...DEFAULT_AUTOCOMPLETE_FORM,
+          search: getString('search', ''),
+          suggesterName: getString('suggesterName', ''),
+          autocompleteMode,
+          searchFields: getString('searchFields', ''),
+          filter: getString('filter', ''),
+          top: getNumber('top', DEFAULT_AUTOCOMPLETE_FORM.top),
+          minimumCoverage: typeof requestObj.minimumCoverage === 'number' ? requestObj.minimumCoverage : '',
+          useFuzzyMatching: getBoolean('useFuzzyMatching', false),
+        })
+      } else if (run.runType === 'suggest') {
+        setLabMode('suggest')
+        setBuilderMode('form')
+
+        if (run.context.indexName) {
+          setIndexName(run.context.indexName)
+        }
+
+        setSuggestForm({
+          ...DEFAULT_SUGGEST_FORM,
+          search: getString('search', ''),
+          suggesterName: getString('suggesterName', ''),
+          searchFields: getString('searchFields', ''),
+          select: getString('select', ''),
+          filter: getString('filter', ''),
+          orderby: getString('orderby', ''),
+          top: getNumber('top', DEFAULT_SUGGEST_FORM.top),
+          minimumCoverage: typeof requestObj.minimumCoverage === 'number' ? requestObj.minimumCoverage : '',
+          useFuzzyMatching: getBoolean('useFuzzyMatching', false),
+          highlightPreTag: typeof requestObj.highlightPreTag === 'string' ? requestObj.highlightPreTag : DEFAULT_SUGGEST_FORM.highlightPreTag,
+          highlightPostTag: typeof requestObj.highlightPostTag === 'string' ? requestObj.highlightPostTag : DEFAULT_SUGGEST_FORM.highlightPostTag,
         })
       } else if (
         run.runType === 'vector' ||

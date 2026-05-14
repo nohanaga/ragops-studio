@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { SearchFormState } from '../types'
-import { buildSearchBodyFromForm } from './appRequestBodies'
+import { buildAutocompleteBodyFromForm, buildSearchBodyFromForm, buildSuggestBodyFromForm } from './appRequestBodies'
 
 function asRecord(v: unknown): Record<string, unknown> {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return {}
@@ -100,5 +100,57 @@ describe('utils/appRequestBodies', () => {
 
     const preview = asRecord(buildSearchBodyFromForm('query', s, 'ja', true))
     expect(preview.semanticFields).toBe('title,content')
+  })
+
+  it('builds autocomplete and suggest request bodies', () => {
+    const autocomplete = asRecord(buildAutocompleteBodyFromForm({
+      search: 'lap',
+      suggesterName: 'sg',
+      autocompleteMode: 'oneTermWithContext',
+      searchFields: 'title, content',
+      filter: "category eq 'pc'",
+      top: 5,
+      minimumCoverage: 80,
+      useFuzzyMatching: true,
+      liveTest: true,
+    }))
+
+    expect(autocomplete).toMatchObject({
+      search: 'lap',
+      suggesterName: 'sg',
+      autocompleteMode: 'oneTermWithContext',
+      searchFields: 'title,content',
+      filter: "category eq 'pc'",
+      top: 5,
+      minimumCoverage: 80,
+      useFuzzyMatching: true,
+    })
+
+    const suggest = asRecord(buildSuggestBodyFromForm({
+      search: 'lap',
+      suggesterName: 'sg',
+      searchFields: 'title',
+      select: 'title,url',
+      filter: '',
+      orderby: 'rating desc',
+      top: 3,
+      minimumCoverage: '',
+      useFuzzyMatching: false,
+      highlightPreTag: '<em>',
+      highlightPostTag: '</em>',
+      liveTest: true,
+    }))
+
+    expect(suggest).toMatchObject({
+      search: 'lap',
+      suggesterName: 'sg',
+      searchFields: 'title',
+      select: 'title,url',
+      orderby: 'rating desc',
+      top: 3,
+      highlightPreTag: '<em>',
+      highlightPostTag: '</em>',
+    })
+    expect(suggest.useFuzzyMatching).toBeUndefined()
   })
 })

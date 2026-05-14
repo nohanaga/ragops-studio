@@ -47,6 +47,8 @@ export type RunType =
   | 'auto_tuning'
   | 'agentic_retrieve'
   | 'analyze'
+  | 'autocomplete'
+  | 'suggest'
   | 'kb_create'
   | 'kb_update'
   | 'kb_delete'

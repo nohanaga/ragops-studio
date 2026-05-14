@@ -10,13 +10,14 @@ import type React from 'react'
 import type { AppSettings, ConnectionProfile } from '../../lib/model'
 import type { Language } from '../../lib/translations'
 import { translations } from '../../lib/translations'
-import type { AgenticFormState, AnalyzeFormState, BuilderMode, KnowledgeSourceInfo, LabMode, SearchFormState, UiLogEntry } from '../../types'
+import type { AgenticFormState, AnalyzeFormState, AutocompleteFormState, BuilderMode, KnowledgeSourceInfo, LabMode, SearchFormState, SuggestFormState, UiLogEntry } from '../../types'
 import { AgenticBuilderForm } from './AgenticBuilderForm'
 import { AnalyzeBuilderForm } from './AnalyzeBuilderForm'
 import { BuilderActions } from './BuilderActions'
 import { BuilderConnectionSection } from './BuilderConnectionSection'
 import { BuilderErrorNotice } from './BuilderErrorNotice'
 import { ClassicSearchBuilderForm } from './ClassicSearchBuilderForm'
+import { TypeaheadBuilderForm } from './TypeaheadBuilderForm'
 import { RequestJsonEditor } from '../viewers/RequestJsonEditor'
 
 type TranslationKey = keyof typeof translations.ja
@@ -71,10 +72,16 @@ export type BuilderTabPaneProps = {
   setAgenticForm: React.Dispatch<React.SetStateAction<AgenticFormState>>
   analyzeForm: AnalyzeFormState
   setAnalyzeForm: React.Dispatch<React.SetStateAction<AnalyzeFormState>>
+  autocompleteForm: AutocompleteFormState
+  setAutocompleteForm: React.Dispatch<React.SetStateAction<AutocompleteFormState>>
+  suggestForm: SuggestFormState
+  setSuggestForm: React.Dispatch<React.SetStateAction<SuggestFormState>>
 
   // Request Builder schema helpers
   isLoadingRequestBuilderSchema: boolean
+  requestBuilderSearchableFieldNames: string[]
   requestBuilderVectorFieldNames: string[]
+  requestBuilderSuggesterNames: string[]
 
   // Filter Builder modal opener
   setIsFilterBuilderOpen: React.Dispatch<React.SetStateAction<boolean>>
@@ -174,8 +181,14 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
     setAgenticForm,
     analyzeForm,
     setAnalyzeForm,
+    autocompleteForm,
+    setAutocompleteForm,
+    suggestForm,
+    setSuggestForm,
     isLoadingRequestBuilderSchema,
+    requestBuilderSearchableFieldNames,
     requestBuilderVectorFieldNames,
+    requestBuilderSuggesterNames,
     setIsFilterBuilderOpen,
     analyzerFilterText,
     setAnalyzerFilterText,
@@ -262,6 +275,20 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
             onClick={() => setLabMode('analyze')}
           >
             Analyze
+          </button>
+          <button
+            type="button"
+            className={'btn btn--tab ' + (labMode === 'autocomplete' ? 'btn--active' : '')}
+            onClick={() => setLabMode('autocomplete')}
+          >
+            {t('autocomplete')}
+          </button>
+          <button
+            type="button"
+            className={'btn btn--tab ' + (labMode === 'suggest' ? 'btn--active' : '')}
+            onClick={() => setLabMode('suggest')}
+          >
+            {t('suggest')}
           </button>
         </div>
 
@@ -461,13 +488,13 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
           </button>
         </div>
 
-        {labMode !== 'agentic' && labMode !== 'analyze' && (
+        {(labMode === 'query' || labMode === 'semantic-vector') && (
           <div className="requestBuilderActiveSummary">
             {t('requestBuilderActiveSummary')}: <span className="mono">{buildRequestBuilderActiveSummary()}</span>
           </div>
         )}
 
-        {builderMode === 'form' && labMode !== 'agentic' && labMode !== 'analyze' && (
+        {builderMode === 'form' && (labMode === 'query' || labMode === 'semantic-vector') && (
         <ClassicSearchBuilderForm
           t={t}
           language={language}
@@ -481,6 +508,36 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
           requestBuilderVectorFieldNames={requestBuilderVectorFieldNames}
           setIsFilterBuilderOpen={setIsFilterBuilderOpen}
           onExecute={onExecute}
+        />
+        )}
+
+        {builderMode === 'form' && labMode === 'autocomplete' && (
+        <TypeaheadBuilderForm
+          t={t}
+          language={language}
+          mode="autocomplete"
+          activeProfile={activeProfile}
+          indexName={indexName}
+          apiVersion={effectiveApiVersion}
+          form={autocompleteForm}
+          setForm={setAutocompleteForm}
+          suggesterNameOptions={requestBuilderSuggesterNames}
+          searchableFieldNames={requestBuilderSearchableFieldNames}
+        />
+        )}
+
+        {builderMode === 'form' && labMode === 'suggest' && (
+        <TypeaheadBuilderForm
+          t={t}
+          language={language}
+          mode="suggest"
+          activeProfile={activeProfile}
+          indexName={indexName}
+          apiVersion={effectiveApiVersion}
+          form={suggestForm}
+          setForm={setSuggestForm}
+          suggesterNameOptions={requestBuilderSuggesterNames}
+          searchableFieldNames={requestBuilderSearchableFieldNames}
         />
         )}
 

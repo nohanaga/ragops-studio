@@ -11,7 +11,7 @@ import type { CenterTab, LabMode, LatestResponse, SearchFormState, UiLogEntry } 
 import { translations, type Language } from '../lib/translations'
 import type { JsonValue } from '../lib/aiSearchRest'
 import { addArtifact, createRun, updateRun } from '../lib/db'
-import { agenticRetrieve, analyzeIndex, searchDocuments } from '../lib/aiSearchRest'
+import { agenticRetrieve, analyzeIndex, autocompleteDocuments, searchDocuments, suggestDocuments } from '../lib/aiSearchRest'
 import { buildSearchBodyFromForm } from '../utils/appRequestBodies'
 import { inferRunType, parseJsonStrict, validateRequest } from '../utils'
 
@@ -140,7 +140,7 @@ export function useApiOperations(args: {
               profile: activeProfile,
               knowledgeBaseName,
               body,
-               language,
+              language,
             })
           : labMode === 'analyze'
           ? await analyzeIndex({
@@ -148,14 +148,30 @@ export function useApiOperations(args: {
               indexName,
               apiVersion: activeProfile.apiVersion,
               body,
-               language,
+              language,
+            })
+          : labMode === 'autocomplete'
+          ? await autocompleteDocuments({
+              profile: activeProfile,
+              indexName,
+              apiVersion: activeProfile.apiVersion,
+              body,
+              language,
+            })
+          : labMode === 'suggest'
+          ? await suggestDocuments({
+              profile: activeProfile,
+              indexName,
+              apiVersion: activeProfile.apiVersion,
+              body,
+              language,
             })
           : await searchDocuments({
               profile: activeProfile,
               indexName,
               apiVersion: activeProfile.apiVersion,
               body,
-               language,
+              language,
             })
       const latencyMs = Math.round(performance.now() - t0)
       const endedAt = new Date().toISOString()
@@ -233,6 +249,7 @@ export function useApiOperations(args: {
 
           const valueVal = resObj['value']
           if (Array.isArray(valueVal)) {
+            if (resultCount === undefined) resultCount = valueVal.length
             const scores = valueVal
               .map((item) => {
                 if (!item || typeof item !== 'object' || Array.isArray(item)) return undefined
@@ -457,6 +474,7 @@ export function useApiOperations(args: {
 
           const valueVal = resObj['value']
           if (Array.isArray(valueVal)) {
+            if (resultCount === undefined) resultCount = valueVal.length
             const scores = valueVal
               .map((item) => {
                 if (!item || typeof item !== 'object' || Array.isArray(item)) return undefined

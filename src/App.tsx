@@ -118,6 +118,10 @@ function App() {
     setAgenticForm,
     analyzeForm,
     setAnalyzeForm,
+    autocompleteForm,
+    setAutocompleteForm,
+    suggestForm,
+    setSuggestForm,
     requestJson,
     setRequestJson,
     runNote,
@@ -213,7 +217,9 @@ function App() {
     isLoadingRequestBuilderSchema,
     requestBuilderKeyFieldName,
     requestBuilderIndexFieldNames,
+    requestBuilderSearchableFieldNames,
     requestBuilderVectorFieldNames,
+    requestBuilderSuggesterNames,
   } = useRequestBuilderIndexSchema({
     activeProfile,
     indexName,
@@ -690,6 +696,10 @@ function App() {
     setAgenticForm,
     analyzeForm,
     setAnalyzeForm,
+    autocompleteForm,
+    setAutocompleteForm,
+    suggestForm,
+    setSuggestForm,
     requestJson,
     setRequestJson,
     runNote,
@@ -735,6 +745,8 @@ function App() {
     searchForm,
     agenticForm,
     analyzeForm,
+    autocompleteForm,
+    suggestForm,
     language,
     isPreviewApiVersion,
     requestJson,
@@ -841,6 +853,8 @@ function App() {
     setAgenticForm,
     setIndexName,
     setAnalyzeForm,
+    setAutocompleteForm,
+    setSuggestForm,
     setSearchForm,
     setRunNote,
     setQpsTesterRestoreRunId,
@@ -861,6 +875,8 @@ function App() {
     setSearchForm,
     setAgenticForm,
     setAnalyzeForm,
+    setAutocompleteForm,
+    setSuggestForm,
     setRequestJson,
     setRunNote,
     setLatestResponse,
@@ -942,7 +958,9 @@ function App() {
       availableKnowledgeSources={availableKnowledgeSources}
       isLoadingRequestBuilderSchema={isLoadingRequestBuilderSchema}
       requestBuilderIndexFieldNames={requestBuilderIndexFieldNames}
+      requestBuilderSearchableFieldNames={requestBuilderSearchableFieldNames}
       requestBuilderVectorFieldNames={requestBuilderVectorFieldNames}
+      requestBuilderSuggesterNames={requestBuilderSuggesterNames}
       requestBuilderKeyFieldName={requestBuilderKeyFieldName}
       setIsFilterBuilderOpen={setIsFilterBuilderOpen}
       analyzeDropdownFilters={analyzeDropdownFilters}

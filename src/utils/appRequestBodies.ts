@@ -7,7 +7,14 @@
 
 import type { JsonValue } from '../lib/aiSearchRest'
 import { translations, type Language } from '../lib/translations'
-import type { LabMode, SearchFormState, AgenticFormState, AnalyzeFormState } from '../types'
+import type { LabMode, SearchFormState, AgenticFormState, AnalyzeFormState, AutocompleteFormState, SuggestFormState } from '../types'
+
+function csvToArray(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+}
 
 function parseFacetsInput(raw: string): string[] {
   const input = raw.trim()
@@ -211,6 +218,43 @@ export function buildAnalyzeBodyFromForm(s: AnalyzeFormState): JsonValue {
     const tokenFilters = s.tokenFilters.split(',').map((f) => f.trim()).filter((f) => f.length > 0)
     if (tokenFilters.length > 0) body.tokenFilters = tokenFilters
   }
+
+  return body as JsonValue
+}
+
+export function buildAutocompleteBodyFromForm(s: AutocompleteFormState): JsonValue {
+  const body: Record<string, unknown> = {
+    search: s.search,
+    suggesterName: s.suggesterName,
+    autocompleteMode: s.autocompleteMode,
+    top: s.top,
+  }
+
+  const searchFields = csvToArray(s.searchFields)
+  if (searchFields.length > 0) body.searchFields = searchFields.join(',')
+  if (s.filter.trim()) body.filter = s.filter.trim()
+  if (typeof s.minimumCoverage === 'number') body.minimumCoverage = s.minimumCoverage
+  if (s.useFuzzyMatching) body.useFuzzyMatching = true
+
+  return body as JsonValue
+}
+
+export function buildSuggestBodyFromForm(s: SuggestFormState): JsonValue {
+  const body: Record<string, unknown> = {
+    search: s.search,
+    suggesterName: s.suggesterName,
+    top: s.top,
+  }
+
+  const searchFields = csvToArray(s.searchFields)
+  if (searchFields.length > 0) body.searchFields = searchFields.join(',')
+  if (s.select.trim()) body.select = s.select.trim()
+  if (s.filter.trim()) body.filter = s.filter.trim()
+  if (s.orderby.trim()) body.orderby = s.orderby.trim()
+  if (typeof s.minimumCoverage === 'number') body.minimumCoverage = s.minimumCoverage
+  if (s.useFuzzyMatching) body.useFuzzyMatching = true
+  if (s.highlightPreTag.trim()) body.highlightPreTag = s.highlightPreTag
+  if (s.highlightPostTag.trim()) body.highlightPostTag = s.highlightPostTag
 
   return body as JsonValue
 }

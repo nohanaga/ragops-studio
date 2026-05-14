@@ -6,6 +6,7 @@ import { http, HttpResponse } from 'msw'
 import { server } from '../test/mswServer'
 import {
   agenticRetrieve,
+  autocompleteDocuments,
   analyzeIndex,
   createOrUpdateIndex,
   createOrUpdateKnowledgeBase,
@@ -25,6 +26,7 @@ import {
   listKnowledgeSources,
   listSynonymMaps,
   searchDocuments,
+  suggestDocuments,
 } from './aiSearchRest'
 
 function asRecord(v: unknown): Record<string, unknown> {
@@ -315,6 +317,44 @@ describe('lib/aiSearchRest', () => {
           { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-analyze' } },
         )
       }),
+
+      http.post('/api-proxy/indexes/myindex/docs/autocomplete', async ({ request }) => {
+        const body = asRecord(await request.json())
+        expect(body.search).toBe('lap')
+        expect(body.suggesterName).toBe('sg')
+        return HttpResponse.json(
+          { value: [{ text: 'laptop' }] },
+          { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-autocomplete' } },
+        )
+      }),
+      http.post('https://example.search.windows.net/indexes/myindex/docs/autocomplete', async ({ request }) => {
+        const body = asRecord(await request.json())
+        expect(body.search).toBe('lap')
+        expect(body.suggesterName).toBe('sg')
+        return HttpResponse.json(
+          { value: [{ text: 'laptop' }] },
+          { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-autocomplete' } },
+        )
+      }),
+
+      http.post('/api-proxy/indexes/myindex/docs/suggest', async ({ request }) => {
+        const body = asRecord(await request.json())
+        expect(body.search).toBe('lap')
+        expect(body.suggesterName).toBe('sg')
+        return HttpResponse.json(
+          { value: [{ text: 'Laptop', document: { id: '1' } }] },
+          { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-suggest' } },
+        )
+      }),
+      http.post('https://example.search.windows.net/indexes/myindex/docs/suggest', async ({ request }) => {
+        const body = asRecord(await request.json())
+        expect(body.search).toBe('lap')
+        expect(body.suggesterName).toBe('sg')
+        return HttpResponse.json(
+          { value: [{ text: 'Laptop', document: { id: '1' } }] },
+          { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-suggest' } },
+        )
+      }),
     )
 
     const profile = {
@@ -350,6 +390,26 @@ describe('lib/aiSearchRest', () => {
     })
     expect(analyzed.ok).toBe(true)
     if (analyzed.ok) expect(analyzed.requestId).toBe('req-analyze')
+
+    const autocomplete = await autocompleteDocuments({
+      profile,
+      indexName: 'myindex',
+      apiVersion: '2025-09-01',
+      body: { search: 'lap', suggesterName: 'sg' },
+      language: 'ja',
+    })
+    expect(autocomplete.ok).toBe(true)
+    if (autocomplete.ok) expect(autocomplete.requestId).toBe('req-autocomplete')
+
+    const suggest = await suggestDocuments({
+      profile,
+      indexName: 'myindex',
+      apiVersion: '2025-09-01',
+      body: { search: 'lap', suggesterName: 'sg' },
+      language: 'ja',
+    })
+    expect(suggest.ok).toBe(true)
+    if (suggest.ok) expect(suggest.requestId).toBe('req-suggest')
   })
 
   it('covers Knowledge Base CRUD (list/get/put/delete)', async () => {

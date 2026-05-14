@@ -57,6 +57,7 @@ export function useRequestBuilderIndexSchema(args: {
       .map((f) => ({
         name: typeof f.name === 'string' ? f.name : '',
         type: typeof f.type === 'string' ? f.type : '',
+        searchable: f.searchable === true,
       }))
       .filter((f) => f.name.trim().length > 0)
   }, [requestBuilderIndexSchema])
@@ -76,11 +77,27 @@ export function useRequestBuilderIndexSchema(args: {
 
   const requestBuilderIndexFieldNames = useMemo(() => requestBuilderIndexFields.map((f) => f.name), [requestBuilderIndexFields])
 
+  const requestBuilderSearchableFieldNames = useMemo(() => {
+    return requestBuilderIndexFields
+      .filter((f) => f.searchable || f.type === 'Edm.String' || f.type === 'Collection(Edm.String)')
+      .map((f) => f.name)
+  }, [requestBuilderIndexFields])
+
   const requestBuilderVectorFieldNames = useMemo(() => {
     return requestBuilderIndexFields
       .filter((f) => f.type.startsWith('Collection(Edm.Single)') || f.type.includes('vector'))
       .map((f) => f.name)
   }, [requestBuilderIndexFields])
+
+  const requestBuilderSuggesterNames = useMemo(() => {
+    if (!requestBuilderIndexSchema || !isJsonObject(requestBuilderIndexSchema)) return []
+    const suggesters = requestBuilderIndexSchema.suggesters
+    if (!Array.isArray(suggesters)) return []
+    return suggesters
+      .filter((suggester): suggester is JsonObject => isJsonObject(suggester))
+      .map((suggester) => (typeof suggester.name === 'string' ? suggester.name : ''))
+      .filter((name) => name.trim().length > 0)
+  }, [requestBuilderIndexSchema])
 
   return {
     requestBuilderIndexSchema,
@@ -88,6 +105,8 @@ export function useRequestBuilderIndexSchema(args: {
     requestBuilderIndexFields,
     requestBuilderKeyFieldName,
     requestBuilderIndexFieldNames,
+    requestBuilderSearchableFieldNames,
     requestBuilderVectorFieldNames,
+    requestBuilderSuggesterNames,
   }
 }

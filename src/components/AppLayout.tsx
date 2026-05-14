@@ -134,7 +134,9 @@ export function AppLayout(props: {
 
   isLoadingRequestBuilderSchema: boolean
   requestBuilderIndexFieldNames: string[]
+  requestBuilderSearchableFieldNames: string[]
   requestBuilderVectorFieldNames: string[]
+  requestBuilderSuggesterNames: string[]
   requestBuilderKeyFieldName: string | null
 
   analyzeDropdownFilters: {
@@ -266,6 +268,10 @@ export function AppLayout(props: {
     setAgenticForm,
     analyzeForm,
     setAnalyzeForm,
+    autocompleteForm,
+    setAutocompleteForm,
+    suggestForm,
+    setSuggestForm,
     requestJson,
     setRequestJson,
     runNote,
@@ -337,7 +343,9 @@ export function AppLayout(props: {
     knowledgeBaseNameOptions,
     availableKnowledgeSources,
     isLoadingRequestBuilderSchema,
+    requestBuilderSearchableFieldNames,
     requestBuilderVectorFieldNames,
+    requestBuilderSuggesterNames,
     analyzeDropdownFilters,
     csvToList,
     toggleCsvSelection,
@@ -1037,8 +1045,14 @@ export function AppLayout(props: {
                 setAgenticForm={setAgenticForm}
                 analyzeForm={analyzeForm}
                 setAnalyzeForm={setAnalyzeForm}
+                autocompleteForm={autocompleteForm}
+                setAutocompleteForm={setAutocompleteForm}
+                suggestForm={suggestForm}
+                setSuggestForm={setSuggestForm}
                 isLoadingRequestBuilderSchema={isLoadingRequestBuilderSchema}
+                requestBuilderSearchableFieldNames={requestBuilderSearchableFieldNames}
                 requestBuilderVectorFieldNames={requestBuilderVectorFieldNames}
+                requestBuilderSuggesterNames={requestBuilderSuggesterNames}
                 setIsFilterBuilderOpen={setIsFilterBuilderOpen}
                 analyzerFilterText={analyzerFilterText}
                 setAnalyzerFilterText={setAnalyzerFilterText}
