@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  callLlmChat,
   buildChatCompletionsUrl,
   buildChatRequestBody,
   buildEmbeddingsRequestBody,
@@ -23,6 +24,10 @@ function cfg(overrides: Partial<LlmProviderConfig> = {}): LlmProviderConfig {
     ...overrides,
   }
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 // ─── buildChatCompletionsUrl ────────────────────────────────────────────────
 
@@ -259,16 +264,30 @@ describe('buildChatRequestBody', () => {
     expect(body).not.toHaveProperty('response_format')
   })
 
-  // ─── max_tokens ───────────────────────────────────────────────────────────
+  // ─── token limit parameter ────────────────────────────────────────────────
 
   it('azure-openai: omits max_tokens by default', () => {
     const body = buildChatRequestBody(cfg(), msgs)
     expect(body).not.toHaveProperty('max_tokens')
+    expect(body).not.toHaveProperty('max_completion_tokens')
   })
 
-  it('explicit maxTokens sets max_tokens for any provider', () => {
+  it('explicit maxTokens sets max_tokens for standard chat models', () => {
     const body = buildChatRequestBody(cfg(), msgs, { maxTokens: 2048 })
     expect(body.max_tokens).toBe(2048)
+    expect(body).not.toHaveProperty('max_completion_tokens')
+  })
+
+  it('explicit maxTokens sets max_completion_tokens for gpt-5 models', () => {
+    const body = buildChatRequestBody(cfg({ provider: 'openai', model: 'gpt-5-mini' }), msgs, { maxTokens: 2048 })
+    expect(body.max_completion_tokens).toBe(2048)
+    expect(body).not.toHaveProperty('max_tokens')
+  })
+
+  it('explicit maxTokens sets max_completion_tokens for o-series models', () => {
+    const body = buildChatRequestBody(cfg({ model: 'o3-mini' }), msgs, { maxTokens: 2048 })
+    expect(body.max_completion_tokens).toBe(2048)
+    expect(body).not.toHaveProperty('max_tokens')
   })
 
   it('lmstudio: auto-sets max_tokens to DEFAULT_LOCAL_MAX_TOKENS', () => {
@@ -284,6 +303,49 @@ describe('buildChatRequestBody', () => {
   it('lmstudio: explicit maxTokens overrides default', () => {
     const body = buildChatRequestBody(cfg({ provider: 'lmstudio' }), msgs, { maxTokens: 8192 })
     expect(body.max_tokens).toBe(8192)
+  })
+})
+
+// ─── callLlmChat compatibility retries ─────────────────────────────────────
+
+describe('callLlmChat token limit compatibility', () => {
+  it('retries with max_completion_tokens when max_tokens is rejected', async () => {
+    const requestBodies: Array<Record<string, unknown>> = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      if (requestBodies.length === 1) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
+              type: 'invalid_request_error',
+              param: 'max_tokens',
+              code: 'unsupported_parameter',
+            },
+          }),
+          { status: 400, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    }))
+
+    const result = await callLlmChat({
+      config: cfg({ model: 'prod-chat' }),
+      systemPrompt: 'system',
+      userPrompt: 'user',
+      jsonMode: false,
+      maxTokens: 128,
+    })
+
+    expect(result).toBe('ok')
+    expect(requestBodies).toHaveLength(2)
+    expect(requestBodies[0].max_tokens).toBe(128)
+    expect(requestBodies[0]).not.toHaveProperty('max_completion_tokens')
+    expect(requestBodies[1].max_completion_tokens).toBe(128)
+    expect(requestBodies[1]).not.toHaveProperty('max_tokens')
   })
 })
 

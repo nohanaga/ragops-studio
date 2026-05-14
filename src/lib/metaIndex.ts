@@ -78,6 +78,21 @@ const CLUSTER_SIGNATURE_SCHEMA: JsonSchemaResponseFormat = {
   },
 }
 
+const TWO_STAGE_OVERVIEW_ANSWER_SCHEMA: JsonSchemaResponseFormat = {
+  name: 'two_stage_overview_answer',
+  schema: {
+    type: 'object',
+    properties: {
+      answer: { type: 'string', maxLength: 3000 },
+      confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+      citations: { type: 'array', maxItems: 12, items: { type: 'string', maxLength: 16 } },
+      caveats: { type: 'array', maxItems: 4, items: { type: 'string', maxLength: 220 } },
+    },
+    required: ['answer', 'confidence', 'citations', 'caveats'],
+    additionalProperties: false,
+  },
+}
+
 /**
  * Truncate a string to fit within a UTF-8 byte limit.
  *
@@ -108,6 +123,15 @@ function normalizeInlineText(value: unknown): string {
 
 function compactInlineText(value: unknown, maxChars: number): string {
   const text = normalizeInlineText(value)
+  if (text.length <= maxChars) return text
+  return `${text.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`
+}
+
+function compactBlockText(value: unknown, maxChars: number): string {
+  const text = String(value ?? '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
   if (text.length <= maxChars) return text
   return `${text.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`
 }
@@ -290,6 +314,17 @@ export interface RaptorTreeDecision {
   retrievalIntents: string[]
 }
 
+export type GlobalScoreGateMetric = 'rerankerScore' | 'searchScore'
+
+export interface GlobalScoreGateTrace {
+  metric: GlobalScoreGateMetric
+  threshold: number
+  topScore: number
+  acceptedNodeCount: number
+  rejectedNodeCount: number
+  rejectedNodeIds: string[]
+}
+
 export interface ClusterSignatureQuality {
   specificityScore: number
   genericityScore: number
@@ -400,7 +435,50 @@ export interface MetaIndexConfig {
   createdAt: string
 }
 
+export type TwoStageOverviewAnswerStatus = 'generated' | 'skipped' | 'error'
+export type TwoStageOverviewAnswerConfidence = 'low' | 'medium' | 'high'
+
+export interface TwoStageAnswerSynthesisActivity {
+  step: string
+  status: 'completed' | 'skipped' | 'failed'
+  detail: string
+  count?: number
+  durationMs?: number
+}
+
+export interface TwoStageAnswerReference {
+  refId: string
+  kind: 'global-node' | 'local-document'
+  title: string
+  sourceId?: string
+  score?: number
+  rerankerScore?: number
+  snippet?: string
+}
+
+export interface TwoStageAnswerSynthesisTrace {
+  mode: 'llm-profile'
+  profileName?: string
+  activity: TwoStageAnswerSynthesisActivity[]
+  references: TwoStageAnswerReference[]
+  usage?: LlmUsage
+}
+
+export interface TwoStageOverviewAnswer {
+  status: TwoStageOverviewAnswerStatus
+  mode: 'llm-profile'
+  text: string
+  generatedAt: string
+  confidence?: TwoStageOverviewAnswerConfidence
+  citations?: string[]
+  caveats?: string[]
+  usage?: LlmUsage
+  error?: string
+}
+
 export interface TwoStageSearchResult {
+  /** One synthesized answer that combines Global scope and Local evidence. */
+  overviewAnswer?: TwoStageOverviewAnswer
   /** Matching clusters from global search */
   clusters: Array<{
     nodeId?: string
@@ -410,6 +488,7 @@ export interface TwoStageSearchResult {
     label: string
     summary: string
     score: number
+    rerankerScore?: number
     documentCount: number
     parentId?: string
     childIds?: string[]
@@ -437,6 +516,10 @@ export interface TwoStageSearchResult {
     totalDocs: number
     filteredDocs: number
     globalNodeCount?: number
+    globalRawNodeCount?: number
+    globalRejectedNodeCount?: number
+    globalScoreGateThreshold?: number
+    globalScoreGateMetric?: GlobalScoreGateMetric
     candidateDocCount?: number
     localFilterApplied?: boolean
   }
@@ -449,6 +532,8 @@ export interface TwoStageSearchResult {
     candidateDocIds: string[]
     localFilterApplied: boolean
     fallbackReason?: string
+    globalScoreGate?: GlobalScoreGateTrace
+    answerSynthesis?: TwoStageAnswerSynthesisTrace
   }
 }
 
@@ -559,6 +644,64 @@ const LEGACY_META_SUMMARY_SELECT = [
   'vectorField',
   'createdAt',
 ]
+
+const GLOBAL_MIN_RERANKER_SCORE = 1.0
+const GLOBAL_MIN_SEARCH_SCORE = 0.05
+const GLOBAL_RELATIVE_SEARCH_SCORE_FLOOR = 0.35
+
+function asFiniteNumber(value: unknown): number | undefined {
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) ? numberValue : undefined
+}
+
+function globalDocId(doc: Record<string, JsonValue>): string {
+  return String(doc.id ?? doc.clusterId ?? '')
+}
+
+function filterGlobalDocsBySearchScore(docs: Array<Record<string, JsonValue>>): {
+  acceptedDocs: Array<Record<string, JsonValue>>
+  gate?: GlobalScoreGateTrace
+} {
+  if (docs.length === 0) return { acceptedDocs: docs }
+
+  const rerankerScores = docs
+    .map((doc) => asFiniteNumber(doc['@search.rerankerScore']))
+    .filter((score): score is number => score !== undefined)
+  const hasRerankerScore = rerankerScores.length > 0
+
+  if (hasRerankerScore) {
+    const acceptedDocs = docs.filter((doc) => (asFiniteNumber(doc['@search.rerankerScore']) ?? 0) >= GLOBAL_MIN_RERANKER_SCORE)
+    const rejectedDocs = docs.filter((doc) => !acceptedDocs.includes(doc))
+    return {
+      acceptedDocs,
+      gate: {
+        metric: 'rerankerScore',
+        threshold: GLOBAL_MIN_RERANKER_SCORE,
+        topScore: Math.max(...rerankerScores),
+        acceptedNodeCount: acceptedDocs.length,
+        rejectedNodeCount: rejectedDocs.length,
+        rejectedNodeIds: rejectedDocs.map(globalDocId).filter(Boolean).slice(0, 20),
+      },
+    }
+  }
+
+  const searchScores = docs.map((doc) => asFiniteNumber(doc['@search.score']) ?? 0)
+  const topScore = Math.max(...searchScores)
+  const threshold = Math.max(GLOBAL_MIN_SEARCH_SCORE, topScore * GLOBAL_RELATIVE_SEARCH_SCORE_FLOOR)
+  const acceptedDocs = docs.filter((doc) => (asFiniteNumber(doc['@search.score']) ?? 0) >= threshold)
+  const rejectedDocs = docs.filter((doc) => !acceptedDocs.includes(doc))
+  return {
+    acceptedDocs,
+    gate: {
+      metric: 'searchScore',
+      threshold,
+      topScore,
+      acceptedNodeCount: acceptedDocs.length,
+      rejectedNodeCount: rejectedDocs.length,
+      rejectedNodeIds: rejectedDocs.map(globalDocId).filter(Boolean).slice(0, 20),
+    },
+  }
+}
 
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -2807,6 +2950,313 @@ export async function uploadMetaDocuments(input: {
 
 // ─── 2-Stage Search ─────────────────────────────────────────────────────────
 
+function nowMs(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now()
+}
+
+function overviewAnswerMessage(language: Language | undefined, ja: string, en: string): string {
+  return language === 'ja' ? ja : en
+}
+
+function twoStageDocTitleFromFields(id: string, fields: Record<string, JsonValue>): string {
+  const titleFields = ['title', 'name', 'chunkTitle', 'metadata_storage_name', 'source', 'filepath', 'fileName']
+  for (const fieldName of titleFields) {
+    const value = fields[fieldName]
+    if (typeof value === 'string' && value.trim()) return compactInlineText(value, 160)
+  }
+  return id || '(no id)'
+}
+
+function isLikelyVectorValue(fieldName: string, value: JsonValue): boolean {
+  if (!Array.isArray(value)) return false
+  const lowerName = fieldName.toLowerCase()
+  if (!lowerName.includes('vector') && !lowerName.includes('embedding')) return false
+  return value.length > 16 && value.every((item) => typeof item === 'number')
+}
+
+function overviewFieldValueSnippet(value: JsonValue, maxChars: number): string {
+  if (typeof value === 'string') return compactInlineText(value, maxChars)
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) {
+    const stringItems = value
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .slice(0, 8)
+    if (stringItems.length > 0) return compactInlineText(stringItems.join(', '), maxChars)
+  }
+  if (value && typeof value === 'object') return compactInlineText(JSON.stringify(value), maxChars)
+  return ''
+}
+
+function buildOverviewLocalSnippet(fields: Record<string, JsonValue>): string {
+  const preferredFields = [
+    'content',
+    'text',
+    'chunk',
+    'chunkContent',
+    'description',
+    'summary',
+    'body',
+    'pageContent',
+    'markdown',
+    'title',
+    'name',
+  ]
+  const fieldNames = new Set<string>()
+  for (const fieldName of preferredFields) {
+    if (fieldName in fields) fieldNames.add(fieldName)
+  }
+  for (const [fieldName, value] of Object.entries(fields)) {
+    if (fieldName.startsWith('@') || fieldNames.has(fieldName) || isLikelyVectorValue(fieldName, value)) continue
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') fieldNames.add(fieldName)
+    if (fieldNames.size >= 8) break
+  }
+
+  const snippets: string[] = []
+  for (const fieldName of fieldNames) {
+    const value = fields[fieldName]
+    if (value === undefined || isLikelyVectorValue(fieldName, value)) continue
+    const snippet = overviewFieldValueSnippet(value, 520)
+    if (snippet) snippets.push(`${fieldName}: ${snippet}`)
+    if (snippets.length >= 5) break
+  }
+  return truncateToTokenLimit(snippets.join('\n'), 420)
+}
+
+function buildOverviewAnswerReferences(result: TwoStageSearchResult): TwoStageAnswerReference[] {
+  const references: TwoStageAnswerReference[] = []
+  result.clusters.slice(0, 5).forEach((cluster, clusterIndex) => {
+    references.push({
+      refId: `G${clusterIndex + 1}`,
+      kind: 'global-node',
+      title: compactInlineText(cluster.label || cluster.clusterId || `Global ${clusterIndex + 1}`, 160),
+      sourceId: cluster.nodeId || cluster.clusterId,
+      score: cluster.score,
+      rerankerScore: cluster.rerankerScore,
+      snippet: compactInlineText(cluster.summary, 520),
+    })
+  })
+  result.documents.slice(0, 8).forEach((document, documentIndex) => {
+    references.push({
+      refId: `L${documentIndex + 1}`,
+      kind: 'local-document',
+      title: twoStageDocTitleFromFields(document.id, document.fields),
+      sourceId: document.id,
+      score: document.score,
+      snippet: buildOverviewLocalSnippet(document.fields),
+    })
+  })
+  return references
+}
+
+function buildOverviewAnswerContext(input: {
+  query: string
+  result: TwoStageSearchResult
+  references: TwoStageAnswerReference[]
+  maxInputTokens?: number
+}): string {
+  const maxInputTokens = input.maxInputTokens ?? 128_000
+  const contextTokenBudget = Math.max(2_000, Math.min(12_000, Math.floor(maxInputTokens * 0.45)))
+  const payload = {
+    query: input.query,
+    searchMode: input.result.trace?.mode ?? 'unknown',
+    scoreGate: input.result.trace?.globalScoreGate ?? null,
+    stats: input.result.stats,
+    references: input.references,
+  }
+  return truncateToTokenLimit(JSON.stringify(payload, null, 2), contextTokenBudget)
+}
+
+function buildOverviewAnswerSystemPrompt(language: Language | undefined): string {
+  if (language === 'ja') {
+    return [
+      'あなたは Azure AI Search の Global→Local 2段階検索結果を統合する RAG 回答合成者です。',
+      'Global node は検索範囲と意図の説明に使い、事実主張は Local document を主根拠にしてください。',
+      '根拠が不足している場合は不足を明示し、推測で埋めないでください。',
+      '回答本文では参照 ID を [L1]、[L2]、[G1] の形式で必要箇所に付けてください。',
+      '必ず JSON オブジェクトだけを返してください。',
+    ].join('\n')
+  }
+  return [
+    'You synthesize one final RAG answer from Azure AI Search Global→Local two-stage results.',
+    'Use Global nodes to explain retrieval scope and intent. Ground factual claims primarily in Local documents.',
+    'If evidence is insufficient, say so explicitly instead of guessing.',
+    'Cite references inline as [L1], [L2], [G1] where relevant.',
+    'Return only a JSON object.',
+  ].join('\n')
+}
+
+function buildOverviewAnswerUserPrompt(input: {
+  query: string
+  contextJson: string
+  language?: Language
+}): string {
+  const instruction = input.language === 'ja'
+    ? '次の検索結果から、ユーザーに見せる Overview Answer を1つ生成してください。Local document が事実根拠、Global node は検索スコープ説明です。'
+    : 'Generate one user-facing Overview Answer from the following search result. Local documents are factual evidence; Global nodes explain retrieval scope.'
+  return [
+    instruction,
+    '',
+    `Query: ${input.query}`,
+    '',
+    'Evidence JSON:',
+    input.contextJson,
+    '',
+    'JSON shape: { "answer": string, "confidence": "low" | "medium" | "high", "citations": string[], "caveats": string[] }',
+  ].join('\n')
+}
+
+function parseOverviewAnswerContent(content: string): {
+  text: string
+  confidence: TwoStageOverviewAnswerConfidence
+  citations: string[]
+  caveats: string[]
+} {
+  try {
+    const parsed = JSON.parse(extractJsonFromText(content)) as Record<string, unknown>
+    const confidence = parsed.confidence === 'high' || parsed.confidence === 'medium' || parsed.confidence === 'low'
+      ? parsed.confidence
+      : 'medium'
+    return {
+      text: compactBlockText(parsed.answer, 5000) || content.trim(),
+      confidence,
+      citations: Array.isArray(parsed.citations)
+        ? parsed.citations.map((item) => compactInlineText(item, 16)).filter(Boolean).slice(0, 12)
+        : [],
+      caveats: Array.isArray(parsed.caveats)
+        ? parsed.caveats.map((item) => compactInlineText(item, 220)).filter(Boolean).slice(0, 4)
+        : [],
+    }
+  } catch {
+    return { text: content.trim(), confidence: 'medium', citations: [], caveats: [] }
+  }
+}
+
+export async function synthesizeTwoStageOverviewAnswer(input: {
+  llmConfig: LlmProviderConfig
+  llmProfileName?: string
+  query: string
+  result: TwoStageSearchResult
+  language?: Language
+  maxInputTokens?: number
+  signal?: AbortSignal
+}): Promise<{ overviewAnswer: TwoStageOverviewAnswer; trace: TwoStageAnswerSynthesisTrace }> {
+  const references = buildOverviewAnswerReferences(input.result)
+  const activity: TwoStageAnswerSynthesisActivity[] = [
+    {
+      step: 'global-scope',
+      status: input.result.clusters.length > 0 ? 'completed' : 'skipped',
+      detail: overviewAnswerMessage(input.language, 'Global node から検索スコープを抽出', 'Extracted retrieval scope from Global nodes'),
+      count: input.result.clusters.length,
+    },
+    {
+      step: 'local-evidence',
+      status: input.result.documents.length > 0 ? 'completed' : 'skipped',
+      detail: overviewAnswerMessage(input.language, 'Local document を回答根拠として整形', 'Prepared Local documents as answer evidence'),
+      count: input.result.documents.length,
+    },
+  ]
+  const generatedAt = new Date().toISOString()
+
+  if (input.result.documents.length === 0) {
+    activity.push({
+      step: 'answer-synthesis',
+      status: 'skipped',
+      detail: overviewAnswerMessage(input.language, 'Local 根拠がないため回答合成をスキップ', 'Skipped synthesis because no Local evidence was available'),
+    })
+    return {
+      overviewAnswer: {
+        status: 'skipped',
+        mode: 'llm-profile',
+        text: overviewAnswerMessage(
+          input.language,
+          'Local 検索で根拠文書が見つからなかったため、Overview Answer は生成しませんでした。Global ノードと score gate を確認してください。',
+          'Overview Answer was not generated because Local search returned no evidence documents. Check Global nodes and the score gate.',
+        ),
+        generatedAt,
+        confidence: 'low',
+      },
+      trace: {
+        mode: 'llm-profile',
+        profileName: input.llmProfileName,
+        activity,
+        references,
+      },
+    }
+  }
+
+  const synthesisStart = nowMs()
+  let usage: LlmUsage | undefined
+  try {
+    const contextJson = buildOverviewAnswerContext({
+      query: input.query,
+      result: input.result,
+      references,
+      maxInputTokens: input.maxInputTokens,
+    })
+    const content = await callLlmChat({
+      config: input.llmConfig,
+      systemPrompt: buildOverviewAnswerSystemPrompt(input.language),
+      userPrompt: buildOverviewAnswerUserPrompt({ query: input.query, contextJson, language: input.language }),
+      signal: input.signal,
+      jsonMode: true,
+      jsonSchema: TWO_STAGE_OVERVIEW_ANSWER_SCHEMA,
+      maxTokens: 1400,
+      onUsage: (nextUsage) => { usage = nextUsage },
+    })
+    const parsed = parseOverviewAnswerContent(content)
+    activity.push({
+      step: 'answer-synthesis',
+      status: 'completed',
+      detail: overviewAnswerMessage(input.language, '既存 LLM プロファイルで最終回答を合成', 'Synthesized final answer with the selected LLM profile'),
+      durationMs: Math.round(nowMs() - synthesisStart),
+    })
+    return {
+      overviewAnswer: {
+        status: 'generated',
+        mode: 'llm-profile',
+        text: parsed.text,
+        generatedAt,
+        confidence: parsed.confidence,
+        citations: parsed.citations,
+        caveats: parsed.caveats,
+        usage,
+      },
+      trace: {
+        mode: 'llm-profile',
+        profileName: input.llmProfileName,
+        activity,
+        references,
+        usage,
+      },
+    }
+  } catch (error) {
+    if (input.signal?.aborted) throw error
+    const message = error instanceof Error ? error.message : String(error)
+    activity.push({
+      step: 'answer-synthesis',
+      status: 'failed',
+      detail: compactInlineText(message, 500),
+      durationMs: Math.round(nowMs() - synthesisStart),
+    })
+    return {
+      overviewAnswer: {
+        status: 'error',
+        mode: 'llm-profile',
+        text: '',
+        generatedAt,
+        confidence: 'low',
+        error: message,
+      },
+      trace: {
+        mode: 'llm-profile',
+        profileName: input.llmProfileName,
+        activity,
+        references,
+      },
+    }
+  }
+}
+
 /**
  * Execute a 2-stage Global→Local search.
  *
@@ -2900,8 +3350,10 @@ export async function twoStageSearch(input: {
   }
 
   const globalResp = globalResult.response as Record<string, JsonValue>
-  const globalDocs = (globalResp.value as Array<Record<string, JsonValue>>) || []
+  const rawGlobalDocs = (globalResp.value as Array<Record<string, JsonValue>>) || []
   const totalDocs = (globalResp['@odata.count'] as number) || 0
+  const globalScoreGate = filterGlobalDocsBySearchScore(rawGlobalDocs)
+  const globalDocs = globalScoreGate.acceptedDocs
   const nodeDecisions = globalDocs.map((doc) => buildRaptorDecisionForGlobalDoc({ doc, language }))
 
   const clusters = globalDocs.map((doc, docIndex) => {
@@ -2914,6 +3366,7 @@ export async function twoStageSearch(input: {
       label: String(doc.label ?? ''),
       summary: String(doc.summary ?? ''),
       score: Number(doc['@search.score'] ?? 0),
+      rerankerScore: asFiniteNumber(doc['@search.rerankerScore']),
       documentCount: Number(doc.documentCount ?? 0),
       parentId: String(doc.parentId ?? '') || undefined,
       childIds: asStringArray(doc.childIds),
@@ -3036,6 +3489,10 @@ export async function twoStageSearch(input: {
       totalDocs,
       filteredDocs: candidateDocIds.length,
       globalNodeCount: globalDocs.length,
+      globalRawNodeCount: rawGlobalDocs.length,
+      globalRejectedNodeCount: globalScoreGate.gate?.rejectedNodeCount ?? 0,
+      globalScoreGateThreshold: globalScoreGate.gate?.threshold,
+      globalScoreGateMetric: globalScoreGate.gate?.metric,
       candidateDocCount: candidateDocIds.length,
       localFilterApplied,
     },
@@ -3048,6 +3505,7 @@ export async function twoStageSearch(input: {
       candidateDocIds: candidateDocIds.slice(0, 500),
       localFilterApplied,
       fallbackReason,
+      globalScoreGate: globalScoreGate.gate,
     },
   }
 }

@@ -25,6 +25,7 @@ import {
   fetchExistingMetaDocIds,
   deleteMetaDocuments,
   generateMetaIndexName,
+  synthesizeTwoStageOverviewAnswer,
   flattenHierarchicalMicroClusters,
   buildRaptorRetrievalNodes,
   type ClusterSummary,
@@ -484,14 +485,34 @@ export function useMetaIndex(input: {
         signal: ctrl.signal,
       })
       if (ctrl.signal.aborted) return
-      setSearchResult(result)
+      const resolvedMaxTokens = resolveMaxInputTokens(llmConfig.deployment, llmConfig.maxInputTokens)
+      const effectiveMaxTokens = !llmConfig.maxInputTokens && LOCAL_PROVIDERS.has(llmConfig.provider)
+        ? Math.min(resolvedMaxTokens, 8_192)
+        : resolvedMaxTokens
+      const overview = await synthesizeTwoStageOverviewAnswer({
+        llmConfig: llmConfig.buildLlmProviderConfig(),
+        llmProfileName: llmConfig.name,
+        query: searchQuery.trim(),
+        result,
+        language,
+        maxInputTokens: effectiveMaxTokens,
+        signal: ctrl.signal,
+      })
+      if (ctrl.signal.aborted) return
+      setSearchResult({
+        ...result,
+        overviewAnswer: overview.overviewAnswer,
+        trace: result.trace
+          ? { ...result.trace, answerSynthesis: overview.trace }
+          : result.trace,
+      })
       setSearchPhase('done')
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
       setSearchError(err instanceof Error ? err.message : String(err))
       setSearchPhase('error')
     }
-  }, [profile, apiVersion, language, searchQuery, topClusters, topDocs, metaIndexName])
+  }, [profile, apiVersion, language, searchQuery, topClusters, topDocs, metaIndexName, llmConfig])
 
   /** Cancel ongoing operation. */
   const cancel = useCallback(() => {

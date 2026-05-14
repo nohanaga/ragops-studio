@@ -187,10 +187,32 @@ const JSON_SCHEMA_PROVIDERS: ReadonlySet<LlmProviderType> = new Set([
   'lmstudio',
 ])
 
+type ChatTokenLimitParameter = 'max_tokens' | 'max_completion_tokens'
+
+function preferredChatTokenLimitParameter(config: LlmProviderConfig): ChatTokenLimitParameter {
+  if (LOCAL_PROVIDERS.has(config.provider)) return 'max_tokens'
+  const model = config.model.trim().toLowerCase()
+  if (/^(o1|o3|o4)(?:[-_.]|$)/.test(model) || /^gpt-5(?:[-_.]|$)/.test(model)) {
+    return 'max_completion_tokens'
+  }
+  return 'max_tokens'
+}
+
+function isMaxTokensUnsupportedError(status: number, body: string): boolean {
+  const text = body.toLowerCase()
+  return status === 400 && text.includes('max_tokens') && text.includes('max_completion_tokens')
+}
+
 export function buildChatRequestBody(
   config: LlmProviderConfig,
   messages: Array<{ role: string; content: string }>,
-  options: { temperature?: number; maxTokens?: number; jsonMode?: boolean; jsonSchema?: JsonSchemaResponseFormat } = {},
+  options: {
+    temperature?: number
+    maxTokens?: number
+    jsonMode?: boolean
+    jsonSchema?: JsonSchemaResponseFormat
+    tokenLimitParameter?: ChatTokenLimitParameter
+  } = {},
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
     messages,
@@ -202,15 +224,21 @@ export function buildChatRequestBody(
     body.model = config.model
   }
 
-  // max_tokens: explicit limit on completion length.
+  // Explicit limit on completion length.
   // Local providers (LM Studio, Foundry Local) often default to a very low
   // value (e.g. ~100–300 tokens), which truncates structured JSON output.
-  // Always send max_tokens when provided; use a sensible default for local
-  // providers to prevent silent truncation.
-  if (options.maxTokens && options.maxTokens > 0) {
-    body.max_tokens = options.maxTokens
-  } else if (LOCAL_PROVIDERS.has(config.provider)) {
-    body.max_tokens = DEFAULT_LOCAL_MAX_TOKENS
+  // Newer/reasoning OpenAI models reject max_tokens and require
+  // max_completion_tokens. The parameter can be overridden by callLlmChat
+  // after a server compatibility error, which matters for arbitrary Azure
+  // deployment names that don't reveal the underlying model family.
+  const tokenLimit = options.maxTokens && options.maxTokens > 0
+    ? options.maxTokens
+    : LOCAL_PROVIDERS.has(config.provider)
+      ? DEFAULT_LOCAL_MAX_TOKENS
+      : undefined
+  if (tokenLimit) {
+    const tokenLimitParameter = options.tokenLimitParameter ?? preferredChatTokenLimitParameter(config)
+    body[tokenLimitParameter] = tokenLimit
   }
 
   // Structured output via JSON Schema — preferred when a schema is supplied.
@@ -267,7 +295,7 @@ export interface CallLlmChatParams {
   jsonMode?: boolean
   /** When supplied, use structured output with JSON Schema instead of plain json_object. */
   jsonSchema?: JsonSchemaResponseFormat
-  /** Max completion tokens. Sent as `max_tokens` in the request body. */
+  /** Max completion tokens. Sent as the provider-compatible token limit parameter. */
   maxTokens?: number
   /** Called with token usage info when available in the response. */
   onUsage?: (usage: LlmUsage) => void
@@ -346,104 +374,118 @@ export async function callLlmChat(params: CallLlmChatParams): Promise<string> {
     .slice(0, MAX_CONTENT_FILTER_RETRIES)
 
   let lastErrorText = ''
+  let tokenLimitParameter = preferredChatTokenLimitParameter(config)
   for (let attempt = 0; attempt <= retryPrompts.length; attempt++) {
     const temperature = 0.3 + attempt * 0.1
     const currentUserPrompt = attempt === 0 ? userPrompt : retryPrompts[attempt - 1]
+    let retriedTokenLimitParameter = false
 
-    const body = buildChatRequestBody(
-      config,
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: currentUserPrompt },
-      ],
-      { temperature, maxTokens, jsonMode, jsonSchema },
-    )
+    for (;;) {
+      const body = buildChatRequestBody(
+        config,
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: currentUserPrompt },
+        ],
+        { temperature, maxTokens, jsonMode, jsonSchema, tokenLimitParameter },
+      )
 
-    let res: Response
-    try {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        signal,
-        body: JSON.stringify(body),
-      })
-    } catch (fetchErr) {
-      // Network error or CORS preflight failure.
-      // For local providers, give an actionable hint about CORS settings.
-      if (LOCAL_PROVIDERS.has(config.provider)) {
-        const label = LLM_PROVIDER_LABELS[config.provider]?.en ?? config.provider
-        throw new Error(
-          `Failed to connect to ${label} at ${config.endpoint}. ` +
-          `Please verify: (1) the server is running, (2) the endpoint URL is correct, ` +
-          `(3) CORS is enabled in the server settings. ` +
-          `Original error: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`,
-        )
+      let res: Response
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          signal,
+          body: JSON.stringify(body),
+        })
+      } catch (fetchErr) {
+        // Network error or CORS preflight failure.
+        // For local providers, give an actionable hint about CORS settings.
+        if (LOCAL_PROVIDERS.has(config.provider)) {
+          const label = LLM_PROVIDER_LABELS[config.provider]?.en ?? config.provider
+          throw new Error(
+            `Failed to connect to ${label} at ${config.endpoint}. ` +
+            `Please verify: (1) the server is running, (2) the endpoint URL is correct, ` +
+            `(3) CORS is enabled in the server settings. ` +
+            `Original error: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`,
+          )
+        }
+        throw fetchErr
       }
-      throw fetchErr
-    }
 
-    if (!res.ok) {
-      const errorText = await res.text().catch(() => '')
-      if (isLlmAuthStatus(res.status)) {
-        throw new LlmAuthError(res.status, config.auth.mode, errorText.slice(0, 500))
-      }
-      if (isContentFilterError(res.status, errorText)) {
-        lastErrorText = errorText
-        if (attempt < retryPrompts.length) {
-          await new Promise((r) => setTimeout(r, CONTENT_FILTER_RETRY_DELAY_MS * (attempt + 1)))
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '')
+        if (
+          maxTokens &&
+          tokenLimitParameter === 'max_tokens' &&
+          !retriedTokenLimitParameter &&
+          isMaxTokensUnsupportedError(res.status, errorText)
+        ) {
+          tokenLimitParameter = 'max_completion_tokens'
+          retriedTokenLimitParameter = true
           continue
         }
-        throw new LlmContentFilterError(res.status, errorText)
+        if (isLlmAuthStatus(res.status)) {
+          throw new LlmAuthError(res.status, config.auth.mode, errorText.slice(0, 500))
+        }
+        if (isContentFilterError(res.status, errorText)) {
+          lastErrorText = errorText
+          if (attempt < retryPrompts.length) {
+            await new Promise((r) => setTimeout(r, CONTENT_FILTER_RETRY_DELAY_MS * (attempt + 1)))
+            break
+          }
+          throw new LlmContentFilterError(res.status, errorText)
+        }
+        throw new Error(`LLM request failed (${res.status}): ${errorText.slice(0, 300)}`)
       }
-      throw new Error(`LLM request failed (${res.status}): ${errorText.slice(0, 300)}`)
-    }
 
-    const data = (await res.json()) as ChatCompletionResponse
-    const choice = data?.choices?.[0]
-    let content = choice?.message?.content ?? ''
+      const data = (await res.json()) as ChatCompletionResponse
+      const choice = data?.choices?.[0]
+      let content = choice?.message?.content ?? ''
 
-    // Detect output truncation: if the model stopped because it hit the
-    // max_tokens limit, the response is incomplete. This is a common issue
-    // with local providers where the default completion limit is very low.
-    const finishReason = choice?.finish_reason
-    if (finishReason === 'content_filter') {
-      lastErrorText = 'LLM completion was filtered (finish_reason: "content_filter").'
-      if (attempt < retryPrompts.length) {
-        await new Promise((r) => setTimeout(r, CONTENT_FILTER_RETRY_DELAY_MS * (attempt + 1)))
-        continue
+      // Detect output truncation: if the model stopped because it hit the
+      // token limit, the response is incomplete. This is a common issue with
+      // local providers where the default completion limit is very low.
+      const finishReason = choice?.finish_reason
+      if (finishReason === 'content_filter') {
+        lastErrorText = 'LLM completion was filtered (finish_reason: "content_filter").'
+        if (attempt < retryPrompts.length) {
+          await new Promise((r) => setTimeout(r, CONTENT_FILTER_RETRY_DELAY_MS * (attempt + 1)))
+          break
+        }
+        throw new LlmContentFilterError(200, lastErrorText)
       }
-      throw new LlmContentFilterError(200, lastErrorText)
-    }
-    if (finishReason === 'length' && jsonMode) {
-      const provider = LOCAL_PROVIDERS.has(config.provider)
-        ? (LLM_PROVIDER_LABELS[config.provider]?.en ?? config.provider)
-        : config.provider
-      throw new Error(
-        `LLM response was truncated (finish_reason: "length"). ` +
-        `The output hit the max_tokens limit before completing the JSON. ` +
-        `Provider: ${provider}. ` +
-        `Increase "Context Length" in the server settings or reduce the input size.`,
-      )
-    }
+      if (finishReason === 'length' && jsonMode) {
+        const provider = LOCAL_PROVIDERS.has(config.provider)
+          ? (LLM_PROVIDER_LABELS[config.provider]?.en ?? config.provider)
+          : config.provider
+        throw new Error(
+          `LLM response was truncated (finish_reason: "length"). ` +
+          `The output hit the completion token limit before completing the JSON. ` +
+          `Provider: ${provider}. ` +
+          `Increase "Context Length" in the server settings or reduce the input size.`,
+        )
+      }
 
-    // Strip Harmony special tokens that may leak from gpt-oss models
-    // served via Foundry Local or older vLLM versions.
-    if (content && HARMONY_TOKEN_RE.test(content)) {
-      HARMONY_TOKEN_RE.lastIndex = 0
-      content = stripHarmonyTokens(content)
-    }
+      // Strip Harmony special tokens that may leak from gpt-oss models
+      // served via Foundry Local or older vLLM.
+      if (content && HARMONY_TOKEN_RE.test(content)) {
+        HARMONY_TOKEN_RE.lastIndex = 0
+        content = stripHarmonyTokens(content)
+      }
 
-    if (!content) {
-      throw new Error('LLM returned an empty completion')
+      if (!content) {
+        throw new Error('LLM returned an empty completion')
+      }
+      if (onUsage && data.usage) {
+        onUsage({
+          promptTokens: data.usage.prompt_tokens ?? 0,
+          completionTokens: data.usage.completion_tokens ?? 0,
+          totalTokens: data.usage.total_tokens ?? 0,
+        })
+      }
+      return content
     }
-    if (onUsage && data.usage) {
-      onUsage({
-        promptTokens: data.usage.prompt_tokens ?? 0,
-        completionTokens: data.usage.completion_tokens ?? 0,
-        totalTokens: data.usage.total_tokens ?? 0,
-      })
-    }
-    return content
   }
 
   throw new LlmContentFilterError(400, lastErrorText)

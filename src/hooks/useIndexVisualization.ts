@@ -185,7 +185,7 @@ export function useIndexVisualization(input: {
   const [enableAdaptiveSampling, setEnableAdaptiveSampling] = useState(true)
   const [enableHierarchical, setEnableHierarchical] = useState(false)
   const [reductionMethod, setReductionMethod] = useState<ReductionMethod>('pca')
-  const [enableGraph, setEnableGraph] = useState(false)
+  const [enableGraph, setEnableGraph] = useState(true)
   const [graphEdgeThreshold, setGraphEdgeThreshold] = useState(0.5)
 
   // State

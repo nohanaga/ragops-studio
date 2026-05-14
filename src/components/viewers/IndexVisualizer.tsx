@@ -3886,6 +3886,187 @@ function ClusterGraphView({ graph, data, language, clusterSummariesFromMeta, met
 // ============================================================================
 
 type TwoStageSearchResultTab = 'local' | 'global' | 'trace' | 'stats'
+const TWO_STAGE_RESULTS_PAGE_SIZE = 10
+
+function clampPage(page: number, totalItems: number, pageSize = TWO_STAGE_RESULTS_PAGE_SIZE): number {
+  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize))
+  return Math.min(Math.max(1, page), pageCount)
+}
+
+function pageSlice<T>(items: T[], page: number, pageSize = TWO_STAGE_RESULTS_PAGE_SIZE): {
+  items: T[]
+  page: number
+  pageCount: number
+  startIndex: number
+  endIndex: number
+} {
+  const normalizedPage = clampPage(page, items.length, pageSize)
+  const startIndex = (normalizedPage - 1) * pageSize
+  const endIndex = Math.min(items.length, startIndex + pageSize)
+  return {
+    items: items.slice(startIndex, endIndex),
+    page: normalizedPage,
+    pageCount: Math.max(1, Math.ceil(items.length / pageSize)),
+    startIndex,
+    endIndex,
+  }
+}
+
+function resultRangeText(language: Language, startIndex: number, endIndex: number, total: number): string {
+  if (total <= 0) return language === 'ja' ? '0件' : '0 results'
+  const start = startIndex + 1
+  return language === 'ja'
+    ? `${total}件中 ${start}-${endIndex}件を表示`
+    : `Showing ${start}-${endIndex} of ${total} results`
+}
+
+function TwoStageResultPager({ page, pageCount, onPageChange, language }: {
+  page: number
+  pageCount: number
+  onPageChange: (page: number) => void
+  language: Language
+}) {
+  if (pageCount <= 1) return null
+  return (
+    <div className="pagination">
+      <button
+        type="button"
+        className="btn btn--secondary pagination__btn"
+        onClick={() => onPageChange(page - 1)}
+        disabled={page <= 1}
+      >
+        <i className="bi bi-chevron-left icon--mr6" />
+        {language === 'ja' ? '前へ' : 'Previous'}
+      </button>
+      <div className="pagination__info">
+        {language === 'ja' ? `${page} / ${pageCount}ページ` : `Page ${page} of ${pageCount}`}
+      </div>
+      <button
+        type="button"
+        className="btn btn--secondary pagination__btn"
+        onClick={() => onPageChange(page + 1)}
+        disabled={page >= pageCount}
+      >
+        {language === 'ja' ? '次へ' : 'Next'}
+        <i className="bi bi-chevron-right" style={{ marginLeft: '6px' }} />
+      </button>
+    </div>
+  )
+}
+
+function OverviewAnswerPanel({ answer, language }: {
+  answer?: import('../../lib/metaIndex').TwoStageOverviewAnswer
+  language: Language
+}) {
+  if (!answer) return null
+  const usageText = answer.usage
+    ? `${answer.usage.totalTokens} tokens`
+    : ''
+  const confidenceText = answer.confidence
+    ? `${t(language, 'ivOverviewAnswerConfidence')}: ${answer.confidence}`
+    : ''
+  const statusIcon = answer.status === 'generated'
+    ? 'bi-stars'
+    : answer.status === 'skipped'
+      ? 'bi-exclamation-circle'
+      : 'bi-exclamation-triangle'
+
+  return (
+    <section className={`overviewAnswer overviewAnswer--${answer.status}`}>
+      <div className="overviewAnswer__header">
+        <div className="overviewAnswer__title">
+          <i className={`bi ${statusIcon}`} />
+          <span>{t(language, 'ivOverviewAnswerTitle')}</span>
+        </div>
+        <div className="overviewAnswer__meta">
+          <span className="edgTraceNode__badge">LLM</span>
+          {confidenceText && <span className="edgTraceNode__badge">{confidenceText}</span>}
+          {usageText && <span className="edgTraceNode__badge">{usageText}</span>}
+        </div>
+      </div>
+      <div className="overviewAnswer__hint">{t(language, 'ivOverviewAnswerHint')}</div>
+      {answer.status === 'error' ? (
+        <div className="notice notice--error overviewAnswer__notice">
+          <i className="bi bi-exclamation-triangle icon--mr6" />
+          {answer.error || t(language, 'ivOverviewAnswerError')}
+        </div>
+      ) : (
+        <div className="overviewAnswer__body">{answer.text}</div>
+      )}
+      {answer.citations && answer.citations.length > 0 && (
+        <div className="overviewAnswer__chips" aria-label={t(language, 'ivOverviewAnswerCitations')}>
+          <span className="overviewAnswer__chipLabel">{t(language, 'ivOverviewAnswerCitations')}</span>
+          {answer.citations.map((citation) => <span key={citation} className="edgTraceNode__badge">{citation}</span>)}
+        </div>
+      )}
+      {answer.caveats && answer.caveats.length > 0 && (
+        <div className="overviewAnswer__caveats">
+          <div className="overviewAnswer__chipLabel">{t(language, 'ivOverviewAnswerCaveats')}</div>
+          <ul>
+            {answer.caveats.map((caveat) => <li key={caveat}>{caveat}</li>)}
+          </ul>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function AnswerSynthesisTracePanel({ synthesis, language }: {
+  synthesis?: import('../../lib/metaIndex').TwoStageAnswerSynthesisTrace
+  language: Language
+}) {
+  if (!synthesis) return null
+  return (
+    <div className="answerSynthesisTrace">
+      <div className="answerSynthesisTrace__header">
+        <div className="answerSynthesisTrace__title">
+          <i className="bi bi-stars" />
+          {t(language, 'ivTraceAnswerSynthesisTitle')}
+        </div>
+        <div className="answerSynthesisTrace__meta">
+          {synthesis.profileName && <span className="edgTraceNode__badge">{synthesis.profileName}</span>}
+          {synthesis.usage && <span className="edgTraceNode__badge">{synthesis.usage.totalTokens} tokens</span>}
+        </div>
+      </div>
+      <div className="answerSynthesisTrace__grid">
+        <div>
+          <div className="answerSynthesisTrace__sectionTitle">{t(language, 'ivTraceAnswerSynthesisActivity')}</div>
+          <div className="answerSynthesisTrace__activityList">
+            {synthesis.activity.map((activity) => (
+              <div key={`${activity.step}-${activity.status}`} className={`answerSynthesisTrace__activity answerSynthesisTrace__activity--${activity.status}`}>
+                <div className="answerSynthesisTrace__activityTop">
+                  <span>{activity.step}</span>
+                  <span>{activity.status}</span>
+                </div>
+                <div className="answerSynthesisTrace__detail">{activity.detail}</div>
+                <div className="answerSynthesisTrace__facts">
+                  {typeof activity.count === 'number' && <span>{activity.count} items</span>}
+                  {typeof activity.durationMs === 'number' && <span>{activity.durationMs}ms</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="answerSynthesisTrace__sectionTitle">{t(language, 'ivTraceAnswerSynthesisReferences')}</div>
+          <div className="answerSynthesisTrace__refList">
+            {synthesis.references.map((reference) => (
+              <div key={reference.refId} className="answerSynthesisTrace__ref">
+                <div className="answerSynthesisTrace__refTop">
+                  <span className="edgTraceNode__badge">{reference.refId}</span>
+                  <span>{reference.kind}</span>
+                </div>
+                <div className="answerSynthesisTrace__refTitle" title={reference.title}>{reference.title}</div>
+                {reference.sourceId && <div className="answerSynthesisTrace__detail mono">{truncate(reference.sourceId, 90)}</div>}
+                {reference.snippet && <div className="answerSynthesisTrace__snippet">{truncate(reference.snippet, 220)}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function TwoStageSearchResults({ result, language }: {
   result: import('../../lib/metaIndex').TwoStageSearchResult
@@ -3893,11 +4074,18 @@ function TwoStageSearchResults({ result, language }: {
 }) {
   const trace = result.trace
   const [activeTab, setActiveTab] = useState<TwoStageSearchResultTab>('global')
+  const [globalPaging, setGlobalPaging] = useState({ result, page: 1 })
+  const [localPaging, setLocalPaging] = useState({ result, page: 1 })
   const globalRequest = trace?.globalRequest
   const globalRequestObject = typeof globalRequest === 'object' && globalRequest !== null && !Array.isArray(globalRequest)
     ? globalRequest as Record<string, JsonValue>
     : null
   const queryText = typeof globalRequestObject?.search === 'string' ? globalRequestObject.search : ''
+  const globalPage = globalPaging.result === result ? globalPaging.page : 1
+  const localPage = localPaging.result === result ? localPaging.page : 1
+  const globalPageData = pageSlice(result.clusters, globalPage)
+  const localPageData = pageSlice(result.documents, localPage)
+
   const tabs: Array<{ id: TwoStageSearchResultTab; label: string; icon: string; count?: number }> = [
     { id: 'global', label: t(language, 'ivSearchTabGlobal'), icon: 'bi-globe', count: result.clusters.length },
     { id: 'local', label: t(language, 'ivSearchTabLocal'), icon: 'bi-file-earmark-text', count: result.documents.length },
@@ -3916,6 +4104,8 @@ function TwoStageSearchResults({ result, language }: {
           </span>
         </div>
       </div>
+
+      <OverviewAnswerPanel answer={result.overviewAnswer} language={language} />
 
       <div
         className="tabs tabs--center"
@@ -3965,7 +4155,14 @@ function TwoStageSearchResults({ result, language }: {
             }}>
               <StatCard label={language === 'ja' ? '検索モード' : 'Search mode'} value={trace?.mode === 'raptor-lite' ? 'RAPTOR' : 'Legacy'} />
               <StatCard label={language === 'ja' ? 'Global node' : 'Global nodes'} value={`${result.stats.globalNodeCount ?? result.clusters.length}`} />
+              <StatCard label={t(language, 'ivSearchRejectedNodes')} value={`${result.stats.globalRejectedNodeCount ?? 0}`} />
               <StatCard label={language === 'ja' ? '候補文書' : 'Candidate docs'} value={`${result.stats.candidateDocCount ?? result.stats.filteredDocs}`} />
+              {result.stats.globalScoreGateThreshold !== undefined && (
+                <StatCard
+                  label={t(language, 'ivSearchGlobalScoreGate')}
+                  value={`${result.stats.globalScoreGateMetric ?? 'score'} >= ${result.stats.globalScoreGateThreshold.toFixed(2)}`}
+                />
+              )}
               <StatCard label={t(language, 'ivSearchSpaceReduction')} value={`${result.stats.searchSpaceReduction}%`} />
               <StatCard label={t(language, 'ivSearchGlobalTime')} value={`${result.stats.globalSearchTimeMs}ms`} />
               <StatCard label={t(language, 'ivSearchLocalTime')} value={`${result.stats.localSearchTimeMs}ms`} />
@@ -4001,8 +4198,23 @@ function TwoStageSearchResults({ result, language }: {
               {t(language, 'ivSearchGlobalTitle')}
             </div>
             <div className="app__hint" style={{ marginBottom: '8px' }}>{t(language, 'ivSearchGlobalHint')}</div>
+            {(trace?.globalScoreGate && trace.globalScoreGate.rejectedNodeCount > 0) && (
+              <div className="notice notice--info" style={{ marginBottom: '8px' }}>
+                <i className="bi bi-shield-check icon--mr6" />
+                {t(language, 'ivSearchGlobalScoreGate')}: {trace.globalScoreGate.metric} {'>='} {trace.globalScoreGate.threshold.toFixed(2)} / {t(language, 'ivSearchRejectedNodes')}: {trace.globalScoreGate.rejectedNodeCount}
+              </div>
+            )}
+            {result.clusters.length > 0 && (
+              <div className="resultInfo">
+                <div className="resultInfo__text">
+                  {resultRangeText(language, globalPageData.startIndex, globalPageData.endIndex, result.clusters.length)}
+                </div>
+              </div>
+            )}
             <div className="resultList">
-              {result.clusters.map((cluster, idx) => (
+              {globalPageData.items.map((cluster, pageItemIndex) => {
+                const idx = globalPageData.startIndex + pageItemIndex
+                return (
                 <div key={cluster.nodeId ?? cluster.clusterId} className="resultCard" style={{ borderLeft: `3px solid ${CLUSTER_COLORS[idx % CLUSTER_COLORS.length]}` }}>
                   <div className="resultCard__index">#{idx + 1}</div>
                   <div className="resultCard__top">
@@ -4011,6 +4223,9 @@ function TwoStageSearchResults({ result, language }: {
                       <div className="resultCard__title" title={cluster.label}>{cluster.label}</div>
                     </div>
                     <div className="resultCard__scores">
+                      {typeof cluster.rerankerScore === 'number' && (
+                        <div className="resultCard__rerankerScore">reranker {cluster.rerankerScore.toFixed(2)}</div>
+                      )}
                       <div className="resultCard__score">score {cluster.score.toFixed(4)}</div>
                       <div className="resultCard__score">{cluster.documentCount} docs</div>
                     </div>
@@ -4042,9 +4257,16 @@ function TwoStageSearchResults({ result, language }: {
                     </div>
                   )}
                 </div>
-              ))}
-              {result.clusters.length === 0 && <div className="empty">No matching clusters found.</div>}
+                )
+              })}
+              {result.clusters.length === 0 && <div className="empty">{t(language, 'ivSearchLowConfidenceEmpty')}</div>}
             </div>
+            <TwoStageResultPager
+              page={globalPageData.page}
+              pageCount={globalPageData.pageCount}
+              onPageChange={(page) => setGlobalPaging({ result, page })}
+              language={language}
+            />
           </>
         )}
 
@@ -4058,12 +4280,13 @@ function TwoStageSearchResults({ result, language }: {
             {result.documents.length > 0 && (
               <div className="resultInfo">
                 <div className="resultInfo__text">
-                  Showing 1-{result.documents.length} of {result.documents.length} results
+                  {resultRangeText(language, localPageData.startIndex, localPageData.endIndex, result.documents.length)}
                 </div>
               </div>
             )}
             <div className="resultList">
-              {result.documents.map((doc, idx) => {
+              {localPageData.items.map((doc, pageItemIndex) => {
+                const idx = localPageData.startIndex + pageItemIndex
                 const title = twoStageDocumentTitle(doc)
                 const fieldSummary = summarizeFields(doc.fields)
                 return (
@@ -4094,8 +4317,20 @@ function TwoStageSearchResults({ result, language }: {
                   </div>
                 )
               })}
-              {result.documents.length === 0 && <div className="empty">No documents found.</div>}
+              {result.documents.length === 0 && (
+                <div className="empty">
+                  {result.clusters.length === 0 && (result.stats.globalRejectedNodeCount ?? 0) > 0
+                    ? t(language, 'ivSearchLowConfidenceEmpty')
+                    : 'No documents found.'}
+                </div>
+              )}
             </div>
+            <TwoStageResultPager
+              page={localPageData.page}
+              pageCount={localPageData.pageCount}
+              onPageChange={(page) => setLocalPaging({ result, page })}
+              language={language}
+            />
           </>
         )}
       </div>
@@ -4279,6 +4514,13 @@ function RaptorTraceVisualization({ result, language }: {
           {truncate(trace.fallbackReason, 180)}
         </div>
       )}
+      {trace.globalScoreGate && (
+        <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--muted)' }}>
+          <i className="bi bi-shield-check icon--mr6" />
+          {t(language, 'ivSearchGlobalScoreGate')}: {trace.globalScoreGate.metric} {'>='} {trace.globalScoreGate.threshold.toFixed(2)} / {t(language, 'ivSearchRejectedNodes')}: {trace.globalScoreGate.rejectedNodeCount}
+        </div>
+      )}
+      <AnswerSynthesisTracePanel synthesis={trace.answerSynthesis} language={language} />
     </div>
   )
 }
