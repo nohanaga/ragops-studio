@@ -97,11 +97,13 @@ export function IndexCloneAssistant(props: IndexCloneAssistantProps) {
     skippedSourceFieldNames: [],
     missingTargetFieldNames: [],
   })
+  const [isExpanded, setIsExpanded] = useState(false)
   const workerRef = useRef<Worker | null>(null)
   const workerRequestIdRef = useRef(0)
 
   const canRun = !!profile && !!apiVersion && apiVersion.trim().length > 0
   const isRunning = progress.phase === 'preparing' || progress.phase === 'creating' || progress.phase === 'copying'
+  const shouldShowBody = isExpanded || isRunning
   const progressPercent = useMemo(() => {
     if (!progress.totalDocuments || progress.totalDocuments <= 0) return 0
     return Math.max(0, Math.min(100, Math.round((progress.readDocuments / progress.totalDocuments) * 100)))
@@ -242,6 +244,7 @@ export function IndexCloneAssistant(props: IndexCloneAssistantProps) {
 
   const prepareCloneJson = async () => {
     if (!canRun || !profile || !apiVersion) return
+    setIsExpanded(true)
     const sourceName = sourceIndexName.trim()
     const targetName = targetIndexName.trim()
     if (!sourceName) {
@@ -283,6 +286,7 @@ export function IndexCloneAssistant(props: IndexCloneAssistantProps) {
 
   const createAndCopy = async () => {
     if (!canRun || !profile || !apiVersion) return
+    setIsExpanded(true)
     const sourceName = sourceIndexName.trim()
     if (!sourceName) {
       setProgress((previous) => ({ ...previous, phase: 'error', message: t('indexCloneSelectSourceError') }))
@@ -359,132 +363,147 @@ export function IndexCloneAssistant(props: IndexCloneAssistantProps) {
   }
 
   return (
-    <div className="indexCloneAssistant">
+    <div className={`indexCloneAssistant ${shouldShowBody ? '' : 'indexCloneAssistant--collapsed'}`}>
       <div className="indexCloneAssistant__header">
         <div>
           <div className="indexCloneAssistant__title">
             <i className="bi bi-intersect icon--mr6"></i>
             {t('indexCloneAssistant')}
           </div>
+        </div>
+        <button
+          type="button"
+          className="btn btn--mini"
+          onClick={() => setIsExpanded((value) => !value)}
+          aria-expanded={shouldShowBody}
+          disabled={isRunning}
+        >
+          <i className={`bi ${shouldShowBody ? 'bi-chevron-up' : 'bi-chevron-down'} icon--mr6`}></i>
+          {shouldShowBody ? t('indexCloneCollapse') : t('indexCloneExpand')}
+        </button>
+      </div>
+
+      {shouldShowBody ? (
+        <div className="indexCloneAssistant__body">
           <div className="indexCloneAssistant__desc">{t('indexCloneAssistantDesc')}</div>
-        </div>
-      </div>
 
-      <div className="notice notice--warning indexCloneAssistant__notice">
-        {t('indexCloneRetrievableWarning')}
-      </div>
-
-      <div className="form form--compact indexCloneAssistant__form">
-        <label className="field">
-          <span className="field__label">{t('indexCloneSourceIndex')}</span>
-          <select
-            className="field__input"
-            value={sourceIndexName}
-            onChange={(event) => {
-              const next = event.target.value
-              setSourceIndexName(next)
-              setSourceDefinition(null)
-              setPreparedSourceName('')
-              if (!targetTouched) setTargetIndexName(defaultCloneName(next, indexNames))
-            }}
-            disabled={!canRun || isRunning}
-          >
-            <option value="">{t('placeholderUnset')}</option>
-            {indexNames.map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </select>
-        </label>
-
-        <label className="field">
-          <span className="field__label">{t('indexCloneTargetIndex')}</span>
-          <input
-            className="field__input"
-            value={targetIndexName}
-            onChange={(event) => {
-              setTargetTouched(true)
-              setTargetIndexName(event.target.value)
-            }}
-            disabled={!canRun || isRunning}
-            placeholder="my-index-v2"
-          />
-        </label>
-
-        <label className="field">
-          <span className="field__label">{t('indexCloneBatchSize')}</span>
-          <input
-            className="field__input"
-            type="number"
-            min={1}
-            max={1000}
-            value={batchSize}
-            onChange={(event) => setBatchSize(clampBatchSize(Number(event.target.value)))}
-            disabled={!canRun || isRunning}
-          />
-        </label>
-
-        <label className="field">
-          <span className="field__label">{t('indexCloneMaxDocuments')}</span>
-          <input
-            className="field__input"
-            type="number"
-            min={0}
-            value={maxDocumentsText}
-            onChange={(event) => setMaxDocumentsText(event.target.value)}
-            disabled={!canRun || isRunning}
-            placeholder={t('indexCloneMaxDocumentsPlaceholder')}
-          />
-        </label>
-      </div>
-
-      <div className="actions actions--mt10">
-        <button type="button" className="btn" onClick={prepareCloneJson} disabled={!canRun || isRunning || !sourceIndexName.trim()}>
-          <i className="bi bi-file-earmark-code icon--mr6"></i>
-          {t('indexClonePrepareJson')}
-        </button>
-        <button type="button" className="btn btn--search" onClick={createAndCopy} disabled={!canRun || isRunning || !sourceIndexName.trim() || !editedJson.trim()}>
-          <i className="bi bi-copy icon--mr6"></i>
-          {t('indexCloneCreateAndCopy')}
-        </button>
-        {isRunning ? (
-          <button type="button" className="btn" onClick={cancelClone}>
-            <i className="bi bi-stop-circle icon--mr6"></i>
-            {t('indexCloneCancel')}
-          </button>
-        ) : null}
-      </div>
-
-      {progress.message ? (
-        <div className={`notice notice--${progress.phase === 'error' ? 'error' : progress.phase === 'completed' ? 'success' : progress.phase === 'cancelled' ? 'warning' : 'info'} indexCloneAssistant__notice`}>
-          {progress.message}
-        </div>
-      ) : null}
-
-      {(progress.phase === 'copying' || progress.phase === 'completed' || progress.phase === 'cancelled') ? (
-        <div className="indexCloneAssistant__progress">
-          <div className="indexCloneAssistant__progressTop">
-            <span>{format('indexCloneProgressStats', {
-              read: progress.readDocuments,
-              uploaded: progress.uploadedDocuments,
-              failed: progress.failedDocuments,
-              total: progress.totalDocuments ?? '-',
-            })}</span>
-            <span>{progressPercent}%</span>
+          <div className="notice notice--warning indexCloneAssistant__notice">
+            {t('indexCloneRetrievableWarning')}
           </div>
-          <div className="indexCloneAssistant__progressTrack" aria-hidden="true">
-            <div className="indexCloneAssistant__progressFill" style={{ width: `${progressPercent}%` }} />
-          </div>
-        </div>
-      ) : null}
 
-      {(progress.skippedSourceFieldNames.length > 0 || progress.missingTargetFieldNames.length > 0) ? (
-        <div className="indexCloneAssistant__fieldPlan">
-          <div className="indexCloneAssistant__fieldPlanTitle">{t('indexCloneFieldPlan')}</div>
-          {progress.skippedSourceFieldNames.length > 0 ? (
-            <div>{format('indexCloneSkippedFields', { fields: progress.skippedSourceFieldNames.join(', ') })}</div>
+          <div className="form form--compact indexCloneAssistant__form">
+            <label className="field">
+              <span className="field__label">{t('indexCloneSourceIndex')}</span>
+              <select
+                className="field__input"
+                value={sourceIndexName}
+                onChange={(event) => {
+                  const next = event.target.value
+                  setSourceIndexName(next)
+                  setSourceDefinition(null)
+                  setPreparedSourceName('')
+                  if (!targetTouched) setTargetIndexName(defaultCloneName(next, indexNames))
+                }}
+                disabled={!canRun || isRunning}
+              >
+                <option value="">{t('placeholderUnset')}</option>
+                {indexNames.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field">
+              <span className="field__label">{t('indexCloneTargetIndex')}</span>
+              <input
+                className="field__input"
+                value={targetIndexName}
+                onChange={(event) => {
+                  setTargetTouched(true)
+                  setTargetIndexName(event.target.value)
+                }}
+                disabled={!canRun || isRunning}
+                placeholder="my-index-v2"
+              />
+            </label>
+
+            <label className="field">
+              <span className="field__label">{t('indexCloneBatchSize')}</span>
+              <input
+                className="field__input"
+                type="number"
+                min={1}
+                max={1000}
+                value={batchSize}
+                onChange={(event) => setBatchSize(clampBatchSize(Number(event.target.value)))}
+                disabled={!canRun || isRunning}
+              />
+            </label>
+
+            <label className="field">
+              <span className="field__label">{t('indexCloneMaxDocuments')}</span>
+              <input
+                className="field__input"
+                type="number"
+                min={0}
+                value={maxDocumentsText}
+                onChange={(event) => setMaxDocumentsText(event.target.value)}
+                disabled={!canRun || isRunning}
+                placeholder={t('indexCloneMaxDocumentsPlaceholder')}
+              />
+            </label>
+          </div>
+
+          <div className="actions actions--mt10">
+            <button type="button" className="btn" onClick={prepareCloneJson} disabled={!canRun || isRunning || !sourceIndexName.trim()}>
+              <i className="bi bi-file-earmark-code icon--mr6"></i>
+              {t('indexClonePrepareJson')}
+            </button>
+            <button type="button" className="btn btn--search" onClick={createAndCopy} disabled={!canRun || isRunning || !sourceIndexName.trim() || !editedJson.trim()}>
+              <i className="bi bi-copy icon--mr6"></i>
+              {t('indexCloneCreateAndCopy')}
+            </button>
+            {isRunning ? (
+              <button type="button" className="btn" onClick={cancelClone}>
+                <i className="bi bi-stop-circle icon--mr6"></i>
+                {t('indexCloneCancel')}
+              </button>
+            ) : null}
+          </div>
+
+          {progress.message ? (
+            <div className={`notice notice--${progress.phase === 'error' ? 'error' : progress.phase === 'completed' ? 'success' : progress.phase === 'cancelled' ? 'warning' : 'info'} indexCloneAssistant__notice`}>
+              {progress.message}
+            </div>
           ) : null}
-          {progress.missingTargetFieldNames.length > 0 ? (
-            <div>{format('indexCloneMissingTargetFields', { fields: progress.missingTargetFieldNames.join(', ') })}</div>
+
+          {(progress.phase === 'copying' || progress.phase === 'completed' || progress.phase === 'cancelled') ? (
+            <div className="indexCloneAssistant__progress">
+              <div className="indexCloneAssistant__progressTop">
+                <span>{format('indexCloneProgressStats', {
+                  read: progress.readDocuments,
+                  uploaded: progress.uploadedDocuments,
+                  failed: progress.failedDocuments,
+                  total: progress.totalDocuments ?? '-',
+                })}</span>
+                <span>{progressPercent}%</span>
+              </div>
+              <div className="indexCloneAssistant__progressTrack" aria-hidden="true">
+                <div className="indexCloneAssistant__progressFill" style={{ width: `${progressPercent}%` }} />
+              </div>
+            </div>
+          ) : null}
+
+          {(progress.skippedSourceFieldNames.length > 0 || progress.missingTargetFieldNames.length > 0) ? (
+            <div className="indexCloneAssistant__fieldPlan">
+              <div className="indexCloneAssistant__fieldPlanTitle">{t('indexCloneFieldPlan')}</div>
+              {progress.skippedSourceFieldNames.length > 0 ? (
+                <div>{format('indexCloneSkippedFields', { fields: progress.skippedSourceFieldNames.join(', ') })}</div>
+              ) : null}
+              {progress.missingTargetFieldNames.length > 0 ? (
+                <div>{format('indexCloneMissingTargetFields', { fields: progress.missingTargetFieldNames.join(', ') })}</div>
+              ) : null}
+            </div>
           ) : null}
         </div>
       ) : null}

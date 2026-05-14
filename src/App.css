@@ -5255,6 +5255,357 @@ html[data-theme='light'] .rawJsonViewer {
   margin-top: 16px;
 }
 
+.indexSchemaWorkbench {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, #0ea5e9 7%, var(--panel-2)), var(--panel-2));
+}
+
+.indexSchemaWorkbench--empty {
+  border-style: dashed;
+}
+
+.indexSchemaWorkbench__header,
+.indexSchemaFeature__top,
+.indexSchemaFeature__bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.indexSchemaWorkbench__title,
+.indexSchemaPanel__title {
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.indexSchemaWorkbench__hint {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.indexSchemaWorkbench__modeBadge {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.indexSchemaMetrics,
+.indexSchemaWorkbench__panels {
+  display: grid;
+  gap: 10px;
+}
+
+.indexSchemaMetrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.indexSchemaWorkbench__panels {
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+}
+
+.indexSchemaMetric,
+.indexSchemaPanel,
+.indexSchemaFeature {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+}
+
+.indexSchemaMetric {
+  min-width: 0;
+  padding: 9px 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.indexSchemaMetric__label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.indexSchemaMetric__value {
+  min-width: 0;
+  color: var(--fg);
+  font-size: 18px;
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.indexSchemaMetric__value--text {
+  font-size: 14px;
+}
+
+.indexSchemaPanel {
+  min-width: 0;
+  padding: 10px;
+}
+
+.indexSchemaPanel--wide {
+  overflow: hidden;
+}
+
+.indexSchemaFeatureGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.indexSchemaFeature {
+  min-width: 0;
+  padding: 9px;
+  display: grid;
+  gap: 8px;
+  border-left-width: 3px;
+}
+
+.indexSchemaFeature--configured {
+  border-left-color: #14b8a6;
+}
+
+.indexSchemaFeature--partial {
+  border-left-color: #f59e0b;
+}
+
+.indexSchemaFeature--missing {
+  border-left-color: color-mix(in srgb, var(--muted) 58%, var(--border));
+}
+
+.indexSchemaFeature__icon {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  color: var(--accent);
+}
+
+.indexSchemaFeature__count {
+  color: var(--fg);
+  font-weight: 750;
+  font-size: 13px;
+}
+
+.indexSchemaFeature__name {
+  min-height: 30px;
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.indexSchemaFeature__action {
+  padding: 3px 7px;
+}
+
+.indexSchemaBadge,
+.indexSchemaImpactPill,
+.indexSchemaHealth {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.indexSchemaBadge {
+  padding: 2px 7px;
+}
+
+.indexSchemaBadge--configured,
+.indexSchemaImpactPill--safe,
+.indexSchemaHealth--safe {
+  background: color-mix(in srgb, #14b8a6 15%, var(--surface));
+  color: color-mix(in srgb, #14b8a6 82%, var(--fg));
+}
+
+.indexSchemaBadge--partial,
+.indexSchemaImpactPill--review,
+.indexSchemaHealth--review {
+  background: color-mix(in srgb, #f59e0b 15%, var(--surface));
+  color: color-mix(in srgb, #f59e0b 82%, var(--fg));
+}
+
+.indexSchemaBadge--missing,
+.indexSchemaImpactPill--rebuild,
+.indexSchemaHealth--rebuild {
+  background: color-mix(in srgb, #ef4444 13%, var(--surface));
+  color: color-mix(in srgb, #ef4444 82%, var(--fg));
+}
+
+.indexSchemaImpactCounts,
+.indexSchemaHealthBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.indexSchemaImpactPill,
+.indexSchemaHealth {
+  padding: 4px 8px;
+}
+
+.indexSchemaImpactList {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  max-height: 192px;
+  overflow: auto;
+}
+
+.indexSchemaImpactItem {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.indexSchemaImpactItem--safe i {
+  color: #14b8a6;
+}
+
+.indexSchemaImpactItem--review i {
+  color: #f59e0b;
+}
+
+.indexSchemaImpactItem--rebuild i {
+  color: #ef4444;
+}
+
+.indexSchemaFieldMatrix {
+  margin-top: 10px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.indexSchemaFieldMatrix table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+}
+
+.indexSchemaFieldMatrix th,
+.indexSchemaFieldMatrix td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  font-size: 12px;
+}
+
+.indexSchemaFieldMatrix th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface2);
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.indexSchemaFieldMatrix tr:last-child td {
+  border-bottom: none;
+}
+
+.indexSchemaFieldMatrix__name {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.indexSchemaFieldMatrix__path,
+.indexSchemaFieldMatrix__mono {
+  overflow-wrap: anywhere;
+}
+
+.indexSchemaFieldMatrix__path {
+  color: var(--fg);
+  font-weight: 700;
+}
+
+.indexSchemaFieldMatrix__type,
+.indexSchemaFieldMatrix__mono,
+.indexSchemaFieldMatrix__more {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.indexSchemaFieldMatrix__attrs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.indexSchemaFieldMatrix__attr {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--muted) 55%, transparent);
+  background: var(--panel);
+}
+
+.indexSchemaFieldMatrix__attr--active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+}
+
+.indexSchemaFieldMatrix__more {
+  margin-top: 7px;
+}
+
+@media (max-width: 1120px) {
+  .indexSchemaWorkbench__panels,
+  .indexSchemaMetrics {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .indexSchemaWorkbench__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .indexSchemaWorkbench__panels,
+  .indexSchemaMetrics {
+    grid-template-columns: 1fr;
+  }
+}
+
 .builder-list-item__btn {
   flex: 1;
   text-align: left;
@@ -5286,11 +5637,19 @@ html[data-theme='light'] .rawJsonViewer {
   background: var(--panel-2);
 }
 
+.indexCloneAssistant--collapsed {
+  padding: 8px 10px;
+}
+
 .indexCloneAssistant__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.indexCloneAssistant__body {
+  margin-top: 10px;
 }
 
 .indexCloneAssistant__title {
@@ -5312,7 +5671,11 @@ html[data-theme='light'] .rawJsonViewer {
 
 .indexCloneAssistant__form {
   margin-top: 10px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(180px, 1.6fr) minmax(180px, 1.6fr) minmax(84px, 0.46fr) minmax(112px, 0.62fr);
+}
+
+.indexCloneAssistant__form .field {
+  min-width: 0;
 }
 
 .indexCloneAssistant__progress {
@@ -5355,7 +5718,7 @@ html[data-theme='light'] .rawJsonViewer {
 
 @media (max-width: 1100px) {
   .indexCloneAssistant__form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(130px, 1.45fr) minmax(130px, 1.45fr) minmax(76px, 0.45fr) minmax(100px, 0.6fr);
   }
 }
 

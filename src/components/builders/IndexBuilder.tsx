@@ -17,6 +17,7 @@ import { translations, type Language } from '../../lib/translations'
 import { useIndexPublishFlow } from '../../hooks/useIndexPublishFlow'
 import { PublishDiffModal } from './PublishDiffModal'
 import { IndexCloneAssistant } from './IndexCloneAssistant'
+import { IndexSchemaOverview, applyIndexSchemaTemplate, type IndexSchemaTemplateKind } from './IndexSchemaOverview'
 
 type IndexBuilderProps = {
   profile: ConnectionProfile | null
@@ -34,6 +35,14 @@ type IndexStats = {
   documentCount?: number
   storageSize?: number
   vectorIndexSize?: number
+}
+
+const indexTemplateLabelKeys: Record<IndexSchemaTemplateKind, keyof typeof translations.ja> = {
+  semantic: 'indexBuilderFeatureSemantic',
+  suggester: 'indexBuilderFeatureSuggesters',
+  scoringProfile: 'indexBuilderFeatureScoringProfiles',
+  cors: 'indexBuilderFeatureCors',
+  vectorSearch: 'indexBuilderFeatureVectorSearch',
 }
 
 function formatBytes(n: number | null | undefined): string {
@@ -391,6 +400,24 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
     }
   }
 
+  const onApplySchemaTemplate = (kind: IndexSchemaTemplateKind) => {
+    const parsed = parseEditedIndex()
+    if (!parsed) return
+    if (!parsed.body || typeof parsed.body !== 'object' || Array.isArray(parsed.body)) {
+      setMessage({ type: 'error', text: t('indexBuilderJsonMustBeObject') })
+      return
+    }
+
+    const next = applyIndexSchemaTemplate(parsed.body as Record<string, unknown>, kind)
+    const text = JSON.stringify(next, null, 2)
+    setDefinition(next as JsonValue)
+    setEditedJson(text)
+    setMessage({
+      type: 'success',
+      text: format('indexBuilderTemplateApplied', { feature: t(indexTemplateLabelKeys[kind]) }),
+    })
+  }
+
   const onApplyCloneJson = (cloneDefinition: JsonValue, sourceIndexName: string, targetIndexName: string) => {
     const text = JSON.stringify(cloneDefinition ?? {}, null, 2)
     setDefinition(cloneDefinition)
@@ -618,6 +645,16 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
               onApplyCloneJson={onApplyCloneJson}
               onCloneCompleted={onCloneCompleted}
             />
+
+            {editedJson.trim() ? (
+              <IndexSchemaOverview
+                editedJson={editedJson}
+                baselineJson={baselineJson}
+                isExistingIndex={isExistingSelectedIndex}
+                language={language}
+                onApplyTemplate={onApplySchemaTemplate}
+              />
+            ) : null}
 
             <div className="section" style={{ marginTop: 12 }}>
               {loadingDef && <div className="empty">{t('loading')}…</div>}
