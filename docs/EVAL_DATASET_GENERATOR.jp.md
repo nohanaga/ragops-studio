@@ -364,7 +364,7 @@ flowchart TD
 | ① | Document Sampling | 判定結果に応じた Adaptive Sampling で多様性を確保 | — (独自) | Search REST | 必須 |
 | ② | Scenario Planning | 4象限 × Persona × Style × Length に割当て | Ragas, RAGEval | ローカル計算 | Ragas mode 時のみ |
 | ③ | Query Generation | Azure OpenAI JSON mode でクエリ合成 | InPars, RAGEval | LLM（生成） | 必須 |
-| ④ | Surface Dedup | Token Jaccard ≥ 0.85 を除外 | — (Jaccard) | ローカル計算 | 常時有効 |
+| ④ | Surface Dedup | Token Jaccard ≥ 0.85 を soft reject | — (Jaccard) | ローカル計算 | 常時有効 |
 | ⑤ | Round-trip Consistency | 再検索で expected_ids が top-k に入るか検証 | Promptagator | Search REST | 任意 |
 | ⑥ | Semantic Dedup | Embedding cosine で意味重複を除外 | — (Embedding cosine) | Embeddings API | 任意 |
 | ⑦ | Difficulty Evolution | Evol-Instruct 風に harder variant へ書き換え | Evol-Instruct | LLM（Judge） | 任意 |
@@ -389,13 +389,13 @@ attempt 3: temperature = 0.75  (delay: 3s)
 
 ### Stage ④: Surface Dedup（表層重複排除）
 
-生成されたクエリ間の**トークンレベル Jaccard 類似度**を計算し、閾値 0.85 以上の重複を除去します。
+生成されたクエリ間の**トークンレベル Jaccard 類似度**を計算し、閾値 0.85 以上の重複を rejected としてマークします。
 
 ```
 Jaccard(A, B) = |A ∩ B| / |A ∪ B|
 ```
 
-テキストは NFKC 正規化後に Unicode の句読点で分割してトークン化します。Greedy Forward Scan アルゴリズムにより、先着のクエリを優先して保持します。
+テキストは NFKC 正規化後に Unicode の句読点で分割してトークン化します。Greedy Forward Scan アルゴリズムにより、先着のクエリを優先して保持します。重複として rejected になった候補も **Show rejected** を有効にすると結果テーブルに残るため、`surface-dup` の Trace で除外理由を確認できます。JSONL export では従来どおり rejected 行は除外されます。
 
 ### Stage ⑤: Round-trip Consistency（Promptagator + Sibling-Aware）
 

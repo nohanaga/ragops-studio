@@ -361,6 +361,32 @@ export function dedupBySurface(items: GeneratedQAItem[], threshold: number): Gen
   return kept
 }
 
+/**
+ * Mark surface-duplicate items as rejected while preserving them for UI traceability.
+ * Order and object identity are preserved so later pipeline stages can keep mutating the same items.
+ */
+export function markSurfaceDuplicates(items: GeneratedQAItem[], threshold: number): GeneratedQAItem[] {
+  const normalizedThreshold = Math.max(0, Math.min(1, threshold))
+  const keptTokens: Set<string>[] = []
+  for (const item of items) {
+    const tokens = tokenize(item.query)
+    let duplicate = false
+    for (const previousTokens of keptTokens) {
+      if (jaccard(tokens, previousTokens) >= normalizedThreshold) {
+        duplicate = true
+        break
+      }
+    }
+    if (duplicate) {
+      item.rejected = true
+      item.rejection_reason = 'surface-dup'
+    } else {
+      keptTokens.push(tokens)
+    }
+  }
+  return items
+}
+
 /* ------------------------------------------------------------------ */
 /* JSONL export                                                       */
 /* ------------------------------------------------------------------ */

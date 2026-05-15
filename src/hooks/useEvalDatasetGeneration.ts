@@ -17,7 +17,7 @@ import { useCallback, useRef, useState } from 'react'
 
 import type { ConnectionProfile, SearchApiVersion } from '../lib/model'
 import type { Language } from '../lib/translations'
-import { computeRelevanceGrades, dedupBySurface, generateForDoc, generateForScenario, generateHydeHypothesis, generateRaftAnswer, hardenQuery } from '../lib/evalDatasetGenerator'
+import { computeRelevanceGrades, generateForDoc, generateForScenario, generateHydeHypothesis, generateRaftAnswer, hardenQuery, markSurfaceDuplicates } from '../lib/evalDatasetGenerator'
 import { fetchDistractorDocs } from '../lib/evalDatasetGrounding'
 import { LlmAuthError, formatLlmAuthErrorMessage } from '../lib/llmAuth'
 import { sampleDocsFromIndex, detectIndexStructure, sampleDocsAdaptive } from '../lib/evalDatasetSampling'
@@ -381,25 +381,32 @@ export function useEvalDatasetGeneration(
         }
 
         // 3) Surface dedup (Jaccard).
-        const pipeline: GeneratedQAItem[] = dedupBySurface(collected, SURFACE_DEDUP_THRESHOLD)
-        // Trace: surface dedup returns only kept items, so record kept outcomes for survivors.
+        const pipeline: GeneratedQAItem[] = markSurfaceDuplicates(collected, SURFACE_DEDUP_THRESHOLD)
+        // Trace: keep rejected duplicates visible so the UI can explain why they were filtered.
         if (tracing) {
           for (const it of pipeline) {
-            pushTrace(it, { step: 2, phase: 'surface-dedup', action: 'kept' })
+            pushTrace(it, it.rejection_reason === 'surface-dup'
+              ? { step: 2, phase: 'surface-dedup', action: 'rejected', detail: { reason: 'surface-dup' } }
+              : { step: 2, phase: 'surface-dedup', action: 'kept' })
           }
         }
         setItems(pipeline)
 
         // 4) Round-trip consistency filter (Phase 2.1).
         if (config.enableGroundingCheck) {
-          setProgress({ done: 0, total: pipeline.length, phase: 'grounding', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
+          const groundingIdx: number[] = []
+          for (let i = 0; i < pipeline.length; i++) {
+            if (!pipeline[i].rejected) groundingIdx.push(i)
+          }
+          setProgress({ done: 0, total: groundingIdx.length, phase: 'grounding', phaseIndex: ++currentPhase, phaseTotal: totalPhases })
           const topK = Math.max(1, Math.min(50, Math.floor(config.groundingTopK || 10)))
 
           let gCursor = 0
           const gWorker = async () => {
             while (!controller.signal.aborted) {
-              const idx = gCursor++
-              if (idx >= pipeline.length) return
+              const localIdx = gCursor++
+              if (localIdx >= groundingIdx.length) return
+              const idx = groundingIdx[localIdx]
               const item = pipeline[idx]
               // For multi-hop items, accept the query as grounded if ANY of the
               // expected docs is retrieved within top-k (best rank wins).

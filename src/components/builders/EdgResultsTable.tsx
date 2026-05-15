@@ -188,6 +188,10 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
     enableRaftMode,
     enableHydeMode,
   } = props
+  const hasTraceData = useMemo(
+    () => items.some((it) => (it.trace?.length ?? 0) > 0),
+    [items],
+  )
 
   const columns = useMemo<ColDef[]>(() => {
     const cols: ColDef[] = [
@@ -294,7 +298,7 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
         },
       })
     }
-    if (enableTrace) {
+    if (enableTrace || hasTraceData) {
       cols.push({
         key: 'trace',
         title: String(t('edgColTrace')),
@@ -376,7 +380,7 @@ export function EdgResultsTable(props: EdgResultsTableProps) {
     )
     return cols
     // docTextById is intentionally a dependency because preview cells depend on it.
-  }, [t, docTextById, enableRagasMode, enableDifficultyEvolution, enableHardNegativeMining, enableStyleEvolution, enableTrace, enableRaftMode, enableHydeMode])
+  }, [t, docTextById, enableRagasMode, enableDifficultyEvolution, enableHardNegativeMining, enableStyleEvolution, enableTrace, hasTraceData, enableRaftMode, enableHydeMode])
 
   // Store user-resized widths. Columns without overrides use their default width.
   const [widths, setWidths] = useState<Record<string, number>>({})

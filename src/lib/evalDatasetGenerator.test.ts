@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { callAzureOpenAIChat, parseGeneratedQueries, dedupBySurface, toJsonl, parseHardenedQuery, computeRelevanceGrades, parseRaftAnswer, toRaftJsonl, parseHydeHypothesis } from './evalDatasetGenerator'
+import { callAzureOpenAIChat, parseGeneratedQueries, dedupBySurface, markSurfaceDuplicates, toJsonl, parseHardenedQuery, computeRelevanceGrades, parseRaftAnswer, toRaftJsonl, parseHydeHypothesis } from './evalDatasetGenerator'
 import { LlmAuthError } from './llmAuth'
 import type { GeneratedQAItem } from '../types'
 
@@ -110,6 +110,23 @@ describe('dedupBySurface', () => {
   })
 })
 
+describe('markSurfaceDuplicates', () => {
+  const mk = (q: string): GeneratedQAItem => ({ query: q, expected_ids: ['d1'] })
+
+  it('keeps all items but marks later surface duplicates as rejected', () => {
+    const first = mk('What is Azure AI Search?')
+    const duplicate = mk('What is Azure AI Search?')
+    const distinct = mk('How to deploy indexes?')
+    const out = markSurfaceDuplicates([first, duplicate, distinct], 0.85)
+
+    expect(out).toEqual([first, duplicate, distinct])
+    expect(first.rejected).toBeUndefined()
+    expect(duplicate.rejected).toBe(true)
+    expect(duplicate.rejection_reason).toBe('surface-dup')
+    expect(distinct.rejected).toBeUndefined()
+  })
+})
+
 describe('toJsonl', () => {
   it('produces one JSON object per line, AutoTuning-compatible fields', () => {
     const items: GeneratedQAItem[] = [
@@ -168,6 +185,27 @@ describe('toJsonl', () => {
     expect(obj.generation_run_id).toBe('edg-abc-123')
     expect(obj.grounding_rank).toBe(2)
     expect(obj.grounding_top_k).toBe(10)
+  })
+
+  it('emits trace events when present', () => {
+    const items: GeneratedQAItem[] = [
+      {
+        query: 'Q1',
+        expected_ids: ['d1'],
+        trace: [
+          {
+            step: 1,
+            phase: 'generation',
+            action: 'created',
+            timestamp: '2026-04-20T00:00:00.000Z',
+            detail: { after: 'Q1' },
+          },
+        ],
+      },
+    ]
+    const obj = JSON.parse(toJsonl(items))
+    expect(obj.trace).toHaveLength(1)
+    expect(obj.trace[0].phase).toBe('generation')
   })
 })
 
