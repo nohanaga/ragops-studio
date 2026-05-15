@@ -5536,6 +5536,13 @@ html[data-theme='light'] .rawJsonViewer {
   padding: 3px 7px;
 }
 
+.indexSchemaFeature__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
 .indexSchemaBadge,
 .indexSchemaImpactPill,
 .indexSchemaHealth {

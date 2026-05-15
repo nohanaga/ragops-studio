@@ -17,6 +17,7 @@ type IndexSchemaOverviewProps = {
   isExistingIndex: boolean
   language: Language
   onApplyTemplate: (kind: IndexSchemaTemplateKind) => void
+  onOpenConfigEditorTab: (tab: ConfigEditorTab) => void
   onChangeIndex: (nextIndex: Record<string, unknown>) => void
 }
 
@@ -25,6 +26,8 @@ type IndexSchemaConfigurationEditorPanelProps = {
   baselineJson: string
   isExistingIndex: boolean
   language: Language
+  activeTab: ConfigEditorTab
+  onActiveTabChange: (tab: ConfigEditorTab) => void
   onChangeIndex: (nextIndex: Record<string, unknown>) => void
 }
 
@@ -81,6 +84,7 @@ type FeatureCard = {
   countLabel: string
   status: FeatureStatus
   templateKind?: IndexSchemaTemplateKind
+  configTab?: ConfigEditorTab
 }
 
 type HealthIssue = {
@@ -619,6 +623,7 @@ function buildFeatureCards(analysis: SchemaAnalysis): FeatureCard[] {
       countLabel: `${analysis.vectorFields.length}/${analysis.vectorProfileCount}`,
       status: vectorStatus,
       templateKind: vectorStatus === 'configured' ? undefined : 'vectorSearch',
+      configTab: 'vectorProfiles',
     },
     {
       id: 'semantic',
@@ -627,6 +632,7 @@ function buildFeatureCards(analysis: SchemaAnalysis): FeatureCard[] {
       countLabel: String(analysis.semanticConfigCount),
       status: analysis.semanticConfigCount > 0 ? 'configured' : 'missing',
       templateKind: analysis.semanticConfigCount > 0 ? undefined : 'semantic',
+      configTab: 'semantic',
     },
     {
       id: 'scoringProfiles',
@@ -635,6 +641,7 @@ function buildFeatureCards(analysis: SchemaAnalysis): FeatureCard[] {
       countLabel: String(analysis.scoringProfileCount),
       status: analysis.scoringProfileCount > 0 ? 'configured' : 'missing',
       templateKind: analysis.scoringProfileCount > 0 ? undefined : 'scoringProfile',
+      configTab: 'scoringProfiles',
     },
     {
       id: 'suggesters',
@@ -643,6 +650,7 @@ function buildFeatureCards(analysis: SchemaAnalysis): FeatureCard[] {
       countLabel: String(analysis.suggesterCount),
       status: analysis.suggesterCount > 0 ? 'configured' : 'missing',
       templateKind: analysis.suggesterCount > 0 ? undefined : 'suggester',
+      configTab: 'suggesters',
     },
     {
       id: 'analyzers',
@@ -650,6 +658,7 @@ function buildFeatureCards(analysis: SchemaAnalysis): FeatureCard[] {
       labelKey: 'indexBuilderFeatureAnalyzers',
       countLabel: String(analysis.analyzerCount),
       status: analysis.analyzerCount > 0 ? 'configured' : 'missing',
+      configTab: 'analyzers',
     },
     {
       id: 'normalizers',
@@ -657,6 +666,7 @@ function buildFeatureCards(analysis: SchemaAnalysis): FeatureCard[] {
       labelKey: 'indexBuilderFeatureNormalizers',
       countLabel: String(analysis.normalizerCount),
       status: analysis.normalizerCount > 0 ? 'configured' : 'missing',
+      configTab: 'normalizers',
     },
     {
       id: 'cors',
@@ -707,7 +717,7 @@ const vectorSettingControls: Array<{ key: FieldTextSettingKey; labelKey: Transla
   { key: 'vectorSearchProfile', labelKey: 'indexBuilderAttrVectorProfile', icon: 'bi-diagram-3' },
 ]
 
-type ConfigEditorTab = 'semantic' | 'scoringProfiles' | 'suggesters' | 'analyzers' | 'normalizers' | 'vectorProfiles'
+export type ConfigEditorTab = 'semantic' | 'scoringProfiles' | 'suggesters' | 'analyzers' | 'normalizers' | 'vectorProfiles'
 type ScoringFunctionType = 'magnitude' | 'freshness' | 'distance' | 'tag'
 type ScoringInterpolation = 'constant' | 'linear' | 'quadratic' | 'logarithmic'
 type ConfigInputKind = 'text' | 'number' | 'boolean' | 'multiline' | 'select'
@@ -2478,15 +2488,15 @@ function VectorProfilesEditor({ analysis, t, language, onChangeIndex }: {
   )
 }
 
-function IndexSchemaConfigurationEditors({ analysis, isExistingIndex, t, language, onChangeIndex }: {
+function IndexSchemaConfigurationEditors({ analysis, isExistingIndex, t, language, activeTab, onActiveTabChange, onChangeIndex }: {
   analysis: SchemaAnalysis
   isExistingIndex: boolean
   t: (key: TranslationKey) => string
   language: Language
+  activeTab: ConfigEditorTab
+  onActiveTabChange: (tab: ConfigEditorTab) => void
   onChangeIndex: (nextIndex: Record<string, unknown>) => void
 }) {
-  const [activeTab, setActiveTab] = useState<ConfigEditorTab>('semantic')
-
   return (
     <section className="indexSchemaPanel indexSchemaPanel--wide indexSchemaConfigEditor">
       <div className="indexSchemaPanel__title">
@@ -2504,7 +2514,7 @@ function IndexSchemaConfigurationEditors({ analysis, isExistingIndex, t, languag
             role="tab"
             aria-selected={activeTab === tab.id}
             className={`btn btn--tab ${activeTab === tab.id ? 'btn--active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => onActiveTabChange(tab.id)}
           >
             <i className={`bi ${tab.icon} icon--mr6`}></i>
             {t(tab.labelKey)}
@@ -2523,7 +2533,7 @@ function IndexSchemaConfigurationEditors({ analysis, isExistingIndex, t, languag
   )
 }
 
-export function IndexSchemaConfigurationEditorPanel({ editedJson, baselineJson, isExistingIndex, language, onChangeIndex }: IndexSchemaConfigurationEditorPanelProps) {
+export function IndexSchemaConfigurationEditorPanel({ editedJson, baselineJson, isExistingIndex, language, activeTab, onActiveTabChange, onChangeIndex }: IndexSchemaConfigurationEditorPanelProps) {
   const t = (key: TranslationKey): string => String(translations[language][key] ?? '')
   const analysis = useMemo(() => analyzeSchema(editedJson, baselineJson, isExistingIndex), [editedJson, baselineJson, isExistingIndex])
 
@@ -2552,13 +2562,15 @@ export function IndexSchemaConfigurationEditorPanel({ editedJson, baselineJson, 
         isExistingIndex={isExistingIndex}
         t={t}
         language={language}
+        activeTab={activeTab}
+        onActiveTabChange={onActiveTabChange}
         onChangeIndex={onChangeIndex}
       />
     </div>
   )
 }
 
-export function IndexSchemaOverview({ editedJson, baselineJson, isExistingIndex, language, onApplyTemplate, onChangeIndex }: IndexSchemaOverviewProps) {
+export function IndexSchemaOverview({ editedJson, baselineJson, isExistingIndex, language, onApplyTemplate, onOpenConfigEditorTab, onChangeIndex }: IndexSchemaOverviewProps) {
   const t = (key: TranslationKey): string => String(translations[language][key] ?? '')
   const analysis = useMemo(() => analyzeSchema(editedJson, baselineJson, isExistingIndex), [editedJson, baselineJson, isExistingIndex])
   const [selectedFieldPath, setSelectedFieldPath] = useState('')
@@ -2680,17 +2692,30 @@ export function IndexSchemaOverview({ editedJson, baselineJson, isExistingIndex,
                   <span className={`indexSchemaBadge indexSchemaBadge--${feature.status}`}>
                     {t(statusLabelKey(feature.status))}
                   </span>
-                  {feature.templateKind ? (
-                    <button
-                      type="button"
-                      className="btn btn--mini indexSchemaFeature__action"
-                      onClick={() => onApplyTemplate(feature.templateKind as IndexSchemaTemplateKind)}
-                      title={t('indexBuilderApplyTemplateTitle')}
-                    >
-                      <i className="bi bi-plus-lg icon--mr6"></i>
-                      {t('indexBuilderApplyTemplate')}
-                    </button>
-                  ) : null}
+                  <span className="indexSchemaFeature__actions">
+                    {feature.configTab ? (
+                      <button
+                        type="button"
+                        className="btn btn--mini indexSchemaFeature__action"
+                        onClick={() => onOpenConfigEditorTab(feature.configTab as ConfigEditorTab)}
+                        title={t('indexBuilderOpenConfigEditorTitle')}
+                      >
+                        <i className="bi bi-sliders icon--mr6"></i>
+                        {t('indexBuilderOpenConfigEditor')}
+                      </button>
+                    ) : null}
+                    {feature.templateKind ? (
+                      <button
+                        type="button"
+                        className="btn btn--mini indexSchemaFeature__action"
+                        onClick={() => onApplyTemplate(feature.templateKind as IndexSchemaTemplateKind)}
+                        title={t('indexBuilderApplyTemplateTitle')}
+                      >
+                        <i className="bi bi-plus-lg icon--mr6"></i>
+                        {t('indexBuilderApplyTemplate')}
+                      </button>
+                    ) : null}
+                  </span>
                 </div>
               </div>
             ))}

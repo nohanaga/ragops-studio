@@ -17,7 +17,7 @@ import { translations, type Language } from '../../lib/translations'
 import { useIndexPublishFlow } from '../../hooks/useIndexPublishFlow'
 import { PublishDiffModal } from './PublishDiffModal'
 import { IndexCloneAssistant } from './IndexCloneAssistant'
-import { IndexSchemaConfigurationEditorPanel, IndexSchemaOverview } from './IndexSchemaOverview'
+import { IndexSchemaConfigurationEditorPanel, IndexSchemaOverview, type ConfigEditorTab } from './IndexSchemaOverview'
 import { applyIndexSchemaTemplate, type IndexSchemaTemplateKind } from './indexSchemaTemplates'
 
 type IndexBuilderProps = {
@@ -132,6 +132,7 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
   const [message, setMessage] = useState<UiMessage | null>(null)
   const [filterText, setFilterText] = useState('')
   const [rightTab, setRightTab] = useState<IndexBuilderRightTab>('schema')
+  const [activeConfigEditorTab, setActiveConfigEditorTab] = useState<ConfigEditorTab>('semantic')
   const [indexListPaneWidthPercent, setIndexListPaneWidthPercent] = useState(readIndexBuilderSplitPercent)
   const [isIndexBuilderSplitterDragging, setIsIndexBuilderSplitterDragging] = useState(false)
 
@@ -142,6 +143,11 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
   const indexPublish = useIndexPublishFlow({ profile, apiVersion, language, t })
 
   const canQuery = !!profile && !!apiVersion && apiVersion.trim().length > 0
+
+  const openConfigEditorTab = useCallback((tab: ConfigEditorTab) => {
+    setActiveConfigEditorTab(tab)
+    setRightTab('config')
+  }, [])
 
   const isDirty = useMemo(() => {
     return editedJson.trim().length > 0 && editedJson !== baselineJson
@@ -773,6 +779,7 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
                   isExistingIndex={isExistingSelectedIndex}
                   language={language}
                   onApplyTemplate={onApplySchemaTemplate}
+                  onOpenConfigEditorTab={openConfigEditorTab}
                   onChangeIndex={onChangeSchemaIndex}
                 />
               </div>
@@ -785,6 +792,8 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
                   baselineJson={baselineJson}
                   isExistingIndex={isExistingSelectedIndex}
                   language={language}
+                  activeTab={activeConfigEditorTab}
+                  onActiveTabChange={setActiveConfigEditorTab}
                   onChangeIndex={onChangeSchemaIndex}
                 />
               </div>
