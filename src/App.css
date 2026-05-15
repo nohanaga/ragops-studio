@@ -5489,9 +5489,9 @@ html[data-theme='light'] .rawJsonViewer {
 
 .indexSchemaFeature {
   min-width: 0;
-  padding: 9px;
+  padding: 7px 8px;
   display: grid;
-  gap: 8px;
+  gap: 6px;
   border-left-width: 3px;
 }
 
@@ -5508,38 +5508,41 @@ html[data-theme='light'] .rawJsonViewer {
 }
 
 .indexSchemaFeature__icon {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 6px;
   background: color-mix(in srgb, var(--accent) 12%, var(--panel));
   color: var(--accent);
+  font-size: 12px;
 }
 
 .indexSchemaFeature__count {
   color: var(--fg);
   font-weight: 750;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .indexSchemaFeature__name {
-  min-height: 30px;
+  min-height: 24px;
   color: var(--fg);
   font-size: 12px;
   font-weight: 700;
+  line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
 .indexSchemaFeature__action {
-  padding: 3px 7px;
+  padding: 2px 6px;
+  min-height: 24px;
 }
 
 .indexSchemaFeature__actions {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
   justify-content: flex-end;
 }
 
