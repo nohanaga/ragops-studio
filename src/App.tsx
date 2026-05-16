@@ -83,6 +83,8 @@ function App() {
     setIsSynonymMapBuilderOpen,
     isIndexBuilderOpen,
     setIsIndexBuilderOpen,
+    isIndexingPipelineBuilderOpen,
+    setIsIndexingPipelineBuilderOpen,
     isSkillPipelineBuilderOpen,
     setIsSkillPipelineBuilderOpen,
     isVectorOptimizerOpen,
@@ -723,6 +725,7 @@ function App() {
     isKnowledgeBaseBuilderOpen,
     isSynonymMapBuilderOpen,
     isIndexBuilderOpen,
+    isIndexingPipelineBuilderOpen,
     isSkillPipelineBuilderOpen,
     isVectorOptimizerOpen,
     isSkillEditorOpen,
@@ -769,6 +772,7 @@ function App() {
     setIsKnowledgeBaseBuilderOpen,
     setIsSynonymMapBuilderOpen,
     setIsIndexBuilderOpen,
+    setIsIndexingPipelineBuilderOpen,
     setIsSkillPipelineBuilderOpen,
     setIsVectorOptimizerOpen,
     setIsSkillEditorOpen,
@@ -798,6 +802,7 @@ function App() {
     setIsKnowledgeBaseBuilderOpen,
     setIsSynonymMapBuilderOpen,
     setIsIndexBuilderOpen,
+    setIsIndexingPipelineBuilderOpen,
     setIsSkillPipelineBuilderOpen,
     setIsVectorOptimizerOpen,
     setIsEvalDatasetGeneratorOpen,
@@ -945,7 +950,9 @@ function App() {
       setIndexFilterText={setIndexFilterText}
       filteredIndexNameOptions={filteredIndexNameOptions}
       openIndexInspector={openIndexInspector}
-      onOpenIndexBuilderTab={() => {
+      onOpenIndexBuilderTab={(targetIndexName) => {
+        const nextIndexName = targetIndexName?.trim()
+        if (nextIndexName) setIndexName(nextIndexName)
         setIsIndexBuilderOpen(true)
         setCenterTab('index-builder')
       }}

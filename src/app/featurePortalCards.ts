@@ -60,7 +60,7 @@ export const CATEGORY_META: Record<CardCategory, { labelJa: string; labelEn: str
   optimization: { labelJa: '最適化 & テスト', labelEn: 'Optimization & Testing', iconClass: 'bi-speedometer' },
   devtool: { labelJa: '開発者ツール', labelEn: 'Developer Tools', iconClass: 'bi-wrench-adjustable' },
   experiment: { labelJa: '実験管理', labelEn: 'Experiment Management', iconClass: 'bi-journal-bookmark' },
-  azure: { labelJa: 'Azure AI Search 機能（未実装）', labelEn: 'Azure AI Search Features (Coming Soon)', iconClass: 'bi-cloud' },
+  azure: { labelJa: 'Azure AI Search 機能', labelEn: 'Azure AI Search Features', iconClass: 'bi-cloud' },
 }
 
 export const PORTAL_CARDS: PortalCard[] = [
@@ -327,8 +327,8 @@ export const PORTAL_CARDS: PortalCard[] = [
     category: 'builder',
     titleJa: 'Index Builder',
     titleEn: 'Index Builder',
-    descJa: 'インデックスのスキーマ作成・編集・削除。統計情報の表示、JSON インポート/エクスポート。',
-    descEn: 'Create, edit, and delete index schemas. View statistics, import/export JSON.',
+    descJa: 'インデックスのスキーマ作成・編集・削除。統計情報、Alias 管理、JSON インポート/エクスポート。',
+    descEn: 'Create, edit, and delete index schemas. View statistics, manage aliases, import/export JSON.',
     action: 'openIndexBuilder',
     guide: {
       stepsJa: 'Index Builder の使い方',
@@ -340,6 +340,7 @@ export const PORTAL_CARDS: PortalCard[] = [
         { icon: 'diagram-3', titleJa: 'vectorSearch を定義', titleEn: 'Define vectorSearch', descJa: 'vectorSearch.algorithms (HNSW パラメータ m / efConstruction / efSearch / metric)、profiles (algorithm + vectorizer + compression を束ねる)、vectorizers (例: azureOpenAI の endpoint/deploymentId)、compressions (scalarQuantization / binaryQuantization) を定義します。', descEn: 'Configure vectorSearch.algorithms (HNSW: m / efConstruction / efSearch / metric), profiles (algorithm + vectorizer + compression), vectorizers (e.g. azureOpenAI endpoint/deploymentId), and compressions (scalarQuantization / binaryQuantization).' },
         { icon: 'stars', titleJa: 'semantic と scoringProfiles', titleEn: 'semantic & scoringProfiles', descJa: 'semantic.configurations に titleField / contentFields / keywordsFields をマッピングするとセマンティック検索が使えるようになります。scoringProfiles では freshness/distance/tag/magnitude 関数と重みを定義します。', descEn: 'Mapping titleField / contentFields / keywordsFields under semantic.configurations enables semantic search. scoringProfiles let you define freshness/distance/tag/magnitude functions and weights.' },
         { icon: 'cloud-upload', titleJa: 'Create / Update', titleEn: 'Create / Update', descJa: 'Create は新規作成 (POST /indexes)、Update は既存インデックスを PUT で更新します。フィールドの型変更や key フィールドの変更はサポートされず、エラーになるため事前に Diff を確認しましょう。', descEn: 'Create posts a new index (POST /indexes); Update PUTs an existing one. Field type changes or key changes are not supported and will fail — review the diff first.', targetSelector: '[data-guide-target="index-builder-actions"]' },
+        { icon: 'signpost-split', titleJa: 'Aliases で参照名を管理', titleEn: 'Manage aliases', descJa: 'Aliases タブで、アプリケーションが参照する Alias を作成・更新・削除できます。インデックスを入れ替えるときは Alias の参照先を新しいインデックスに切り替えます。', descEn: 'Use the Aliases tab to create, update, and delete the alias name your application references. For index swaps, repoint the alias to the new index.' },
         { icon: 'trash3', titleJa: '削除 (注意)', titleEn: 'Delete (caution)', descJa: 'DELETE /indexes/{name} は復元不可です。本番は Alias を介してスワップ、古いインデックスの削除はダウンタイムを見てからにします。', descEn: 'DELETE /indexes/{name} is irreversible. In production, swap behind an Alias and only delete the old index after a safe window.' },
       ],
       tipsJa: [
@@ -348,6 +349,7 @@ export const PORTAL_CARDS: PortalCard[] = [
         'ベクトルフィールドの dimensions は使う埋め込みモデルに合わせる (text-embedding-3-small=1536, ada-002=1536, large=3072)。途中で変えるとインデックスごと作り直しになります。',
         'ストレージ削減には compressions (scalarQuantization int8 で約 4 分の 1) と stored=false (結果返却不要なベクトルは保存しない) が効果的。Vector Optimizer で事前見積もり可。',
         'suggesters を定義しておくと Suggest / Autocomplete API が使えるようになります。予測入力 UI を作るときに必須。',
+        'Alias はインデックス定義ではなくサービスレベルのリソースです。Clone Assistant で新しいインデックスを作った後、Aliases タブで参照先を切り替えると安全に入れ替えやすくなります。',
         'Index は Replicas (可用性・QPS) と Partitions (ストレージ・QPS) の 2 軸でスケールします。スキーマそのものとは独立なため、本番 SKU 選定時に考慮します。',
       ],
       tipsEn: [
@@ -356,9 +358,43 @@ export const PORTAL_CARDS: PortalCard[] = [
         'Match vector dimensions to the embedding model you use (text-embedding-3-small=1536, ada-002=1536, large=3072). Changing dimensions later requires a full rebuild.',
         'For storage savings, combine compressions (scalarQuantization int8 ≈ 4× reduction) with stored=false on vectors you don’t return. Vector Optimizer can preview the impact.',
         'Define suggesters to enable Suggest / Autocomplete APIs — mandatory for type-ahead UIs.',
+        'Aliases are service-level resources, not part of the index definition. After creating a replacement index with Clone Assistant, use the Aliases tab to repoint traffic safely.',
         'Indexes scale on two axes: Replicas (availability + QPS) and Partitions (storage + QPS). Plan SKU sizing accordingly.',
       ],
       docsUrl: 'https://learn.microsoft.com/azure/search/search-how-to-create-search-index',
+    },
+  },
+  {
+    id: 'indexing-pipeline-builder',
+    icon: 'diagram-3',
+    category: 'builder',
+    titleJa: 'Indexing Pipeline Builder',
+    titleEn: 'Indexing Pipeline Builder',
+    descJa: 'データソース、インデックス、インデクサーを 1 つの取り込みパイプラインとして設計・公開・実行・検証。',
+    descEn: 'Design, publish, run, and verify data sources, indexes, and indexers as one indexing pipeline.',
+    action: 'openIndexingPipelineBuilder',
+    guide: {
+      stepsJa: 'Indexing Pipeline Builder の使い方',
+      stepsEn: 'How to use Indexing Pipeline Builder',
+      steps: [
+        { icon: 'box-arrow-in-right', titleJa: '開く', titleEn: 'Open', descJa: 'ツールメニューまたはこのカードから Indexing Pipeline Builder を開きます。接続中の Azure AI Search サービスに対して、取り込みパイプラインを編集します。', descEn: 'Open Indexing Pipeline Builder from the Tools menu or this card. It edits indexing pipelines against the connected Azure AI Search service.' },
+        { icon: 'arrow-repeat', titleJa: '既存インデクサーを読み込む', titleEn: 'Load an existing indexer', descJa: '既存インデクサーを選択すると、参照先のデータソースとターゲットインデックスをまとめて読み込みます。依存関係を 1 画面で確認できます。', descEn: 'Select an existing indexer to load its referenced data source and target index together, so the dependency chain is visible in one place.' },
+        { icon: 'hdd-network', titleJa: 'データソースを設計', titleEn: 'Design the data source', descJa: 'ソース種別を選び、接続、認証、コンテナーやテーブルなどのスコープを設定します。シークレットは保存時にマスキングされます。', descEn: 'Choose the source type, then configure connection, authentication, and scope such as a container or table. Secrets are masked when saved.' },
+        { icon: 'shuffle', titleJa: 'マッピングを整える', titleEn: 'Align mappings', descJa: 'インデクサーのフィールドマッピングと出力フィールドマッピングを編集し、ソースフィールドやエンリッチメント出力がターゲットインデックスへ入るようにします。', descEn: 'Edit field mappings and output field mappings so source fields and enrichment outputs land in the target index.' },
+        { icon: 'play-circle', titleJa: '公開して実行', titleEn: 'Publish and run', descJa: 'Publish & Run pipeline で、データソース公開、インデックス作成または更新、インデクサー公開、実行、ステータス更新を順に追跡します。', descEn: 'Use Publish & Run pipeline to track data source publish, index create/update, indexer publish, run, and status refresh in order.' },
+        { icon: 'shield-check', titleJa: 'ターゲットを検証', titleEn: 'Verify the target', descJa: '実行後にターゲットインデックスの件数、サンプルドキュメント、主要フィールドの投入状況を確認します。', descEn: 'After running, verify document count, sample documents, and key field population in the target index.' },
+      ],
+      tipsJa: [
+        'インデクサー単体ではなく、データソース、インデックス、実行状態までまとめて確認すると、名前参照やマッピングのずれを早く見つけられます。',
+        'インデックスの詳細なスキーマ編集は Index Builder、スキルセットの詳細編集は Skill Pipeline Builder と組み合わせて使うのが基本です。',
+        '本番環境では、公開前に Raw JSON と差分を確認し、初回インデクサー実行のタイミングを明示的に管理してください。',
+      ],
+      tipsEn: [
+        'Treat the indexer as part of a pipeline with its data source, index, and run state. This makes reference and mapping drift easier to catch.',
+        'Use Index Builder for detailed index schema editing and Skill Pipeline Builder for detailed skillset editing.',
+        'For production, review Raw JSON and diffs before publishing, and explicitly manage when the first indexer run happens.',
+      ],
+      docsUrl: 'https://learn.microsoft.com/azure/search/search-indexer-overview',
     },
   },
   {
@@ -935,26 +971,6 @@ export const PORTAL_CARDS: PortalCard[] = [
 
   // ── Azure AI Search Features (not yet in RAGOps Studio) ──────
   {
-    id: 'indexer-management',
-    icon: 'arrow-repeat',
-    category: 'azure',
-    titleJa: 'Indexer 管理',
-    titleEn: 'Indexer Management',
-    descJa: 'データソースからのインデックス自動作成。スケジュール設定、実行状態の監視。',
-    descEn: 'Auto-populate indexes from data sources. Schedule runs and monitor execution status.',
-    disabled: true,
-  },
-  {
-    id: 'data-source-management',
-    icon: 'hdd-network',
-    category: 'azure',
-    titleJa: 'Data Source 管理',
-    titleEn: 'Data Source Management',
-    descJa: 'Azure Blob Storage、SQL Database、Cosmos DB などのデータソース接続の作成と管理。',
-    descEn: 'Create and manage data source connections for Azure Blob Storage, SQL Database, Cosmos DB, etc.',
-    disabled: true,
-  },
-  {
     id: 'knowledge-store',
     icon: 'archive',
     category: 'azure',
@@ -997,26 +1013,6 @@ export const PORTAL_CARDS: PortalCard[] = [
       ],
       docsUrl: 'https://learn.microsoft.com/azure/search/cognitive-search-defining-skillset',
     },
-  },
-  {
-    id: 'semantic-configuration-builder',
-    icon: 'stars',
-    category: 'azure',
-    titleJa: 'セマンティック構成ビルダー',
-    titleEn: 'Semantic Configuration Builder',
-    descJa: 'セマンティック検索のための構成 (title / content / keyword フィールド) を GUI で作成。',
-    descEn: 'Build semantic configurations (title / content / keyword fields) via GUI.',
-    disabled: true,
-  },
-  {
-    id: 'alias-management',
-    icon: 'signpost-split',
-    category: 'azure',
-    titleJa: 'インデックスエイリアス管理',
-    titleEn: 'Index Alias Management',
-    descJa: 'インデックスエイリアスの作成・更新・削除。ゼロダウンタイムのインデックス切り替え。',
-    descEn: 'Create, update, and delete index aliases. Enable zero-downtime index swaps.',
-    disabled: true,
   },
   {
     id: 'search-traffic-analytics',

@@ -25,6 +25,7 @@ export type AppHeaderProps = {
   onOpenTokenAnalyzer: () => void
   onOpenQpsTester: () => void
   onOpenIndexBuilder: () => void
+  onOpenIndexingPipelineBuilder: () => void
   onOpenKnowledgeBaseBuilder: () => void
   onOpenKnowledgeSourceBuilder: () => void
   onOpenSynonymMapBuilder: () => void
@@ -48,6 +49,7 @@ export function AppHeader({
   onOpenTokenAnalyzer,
   onOpenQpsTester,
   onOpenIndexBuilder,
+  onOpenIndexingPipelineBuilder,
   onOpenKnowledgeBaseBuilder,
   onOpenKnowledgeSourceBuilder,
   onOpenSynonymMapBuilder,
@@ -104,6 +106,12 @@ export function AppHeader({
             <div className="dropdown__header" role="presentation">{t('toolsCategoryBuilders')}</div>
             <button type="button" className="dropdown-item" onClick={onOpenIndexBuilder}>
               🔖 Index Builder
+            </button>
+            <button type="button" className="dropdown-item" onClick={onOpenIndexingPipelineBuilder}>
+              <span className="dropdown-item__label">
+                <i className="bi bi-diagram-3"></i>
+                <span>{t('indexingPipelineBuilder')}</span>
+              </span>
             </button>
             <button type="button" className="dropdown-item" onClick={onOpenKnowledgeBaseBuilder}>
               🧠 Knowledge Base Builder

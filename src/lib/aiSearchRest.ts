@@ -712,6 +712,125 @@ export async function getIndexStatistics(input: {
   };
 }
 
+export async function listAliases(input: {
+  profile: ConnectionProfile;
+  apiVersion: SearchApiVersion;
+  language?: Language;
+}): Promise<RestResult> {
+  const lang = getLang(input.language);
+  const endpoint = normalizeEndpoint(input.profile.endpoint);
+  if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
+
+  let requestId = uuidv4();
+  const url = `${endpoint}/aliases?api-version=${encodeURIComponent(input.apiVersion)}`;
+
+  const headers: Record<string, string> = {
+    'x-ms-client-request-id': requestId,
+    ...makeAuthHeaders(input.profile, lang),
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'GET', headers });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      status: 0,
+      requestId,
+      url,
+      error: { message: makeNetworkErrorMessage(lang, msg) },
+    };
+  }
+
+  requestId = getServiceRequestId(res) ?? requestId;
+
+  const parsed = await readJsonOrText(res);
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      requestId,
+      url,
+      error: {
+        message: extractErrorMessage(res.status, parsed),
+        response: parsed.json,
+        responseText: parsed.text,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    status: res.status,
+    requestId,
+    url,
+    response: parsed.json ?? null,
+    responseText: parsed.text,
+  };
+}
+
+export async function getAliasDefinition(input: {
+  profile: ConnectionProfile;
+  aliasName: string;
+  apiVersion: SearchApiVersion;
+  language?: Language;
+}): Promise<RestResult> {
+  const lang = getLang(input.language);
+  const endpoint = normalizeEndpoint(input.profile.endpoint);
+  const aliasName = input.aliasName.trim();
+  if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
+  if (!aliasName) throw new Error(tr(lang, 'restErrorIndexNameUnset'));
+
+  let requestId = uuidv4();
+  const url = `${endpoint}/aliases/${encodeURIComponent(aliasName)}?api-version=${encodeURIComponent(input.apiVersion)}`;
+
+  const headers: Record<string, string> = {
+    'x-ms-client-request-id': requestId,
+    ...makeAuthHeaders(input.profile, lang),
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'GET', headers });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      status: 0,
+      requestId,
+      url,
+      error: { message: makeNetworkErrorMessage(lang, msg) },
+    };
+  }
+
+  requestId = getServiceRequestId(res) ?? requestId;
+
+  const parsed = await readJsonOrText(res);
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      requestId,
+      url,
+      error: {
+        message: extractErrorMessage(res.status, parsed),
+        response: parsed.json,
+        responseText: parsed.text,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    status: res.status,
+    requestId,
+    url,
+    response: parsed.json ?? null,
+    responseText: parsed.text,
+  };
+}
+
 export async function agenticRetrieve(input: {
   profile: ConnectionProfile;
   knowledgeBaseName: string;
@@ -1545,6 +1664,133 @@ export async function deleteSynonymMap(input: {
 }
 
 // Data source operations
+export async function listDataSources(input: {
+  profile: ConnectionProfile;
+  apiVersion: SearchApiVersion;
+  language?: Language;
+}): Promise<RestResult> {
+  const lang = getLang(input.language);
+  const endpoint = normalizeEndpoint(input.profile.endpoint);
+  if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
+
+  const clientRequestId = uuidv4();
+  const url = `${endpoint}/datasources?api-version=${encodeURIComponent(input.apiVersion)}`;
+
+  const headers: Record<string, string> = {
+    'x-ms-client-request-id': clientRequestId,
+    ...makeAuthHeaders(input.profile, lang),
+  };
+  const qsa = getQuerySourceAuthorizationHeaderValue(input.profile);
+  if (qsa) headers['x-ms-query-source-authorization'] = qsa;
+
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'GET', headers });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      status: 0,
+      requestId: clientRequestId,
+      clientRequestId,
+      url,
+      error: { message: makeNetworkErrorMessage(lang, msg) },
+    };
+  }
+
+  const requestId = getServiceRequestId(res) ?? clientRequestId;
+  const parsed = await readJsonOrText(res);
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      requestId,
+      clientRequestId,
+      url,
+      error: {
+        message: extractErrorMessage(res.status, parsed),
+        response: parsed.json,
+        responseText: parsed.text,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    status: res.status,
+    requestId,
+    clientRequestId,
+    url,
+    response: (parsed.json ?? (parsed.text as unknown as JsonValue)) ?? null,
+    responseText: parsed.text,
+  };
+}
+
+export async function getDataSourceDefinition(input: {
+  profile: ConnectionProfile;
+  dataSourceName: string;
+  apiVersion: SearchApiVersion;
+  language?: Language;
+}): Promise<RestResult> {
+  const lang = getLang(input.language);
+  const endpoint = normalizeEndpoint(input.profile.endpoint);
+  const name = input.dataSourceName.trim();
+  if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
+  if (!name) throw new Error('dataSourceName is required');
+
+  const clientRequestId = uuidv4();
+  const url = `${endpoint}/datasources/${encodeURIComponent(name)}?api-version=${encodeURIComponent(input.apiVersion)}`;
+
+  const headers: Record<string, string> = {
+    'x-ms-client-request-id': clientRequestId,
+    ...makeAuthHeaders(input.profile, lang),
+  };
+  const qsa = getQuerySourceAuthorizationHeaderValue(input.profile);
+  if (qsa) headers['x-ms-query-source-authorization'] = qsa;
+
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'GET', headers });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      status: 0,
+      requestId: clientRequestId,
+      clientRequestId,
+      url,
+      error: { message: makeNetworkErrorMessage(lang, msg) },
+    };
+  }
+
+  const requestId = getServiceRequestId(res) ?? clientRequestId;
+  const parsed = await readJsonOrText(res);
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      requestId,
+      clientRequestId,
+      url,
+      error: {
+        message: extractErrorMessage(res.status, parsed),
+        response: parsed.json,
+        responseText: parsed.text,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    status: res.status,
+    requestId,
+    clientRequestId,
+    url,
+    response: (parsed.json ?? (parsed.text as unknown as JsonValue)) ?? null,
+    responseText: parsed.text,
+  };
+}
+
 export async function createOrUpdateDataSource(input: {
   profile: ConnectionProfile;
   dataSourceName: string;
@@ -2471,6 +2717,134 @@ export async function deleteIndex(input: {
     res = await fetch(url, { method: 'DELETE', headers });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      status: 0,
+      requestId,
+      url,
+      error: { message: makeNetworkErrorMessage(lang, msg) },
+    };
+  }
+
+  requestId = getServiceRequestId(res) ?? requestId;
+
+  const parsed = await readJsonOrText(res);
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      requestId,
+      url,
+      error: {
+        message: extractErrorMessage(res.status, parsed),
+        response: parsed.json,
+        responseText: parsed.text,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    status: res.status,
+    requestId,
+    url,
+    response: parsed.json ?? null,
+    responseText: parsed.text,
+  };
+}
+
+export async function createOrUpdateAlias(input: {
+  profile: ConnectionProfile;
+  aliasName: string;
+  apiVersion: SearchApiVersion;
+  body: JsonValue;
+  language?: Language;
+}): Promise<RestResult> {
+  const lang = getLang(input.language);
+  const endpoint = normalizeEndpoint(input.profile.endpoint);
+  const aliasName = input.aliasName.trim();
+  if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
+  if (!aliasName) throw new Error(tr(lang, 'restErrorIndexNameUnset'));
+
+  let requestId = uuidv4();
+  const url = `${endpoint}/aliases/${encodeURIComponent(aliasName)}?api-version=${encodeURIComponent(input.apiVersion)}`;
+
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    'x-ms-client-request-id': requestId,
+    ...makeAuthHeaders(input.profile, lang),
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(input.body),
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      status: 0,
+      requestId,
+      url,
+      error: { message: makeNetworkErrorMessage(lang, msg) },
+    };
+  }
+
+  requestId = getServiceRequestId(res) ?? requestId;
+
+  const parsed = await readJsonOrText(res);
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      requestId,
+      url,
+      error: {
+        message: extractErrorMessage(res.status, parsed),
+        response: parsed.json,
+        responseText: parsed.text,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    status: res.status,
+    requestId,
+    url,
+    response: parsed.json ?? null,
+    responseText: parsed.text,
+  };
+}
+
+export async function deleteAlias(input: {
+  profile: ConnectionProfile;
+  aliasName: string;
+  apiVersion: SearchApiVersion;
+  language?: Language;
+}): Promise<RestResult> {
+  const lang = getLang(input.language);
+  const endpoint = normalizeEndpoint(input.profile.endpoint);
+  const aliasName = input.aliasName.trim();
+  if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
+  if (!aliasName) throw new Error(tr(lang, 'restErrorIndexNameUnset'));
+
+  let requestId = uuidv4();
+  const url = `${endpoint}/aliases/${encodeURIComponent(aliasName)}?api-version=${encodeURIComponent(input.apiVersion)}`;
+
+  const headers: Record<string, string> = {
+    'x-ms-client-request-id': requestId,
+    ...makeAuthHeaders(input.profile, lang),
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'DELETE', headers });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
       status: 0,

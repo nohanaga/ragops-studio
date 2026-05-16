@@ -348,6 +348,8 @@ type ModalStateContextValue = {
   setIsSynonymMapBuilderOpen: Dispatch<SetStateAction<boolean>>
   isIndexBuilderOpen: boolean
   setIsIndexBuilderOpen: Dispatch<SetStateAction<boolean>>
+  isIndexingPipelineBuilderOpen: boolean
+  setIsIndexingPipelineBuilderOpen: Dispatch<SetStateAction<boolean>>
   isSkillPipelineBuilderOpen: boolean
   setIsSkillPipelineBuilderOpen: Dispatch<SetStateAction<boolean>>
   isVectorOptimizerOpen: boolean
@@ -379,6 +381,7 @@ export function ModalStateProvider(props: { children: ReactNode }) {
   const [isKnowledgeBaseBuilderOpen, setIsKnowledgeBaseBuilderOpen] = useState(false)
   const [isSynonymMapBuilderOpen, setIsSynonymMapBuilderOpen] = useState(false)
   const [isIndexBuilderOpen, setIsIndexBuilderOpen] = useState(false)
+  const [isIndexingPipelineBuilderOpen, setIsIndexingPipelineBuilderOpen] = useState(false)
   const [isSkillPipelineBuilderOpen, setIsSkillPipelineBuilderOpen] = useState(false)
   const [isVectorOptimizerOpen, setIsVectorOptimizerOpen] = useState(false)
   const [isFilterBuilderOpen, setIsFilterBuilderOpen] = useState(false)
@@ -406,6 +409,8 @@ export function ModalStateProvider(props: { children: ReactNode }) {
       setIsSynonymMapBuilderOpen,
       isIndexBuilderOpen,
       setIsIndexBuilderOpen,
+      isIndexingPipelineBuilderOpen,
+      setIsIndexingPipelineBuilderOpen,
       isSkillPipelineBuilderOpen,
       setIsSkillPipelineBuilderOpen,
       isVectorOptimizerOpen,
@@ -431,6 +436,7 @@ export function ModalStateProvider(props: { children: ReactNode }) {
       isKnowledgeBaseBuilderOpen,
       isSynonymMapBuilderOpen,
       isIndexBuilderOpen,
+      isIndexingPipelineBuilderOpen,
       isSkillPipelineBuilderOpen,
       isVectorOptimizerOpen,
       isFilterBuilderOpen,

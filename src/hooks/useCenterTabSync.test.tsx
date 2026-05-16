@@ -17,6 +17,7 @@ function createParams(centerTab: Parameters<typeof useCenterTabSync>[0]['centerT
     setIsKnowledgeBaseBuilderOpen: vi.fn(),
     setIsSynonymMapBuilderOpen: vi.fn(),
     setIsIndexBuilderOpen: vi.fn(),
+    setIsIndexingPipelineBuilderOpen: vi.fn(),
     setIsSkillPipelineBuilderOpen: vi.fn(),
     setIsVectorOptimizerOpen: vi.fn(),
     setIsEvalDatasetGeneratorOpen: vi.fn(),

@@ -61,6 +61,7 @@ export type RunType =
 export type IsoDateTime = string;
 
 export type SearchApiVersion =
+  | '2026-04-01'
   | '2025-11-01-preview'
   | '2025-09-01'
   | '2025-05-01-preview'

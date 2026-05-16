@@ -14,6 +14,7 @@ function isToolTab(tab: CenterTab): boolean {
     tab === 'knowledge-base-builder' ||
     tab === 'synonym-map-builder' ||
     tab === 'index-builder' ||
+    tab === 'indexing-pipeline-builder' ||
     tab === 'skill-pipeline-builder' ||
     tab === 'skill-editor' ||
     tab === 'eval-dataset-generator' ||
@@ -37,6 +38,7 @@ export function useExperimentTabRestore(params: {
   setIsKnowledgeBaseBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsSynonymMapBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsIndexBuilderOpen: Dispatch<SetStateAction<boolean>>
+  setIsIndexingPipelineBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsSkillPipelineBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsVectorOptimizerOpen: Dispatch<SetStateAction<boolean>>
   setIsSkillEditorOpen: Dispatch<SetStateAction<boolean>>
@@ -57,6 +59,7 @@ export function useExperimentTabRestore(params: {
     setIsKnowledgeBaseBuilderOpen,
     setIsSynonymMapBuilderOpen,
     setIsIndexBuilderOpen,
+    setIsIndexingPipelineBuilderOpen,
     setIsSkillPipelineBuilderOpen,
     setIsVectorOptimizerOpen,
     setIsSkillEditorOpen,
@@ -124,6 +127,7 @@ export function useExperimentTabRestore(params: {
         setIsKnowledgeBaseBuilderOpen(restored.isKnowledgeBaseBuilderOpen ?? false)
         setIsSynonymMapBuilderOpen(restored.isSynonymMapBuilderOpen ?? false)
         setIsIndexBuilderOpen(restored.isIndexBuilderOpen ?? false)
+        setIsIndexingPipelineBuilderOpen(restored.isIndexingPipelineBuilderOpen ?? false)
         setIsSkillPipelineBuilderOpen(restored.isSkillPipelineBuilderOpen ?? false)
         setIsVectorOptimizerOpen(restored.isVectorOptimizerOpen ?? false)
         setIsSkillEditorOpen(restored.isSkillEditorOpen ?? false)
@@ -142,6 +146,7 @@ export function useExperimentTabRestore(params: {
     setCenterTab,
     setIsAutoTuningOpen,
     setIsIndexBuilderOpen,
+    setIsIndexingPipelineBuilderOpen,
     setIsSkillPipelineBuilderOpen,
     setIsKnowledgeBaseBuilderOpen,
     setIsKnowledgeSourceBuilderOpen,

@@ -15,6 +15,7 @@ export type PersistedTabs = {
   isKnowledgeBaseBuilderOpen?: boolean
   isSynonymMapBuilderOpen?: boolean
   isIndexBuilderOpen?: boolean
+  isIndexingPipelineBuilderOpen?: boolean
   isSkillPipelineBuilderOpen?: boolean
   isVectorOptimizerOpen?: boolean
   isSkillEditorOpen?: boolean
@@ -41,6 +42,7 @@ export function normalizeCenterTab(raw: unknown, ids: string[]): CenterTab {
     value === 'knowledge-base-builder' ||
     value === 'synonym-map-builder' ||
     value === 'index-builder' ||
+    value === 'indexing-pipeline-builder' ||
     value === 'skill-pipeline-builder' ||
     value === 'skill-editor' ||
     value === 'eval-dataset-generator' ||
@@ -89,6 +91,7 @@ export function loadPersistedTabs(experimentId: string): PersistedTabs | null {
       isKnowledgeBaseBuilderOpen: parsed.isKnowledgeBaseBuilderOpen ?? false,
       isSynonymMapBuilderOpen: parsed.isSynonymMapBuilderOpen ?? false,
       isIndexBuilderOpen: parsed.isIndexBuilderOpen ?? false,
+      isIndexingPipelineBuilderOpen: parsed.isIndexingPipelineBuilderOpen ?? false,
       isSkillPipelineBuilderOpen: parsed.isSkillPipelineBuilderOpen ?? false,
       isVectorOptimizerOpen: parsed.isVectorOptimizerOpen ?? false,
       isSkillEditorOpen: parsed.isSkillEditorOpen ?? false,

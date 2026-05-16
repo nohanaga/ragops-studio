@@ -78,9 +78,17 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
 - **Create/update indexes**: Edit schema in JSON editor and create/update
 - **Delete indexes**: Remove existing indexes
 - **Statistics**: Display `documentCount`, `storageSize`, `vectorIndexSize`
+- **Alias management**: Create, update, delete, and repoint index aliases for safe index swaps
 - **JSON import/export**: Import from file, export to clipboard
 
 ![](./docs/images/screenshot6_en.png)
+
+### Indexing Pipeline Builder
+- **Pipeline hub**: Load an existing indexer and inspect its related data source and target index in one workspace
+- **Data source design**: Select source type, configure connection/authentication, and keep secrets masked in saved drafts
+- **Indexer configuration**: Edit identity, schedule, field mappings, output field mappings, and source-specific parameters
+- **Publish & Run pipeline**: Track data source publish → index create/update → indexer publish → indexer run → status refresh
+- **Target verification**: Check document count, sample documents, key fields, and mapped fields after ingestion
 
 ### Knowledge Source Builder
 - **Knowledge source list**: Display existing knowledge sources

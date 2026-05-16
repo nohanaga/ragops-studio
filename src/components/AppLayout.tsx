@@ -33,6 +33,7 @@ const SkillPipelineBuilder = lazy(() => import('./builders/SkillPipelineBuilder'
 const SkillPipelineRightPane = lazy(() => import('./builders/SkillPipelineRightPane').then(m => ({ default: m.SkillPipelineRightPane })))
 const SkillCodeEditor = lazy(() => import('./builders/SkillCodeEditor').then(m => ({ default: m.SkillCodeEditor })))
 const IndexBuilder = lazy(() => import('./builders/IndexBuilder').then(m => ({ default: m.IndexBuilder })))
+const IndexingPipelineBuilder = lazy(() => import('./builders/IndexingPipelineBuilder').then(m => ({ default: m.IndexingPipelineBuilder })))
 const EvalDatasetGenerator = lazy(() => import('./builders/EvalDatasetGenerator').then(m => ({ default: m.EvalDatasetGenerator })))
 const SearchParameterAutoTuning = lazy(() => import('./builders/SearchParameterAutoTuning').then(m => ({ default: m.SearchParameterAutoTuning })))
 const SearchPipelineVisualizer = lazy(() => import('./viewers/SearchPipelineVisualizer').then(m => ({ default: m.SearchPipelineVisualizer })))
@@ -122,7 +123,7 @@ export function AppLayout(props: {
   setIndexFilterText: Dispatch<SetStateAction<string>>
   filteredIndexNameOptions: string[]
   openIndexInspector: (name?: string) => void
-  onOpenIndexBuilderTab: () => void
+  onOpenIndexBuilderTab: (indexName?: string) => void
   indexDropdownToggleRef: RefObject<HTMLButtonElement | null>
   indexDropdownMenuRef: RefObject<HTMLDivElement | null>
   indexFilterInputRef: RefObject<HTMLInputElement | null>
@@ -237,6 +238,8 @@ export function AppLayout(props: {
     setIsSynonymMapBuilderOpen,
     isIndexBuilderOpen,
     setIsIndexBuilderOpen,
+    isIndexingPipelineBuilderOpen,
+    setIsIndexingPipelineBuilderOpen,
     isSkillPipelineBuilderOpen,
     setIsSkillPipelineBuilderOpen,
     isVectorOptimizerOpen,
@@ -452,6 +455,10 @@ export function AppLayout(props: {
         setIsIndexBuilderOpen(true)
         setCenterTab('index-builder')
         break
+      case 'openIndexingPipelineBuilder':
+        setIsIndexingPipelineBuilderOpen(true)
+        setCenterTab('indexing-pipeline-builder')
+        break
       case 'openSynonymMapBuilder':
         setIsSynonymMapBuilderOpen(true)
         setCenterTab('synonym-map-builder')
@@ -547,6 +554,10 @@ export function AppLayout(props: {
         onOpenIndexBuilder={() => {
           setIsIndexBuilderOpen(true)
           setCenterTab('index-builder')
+        }}
+        onOpenIndexingPipelineBuilder={() => {
+          setIsIndexingPipelineBuilderOpen(true)
+          setCenterTab('indexing-pipeline-builder')
         }}
         onOpenKnowledgeBaseBuilder={() => {
           setIsKnowledgeBaseBuilderOpen(true)
@@ -924,6 +935,36 @@ export function AppLayout(props: {
               </div>
             )}
 
+            {isIndexingPipelineBuilderOpen && (
+              <div className="tabWrapper">
+                <button
+                  type="button"
+                  className={'tab ' + (centerTab === 'indexing-pipeline-builder' ? 'tab--active' : '')}
+                  onClick={() => setCenterTab('indexing-pipeline-builder')}
+                >
+                  <span className="tab__label">
+                    <i className="bi bi-diagram-3 icon--mr6"></i>
+                    {t('indexingPipelineBuilder')}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="tab__closeBtn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setIsIndexingPipelineBuilderOpen(false)
+                    if (centerTab === 'indexing-pipeline-builder') {
+                      setCenterTab('builder')
+                    }
+                  }}
+                  aria-label="Close tab"
+                  title="Close tab"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
             {isSkillPipelineBuilderOpen && (
               <div className="tabWrapper">
                 <button
@@ -1215,6 +1256,22 @@ export function AppLayout(props: {
             </div>
           )}
 
+          {isIndexingPipelineBuilderOpen && (
+            <div className="tabPane" hidden={centerTab !== 'indexing-pipeline-builder'}>
+              <Suspense fallback={<LazyFallback />}>
+              <IndexingPipelineBuilder
+                profile={activeProfile}
+                apiVersion={effectiveApiVersion}
+                language={language}
+                theme={theme}
+                onOpenIndexBuilder={onOpenIndexBuilderTab}
+                onClose={() => setCenterTab('builder')}
+                copyToClipboard={copyToClipboard}
+              />
+              </Suspense>
+            </div>
+          )}
+
           {isSkillPipelineBuilderOpen && (
             <div className="tabPane" hidden={centerTab !== 'skill-pipeline-builder'}>
               <Suspense fallback={<LazyFallback />}>
@@ -1308,6 +1365,7 @@ export function AppLayout(props: {
             centerTab !== 'knowledge-base-builder' &&
             centerTab !== 'synonym-map-builder' &&
             centerTab !== 'index-builder' &&
+            centerTab !== 'indexing-pipeline-builder' &&
             centerTab !== 'skill-pipeline-builder' &&
             centerTab !== 'skill-editor' &&
             centerTab !== 'search-pipeline-visualizer' &&

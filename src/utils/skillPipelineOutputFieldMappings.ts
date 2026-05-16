@@ -1,7 +1,7 @@
 /**
  * Skill pipeline - outputFieldMappings helpers.
  *
- * Microsoft docs: outputFieldMappings are used in AI enrichment scenarios to map
+ * outputFieldMappings are used in AI enrichment scenarios to map
  * enriched document nodes (sourceFieldName) to index fields (targetFieldName).
  * https://learn.microsoft.com/azure/search/cognitive-search-output-field-mapping
  */

@@ -17,6 +17,7 @@ import { translations, type Language } from '../../lib/translations'
 import { useIndexPublishFlow } from '../../hooks/useIndexPublishFlow'
 import { PublishDiffModal } from './PublishDiffModal'
 import { IndexCloneAssistant } from './IndexCloneAssistant'
+import { IndexAliasManager } from './IndexAliasManager'
 import { IndexSchemaConfigurationEditorPanel, IndexSchemaOverview, type ConfigEditorTab } from './IndexSchemaOverview'
 import { applyIndexSchemaTemplate, type IndexSchemaTemplateKind } from './indexSchemaTemplates'
 
@@ -38,13 +39,14 @@ type IndexStats = {
   vectorIndexSize?: number
 }
 
-type IndexBuilderRightTab = 'schema' | 'config' | 'json' | 'clone'
+type IndexBuilderRightTab = 'schema' | 'config' | 'json' | 'clone' | 'aliases'
 
 const indexBuilderRightTabs: Array<{ id: IndexBuilderRightTab; labelKey: keyof typeof translations.ja; icon: string }> = [
   { id: 'schema', labelKey: 'indexBuilderSchemaWorkbench', icon: 'bi-stars' },
   { id: 'config', labelKey: 'indexBuilderConfigEditors', icon: 'bi-ui-checks-grid' },
   { id: 'json', labelKey: 'indexBuilderJsonEditor', icon: 'bi-code-slash' },
   { id: 'clone', labelKey: 'indexCloneAssistant', icon: 'bi-intersect' },
+  { id: 'aliases', labelKey: 'indexBuilderAliases', icon: 'bi-signpost-split' },
 ]
 
 const indexTemplateLabelKeys: Record<IndexSchemaTemplateKind, keyof typeof translations.ja> = {
@@ -542,6 +544,12 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
   }, [profile, apiVersion])
 
   useEffect(() => {
+    const preferred = (activeIndexName ?? '').trim()
+    if (!preferred) return
+    setSelectedName(preferred)
+  }, [activeIndexName])
+
+  useEffect(() => {
     const name = selectedName.trim()
     if (!name) return
     if (!canQuery) return
@@ -838,6 +846,16 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
                 editedJson={editedJson}
                 onApplyCloneJson={onApplyCloneJson}
                 onCloneCompleted={onCloneCompleted}
+              />
+            </div>
+
+            <div className="indexBuilderSubtabPanel" role="tabpanel" hidden={rightTab !== 'aliases'}>
+              <IndexAliasManager
+                profile={profile}
+                apiVersion={apiVersion}
+                language={language}
+                indexNames={indexNames}
+                selectedIndexName={selectedName}
               />
             </div>
           </div>

@@ -23,6 +23,7 @@ export type CenterTab =
   | 'knowledge-base-builder'
   | 'synonym-map-builder'
   | 'index-builder'
+  | 'indexing-pipeline-builder'
   | 'skill-pipeline-builder'
   | 'skill-editor'
   | 'eval-dataset-generator'
