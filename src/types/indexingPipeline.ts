@@ -7,7 +7,6 @@ export type IndexingPipelineEditorTab =
   | 'source'
   | 'index'
   | 'indexer'
-  | 'run'
   | 'rawJson'
 
 export type IndexingPipelineJsonDraft = {

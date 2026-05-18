@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 
 import {
+  ANALYZE_ANALYZERS,
   ANALYZE_CHAR_FILTERS,
   ANALYZE_NORMALIZERS,
   ANALYZE_TOKEN_FILTERS,
@@ -18,6 +19,8 @@ type IndexSchemaOverviewProps = {
   language: Language
   onApplyTemplate: (kind: IndexSchemaTemplateKind) => void
   onOpenConfigEditorTab: (tab: ConfigEditorTab) => void
+  onOpenSynonymMapBuilder: () => void
+  synonymMapNames: string[]
   onChangeIndex: (nextIndex: Record<string, unknown>) => void
 }
 
@@ -33,6 +36,7 @@ type IndexSchemaConfigurationEditorPanelProps = {
 
 type FieldAttributeKey = 'key' | 'searchable' | 'filterable' | 'sortable' | 'facetable' | 'retrievable' | 'stored'
 type FieldTextSettingKey = 'analyzer' | 'indexAnalyzer' | 'searchAnalyzer' | 'normalizer' | 'synonymMaps' | 'dimensions' | 'vectorSearchProfile'
+type FieldEditorMode = 'lexical' | 'vector'
 type FieldUpdateability = 'safe' | 'rebuild' | 'review'
 
 type FieldRule = {
@@ -415,6 +419,10 @@ function uniqueName(existingNames: string[], baseName: string): string {
   return `${baseName}-${Date.now()}`
 }
 
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
+}
+
 function updateFieldsAtPath(
   fields: unknown,
   pathParts: string[],
@@ -686,11 +694,91 @@ function buildFeatureCards(analysis: SchemaAnalysis): FeatureCard[] {
   ]
 }
 
-function AttributeIcon({ active, icon, label }: { active: boolean; icon: string; label: string }) {
+function AttributeToggle({
+  field,
+  control,
+  isExistingIndex,
+  t,
+  onToggle,
+}: {
+  field: FieldSummary
+  control: { key: FieldAttributeKey; labelKey: TranslationKey; icon: string }
+  isExistingIndex: boolean
+  t: (key: TranslationKey) => string
+  onToggle: (field: FieldSummary, attribute: FieldAttributeKey, checked: boolean) => void
+}) {
+  const rule = getAttributeRule(field, control.key)
+  const active = field[control.key] === true
+  const canRepairUnsupported = !isExistingIndex && !rule.supported && active
+  const disabled = (rule.required && active) || (!canEditRule(rule, isExistingIndex) && !canRepairUnsupported)
+  const severity = fieldRuleSeverity(rule, isExistingIndex)
+  const label = t(control.labelKey)
+  const title = `${label}: ${active ? 'on' : 'off'} / ${t(fieldRuleStatusKey(rule, isExistingIndex))} - ${t(rule.noteKey)}`
   return (
-    <span className={`indexSchemaFieldMatrix__attr ${active ? 'indexSchemaFieldMatrix__attr--active' : ''}`} title={label}>
-      <i className={`bi ${icon}`}></i>
-    </span>
+    <button
+      type="button"
+      className={`indexSchemaFieldMatrix__attr indexSchemaFieldMatrix__attr--${severity} ${active ? 'indexSchemaFieldMatrix__attr--active' : ''}`}
+      title={title}
+      aria-label={title}
+      aria-pressed={active}
+      disabled={disabled}
+      onClick={(event) => {
+        event.stopPropagation()
+        onToggle(field, control.key, !active)
+      }}
+    >
+      <i className={`bi ${control.icon}`}></i>
+    </button>
+  )
+}
+
+function FieldSettingSummary({
+  field,
+  controls,
+  mode,
+  editable = true,
+  t,
+  onEdit,
+}: {
+  field: FieldSummary
+  controls: Array<{ key: FieldTextSettingKey; labelKey: TranslationKey; icon: string }>
+  mode: FieldEditorMode
+  editable?: boolean
+  t: (key: TranslationKey) => string
+  onEdit: (field: FieldSummary, mode: FieldEditorMode) => void
+}) {
+  const configuredControls = controls
+    .map((control) => ({ control, value: getTextSettingValue(field, control.key) }))
+    .filter((item) => item.value.trim().length > 0)
+
+  return (
+    <div className="indexSchemaFieldMatrix__settings">
+      <div className="indexSchemaFieldMatrix__settingChips">
+        {configuredControls.length === 0 ? (
+          <span className="indexSchemaFieldMatrix__emptyValue">-</span>
+        ) : (
+          configuredControls.map(({ control, value }) => (
+            <span key={control.key} className={`indexSchemaFieldMatrix__settingChip indexSchemaFieldMatrix__settingChip--${mode}`} title={`${t(control.labelKey)}: ${value}`}>
+              <i className={`bi ${control.icon} icon--mr6`}></i>
+              <span>{value}</span>
+            </span>
+          ))
+        )}
+      </div>
+      {editable ? (
+        <button
+          type="button"
+          className={`btn btn--mini indexSchemaFieldMatrix__editBtn indexSchemaFieldMatrix__editBtn--${mode}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onEdit(field, mode)
+          }}
+        >
+          <i className="bi bi-sliders icon--mr6"></i>
+          {t('indexBuilderFieldEdit')}
+        </button>
+      ) : null}
+    </div>
   )
 }
 
@@ -711,6 +799,14 @@ const lexicalSettingControls: Array<{ key: FieldTextSettingKey; labelKey: Transl
   { key: 'normalizer', labelKey: 'indexBuilderAttrNormalizer', icon: 'bi-filter-square' },
   { key: 'synonymMaps', labelKey: 'indexBuilderAttrSynonymMaps', icon: 'bi-diagram-2' },
 ]
+
+const lexicalSettingListIds: Partial<Record<FieldTextSettingKey, string>> = {
+  analyzer: 'indexBuilderFieldAnalyzerOptions',
+  indexAnalyzer: 'indexBuilderFieldAnalyzerOptions',
+  searchAnalyzer: 'indexBuilderFieldAnalyzerOptions',
+  normalizer: 'indexBuilderFieldNormalizerOptions',
+  synonymMaps: 'indexBuilderFieldSynonymMapOptions',
+}
 
 const vectorSettingControls: Array<{ key: FieldTextSettingKey; labelKey: TranslationKey; icon: string }> = [
   { key: 'dimensions', labelKey: 'indexBuilderAttrDimensions', icon: 'bi-rulers' },
@@ -2570,33 +2666,64 @@ export function IndexSchemaConfigurationEditorPanel({ editedJson, baselineJson, 
   )
 }
 
-export function IndexSchemaOverview({ editedJson, baselineJson, isExistingIndex, language, onApplyTemplate, onOpenConfigEditorTab, onChangeIndex }: IndexSchemaOverviewProps) {
+export function IndexSchemaOverview({ editedJson, baselineJson, isExistingIndex, language, onApplyTemplate, onOpenConfigEditorTab, onOpenSynonymMapBuilder, synonymMapNames, onChangeIndex }: IndexSchemaOverviewProps) {
   const t = (key: TranslationKey): string => String(translations[language][key] ?? '')
   const analysis = useMemo(() => analyzeSchema(editedJson, baselineJson, isExistingIndex), [editedJson, baselineJson, isExistingIndex])
+  const lexicalSettingOptions = useMemo(() => {
+    if (!analysis.ok) return { analyzers: [...ANALYZE_ANALYZERS], normalizers: [...ANALYZE_NORMALIZERS], synonymMaps: synonymMapNames }
+    const customAnalyzerNames = asArray(analysis.index.analyzers).filter(isRecord).map((analyzer) => asString(analyzer.name))
+    const customNormalizerNames = asArray(analysis.index.normalizers).filter(isRecord).map((normalizer) => asString(normalizer.name))
+    return {
+      analyzers: uniqueStrings([
+        ...ANALYZE_ANALYZERS,
+        ...customAnalyzerNames,
+        ...analysis.fields.map((field) => field.analyzer),
+        ...analysis.fields.map((field) => field.indexAnalyzer),
+        ...analysis.fields.map((field) => field.searchAnalyzer),
+      ]),
+      normalizers: uniqueStrings([
+        ...ANALYZE_NORMALIZERS,
+        ...customNormalizerNames,
+        ...analysis.fields.map((field) => field.normalizer),
+      ]),
+      synonymMaps: uniqueStrings([
+        ...synonymMapNames,
+        ...analysis.fields.flatMap((field) => field.synonymMaps),
+      ]),
+    }
+  }, [analysis, synonymMapNames])
   const [selectedFieldPath, setSelectedFieldPath] = useState('')
+  const [fieldEditorOpen, setFieldEditorOpen] = useState(false)
+  const [fieldEditorMode, setFieldEditorMode] = useState<FieldEditorMode>('lexical')
 
   const selectedField = analysis.ok
     ? analysis.fields.find((field) => field.path === selectedFieldPath) ?? analysis.fields[0] ?? null
     : null
 
-  const applyBooleanSetting = (attribute: FieldAttributeKey, checked: boolean) => {
-    if (!analysis.ok || !selectedField) return
-    const rule = getAttributeRule(selectedField, attribute)
-    const currentValue = selectedField[attribute] === true
+  const openFieldEditor = (field: FieldSummary, mode: FieldEditorMode) => {
+    setSelectedFieldPath(field.path)
+    setFieldEditorMode(mode)
+    setFieldEditorOpen(true)
+  }
+
+  const applyBooleanSetting = (field: FieldSummary, attribute: FieldAttributeKey, checked: boolean) => {
+    if (!analysis.ok) return
+    const rule = getAttributeRule(field, attribute)
+    const currentValue = field[attribute] === true
     const canRepairUnsupported = !isExistingIndex && !rule.supported && currentValue && !checked
     if (!canEditRule(rule, isExistingIndex) && !canRepairUnsupported) return
     if (rule.required && !checked) return
     if (!rule.supported && checked) return
 
     const nextIndex = attribute === 'key'
-      ? setKeyField(analysis.index, selectedField.pathParts, checked)
-      : setFieldProperty(analysis.index, selectedField.pathParts, attribute, checked)
+      ? setKeyField(analysis.index, field.pathParts, checked)
+      : setFieldProperty(analysis.index, field.pathParts, attribute, checked)
     onChangeIndex(nextIndex)
   }
 
-  const applyTextSetting = (setting: FieldTextSettingKey, value: string) => {
-    if (!analysis.ok || !selectedField) return
-    const rule = getTextSettingRule(selectedField, setting)
+  const applyTextSetting = (field: FieldSummary, setting: FieldTextSettingKey, value: string) => {
+    if (!analysis.ok) return
+    const rule = getTextSettingRule(field, setting)
     if (!canEditRule(rule, isExistingIndex)) return
 
     const trimmed = value.trim()
@@ -2610,7 +2737,7 @@ export function IndexSchemaOverview({ editedJson, baselineJson, isExistingIndex,
       const names = trimmed.split(',').map((name) => name.trim()).filter(Boolean).slice(0, 1)
       nextValue = names.length > 0 ? names : undefined
     }
-    onChangeIndex(setFieldProperty(analysis.index, selectedField.pathParts, setting, nextValue))
+    onChangeIndex(setFieldProperty(analysis.index, field.pathParts, setting, nextValue))
   }
 
   if (!analysis.ok) {
@@ -2635,7 +2762,7 @@ export function IndexSchemaOverview({ editedJson, baselineJson, isExistingIndex,
   const healthIssues: HealthIssue[] = analysis.healthIssues.length > 0
     ? analysis.healthIssues
     : [{ severity: 'safe', messageKey: 'indexBuilderSchemaIssueNone' }]
-  const visibleFields = analysis.fields.slice(0, 18)
+  const visibleFields = analysis.fields
   const hiddenFieldCount = Math.max(0, analysis.fields.length - visibleFields.length)
 
   return (
@@ -2785,25 +2912,23 @@ export function IndexSchemaOverview({ editedJson, baselineJson, isExistingIndex,
                   </td>
                   <td>
                     <div className="indexSchemaFieldMatrix__attrs">
-                      <AttributeIcon active={field.key} icon="bi-key" label={t('indexBuilderAttrKey')} />
-                      <AttributeIcon active={field.searchable === true} icon="bi-search" label={t('indexBuilderAttrSearchable')} />
-                      <AttributeIcon active={field.filterable === true} icon="bi-funnel" label={t('indexBuilderAttrFilterable')} />
-                      <AttributeIcon active={field.sortable === true} icon="bi-sort-alpha-down" label={t('indexBuilderAttrSortable')} />
-                      <AttributeIcon active={field.facetable === true} icon="bi-grid-3x3-gap" label={t('indexBuilderAttrFacetable')} />
-                      <AttributeIcon active={field.retrievable === true} icon="bi-eye" label={t('indexBuilderAttrRetrievable')} />
+                      {fieldAttributeControls.map((control) => (
+                        <AttributeToggle
+                          key={control.key}
+                          field={field}
+                          control={control}
+                          isExistingIndex={isExistingIndex}
+                          t={t}
+                          onToggle={applyBooleanSetting}
+                        />
+                      ))}
                     </div>
                   </td>
                   <td>
-                    <span className="indexSchemaFieldMatrix__mono">
-                      {field.analyzer || field.searchAnalyzer || field.indexAnalyzer || field.normalizer || '-'}
-                    </span>
+                    <FieldSettingSummary field={field} controls={lexicalSettingControls} mode="lexical" t={t} onEdit={openFieldEditor} />
                   </td>
                   <td>
-                    <span className="indexSchemaFieldMatrix__mono">
-                      {field.vectorSearchProfile || field.dimensions
-                        ? `${field.vectorSearchProfile || '-'}${field.dimensions ? ` / ${field.dimensions}` : ''}`
-                        : '-'}
-                    </span>
+                    <FieldSettingSummary field={field} controls={vectorSettingControls} mode="vector" editable={field.isVector} t={t} onEdit={openFieldEditor} />
                   </td>
                 </tr>
               ))}
@@ -2824,161 +2949,153 @@ export function IndexSchemaOverview({ editedJson, baselineJson, isExistingIndex,
         ) : null}
       </section>
 
-      <section className="indexSchemaPanel indexSchemaPanel--wide indexSchemaFieldSettings">
-        <div className="indexSchemaPanel__title">
-          <i className="bi bi-sliders icon--mr6"></i>
-          {t('indexBuilderFieldSettings')}
-        </div>
-        <div className="indexSchemaWorkbench__hint">{t('indexBuilderFieldSettingsHint')}</div>
-
-        {!selectedField ? (
-          <div className="empty indexSchemaFieldSettings__empty">{t('indexBuilderFieldNoSelection')}</div>
-        ) : (
-          <div className="indexSchemaFieldSettings__layout">
-            <div className="indexSchemaFieldSettings__rail" aria-label={t('indexBuilderFieldSelect')}>
-              {analysis.fields.map((field) => (
-                <button
-                  key={field.path}
-                  type="button"
-                  className={`indexSchemaFieldSettings__fieldBtn ${field.path === selectedField.path ? 'indexSchemaFieldSettings__fieldBtn--active' : ''}`}
-                  onClick={() => setSelectedFieldPath(field.path)}
-                  title={field.path}
-                >
-                  <span className="indexSchemaFieldSettings__fieldPath" style={{ paddingLeft: `${field.depth * 12}px` }}>
-                    {field.path}
-                  </span>
-                  <span className="indexSchemaFieldSettings__fieldType">{field.type || '-'}</span>
-                </button>
-              ))}
+      {fieldEditorOpen && selectedField ? (
+        <div className="modal-overlay" onClick={() => setFieldEditorOpen(false)}>
+          <div className="modal-content indexSchemaFieldEditorModal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>
+                <i className={`bi ${fieldEditorMode === 'lexical' ? 'bi-braces' : 'bi-diagram-3'} icon--mr6`}></i>
+                {fieldEditorMode === 'lexical' ? t('indexBuilderFieldLexical') : t('indexBuilderFieldVector')}: {selectedField.path}
+              </h2>
+              <button type="button" className="btn" onClick={() => setFieldEditorOpen(false)}>x</button>
             </div>
-
-            <div className="indexSchemaFieldSettings__detail">
-              <div className="indexSchemaFieldSettings__summary">
-                <div>
-                  <div className="indexSchemaFieldSettings__selectedName">{selectedField.path}</div>
-                  <div className="indexSchemaFieldSettings__selectedType">{selectedField.type || '-'}</div>
-                </div>
-                <span className={`indexSchemaHealth indexSchemaHealth--${isExistingIndex ? 'review' : 'safe'}`}>
-                  <i className={`bi ${isExistingIndex ? 'bi-eye' : 'bi-pencil-square'} icon--mr6`}></i>
-                  {isExistingIndex ? t('indexBuilderFieldModeExisting') : t('indexBuilderFieldModeDraft')}
-                </span>
-              </div>
-
-              <div className="indexSchemaFieldSettings__cards">
-                <div className="indexSchemaFieldSettings__card">
-                  <div className="indexSchemaFieldSettings__cardTitle">
-                    <i className="bi bi-toggles icon--mr6"></i>
-                    {t('indexBuilderFieldUsage')}
-                  </div>
-                  <div className="indexSchemaFieldSettings__toggleGrid">
-                    {fieldAttributeControls.map((control) => {
-                      const rule = getAttributeRule(selectedField, control.key)
-                      const currentValue = selectedField[control.key] === true
-                      const canRepairUnsupported = !isExistingIndex && !rule.supported && currentValue
-                      const disabled = (rule.required && currentValue) || (!canEditRule(rule, isExistingIndex) && !canRepairUnsupported)
-                      const severity = fieldRuleSeverity(rule, isExistingIndex)
-                      return (
-                        <label key={control.key} className={`indexSchemaFieldSettings__toggle indexSchemaFieldSettings__toggle--${severity}`}>
-                          <input
-                            type="checkbox"
-                            checked={currentValue}
-                            disabled={disabled}
-                            onChange={(event) => applyBooleanSetting(control.key, event.currentTarget.checked)}
-                          />
-                          <span className="indexSchemaFieldSettings__toggleIcon"><i className={`bi ${control.icon}`}></i></span>
-                          <span className="indexSchemaFieldSettings__toggleText">
-                            <span className="indexSchemaFieldSettings__label">{t(control.labelKey)}</span>
-                            <span className={`indexSchemaFieldSettings__status indexSchemaFieldSettings__status--${severity}`}>
-                              <i className={`bi ${rule.supported ? updateabilityIcon(rule.updateability) : 'bi-ban'} icon--mr6`}></i>
-                              {t(fieldRuleStatusKey(rule, isExistingIndex))}
-                            </span>
-                            <span className="indexSchemaFieldSettings__note">{t(rule.noteKey)}</span>
-                          </span>
-                        </label>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                <div className="indexSchemaFieldSettings__card">
-                  <div className="indexSchemaFieldSettings__cardTitle">
-                    <i className="bi bi-braces icon--mr6"></i>
-                    {t('indexBuilderFieldLexical')}
-                  </div>
-                  <div className="indexSchemaFieldSettings__formGrid">
-                    {lexicalSettingControls.map((control) => {
-                      const rule = getTextSettingRule(selectedField, control.key)
-                      const disabled = !canEditRule(rule, isExistingIndex)
-                      const severity = fieldRuleSeverity(rule, isExistingIndex)
-                      return (
-                        <label key={control.key} className="indexSchemaFieldSettings__inputField">
-                          <span className="indexSchemaFieldSettings__inputLabel">
-                            <i className={`bi ${control.icon} icon--mr6`}></i>
-                            {t(control.labelKey)}
-                          </span>
-                          <input
-                            className="field__input"
-                            value={getTextSettingValue(selectedField, control.key)}
-                            onChange={(event) => applyTextSetting(control.key, event.currentTarget.value)}
-                            disabled={disabled}
-                            placeholder={control.key === 'synonymMaps' ? t('indexBuilderFieldSynonymMapsPlaceholder') : t('indexBuilderFieldInputPlaceholder')}
-                          />
-                          <span className={`indexSchemaFieldSettings__status indexSchemaFieldSettings__status--${severity}`}>
-                            <i className={`bi ${rule.supported ? updateabilityIcon(rule.updateability) : 'bi-ban'} icon--mr6`}></i>
-                            {t(fieldRuleStatusKey(rule, isExistingIndex))}
-                          </span>
-                          <span className="indexSchemaFieldSettings__note">{t(rule.noteKey)}</span>
-                        </label>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                <div className="indexSchemaFieldSettings__card">
-                  <div className="indexSchemaFieldSettings__cardTitle">
+            <div className="modal-body indexSchemaFieldEditorModal__body">
+              <div className="indexSchemaWorkbench__hint">{t('indexBuilderFieldSettingsHint')}</div>
+              {fieldEditorMode === 'vector' ? (
+                <div className="indexSchemaFieldEditorModal__toolbar">
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={() => {
+                      setFieldEditorOpen(false)
+                      onOpenConfigEditorTab('vectorProfiles')
+                    }}
+                    title={t('indexBuilderOpenConfigEditorTitle')}
+                  >
                     <i className="bi bi-diagram-3 icon--mr6"></i>
-                    {t('indexBuilderFieldVector')}
+                    {t('indexBuilderOpenConfigEditor')} - {t('indexBuilderVectorProfiles')}
+                  </button>
+                </div>
+              ) : null}
+              <div className="indexSchemaFieldSettings__detail">
+                <div className="indexSchemaFieldSettings__summary">
+                  <div>
+                    <div className="indexSchemaFieldSettings__selectedName">{selectedField.path}</div>
+                    <div className="indexSchemaFieldSettings__selectedType">{selectedField.type || '-'}</div>
                   </div>
-                  <div className="indexSchemaFieldSettings__formGrid indexSchemaFieldSettings__formGrid--compact">
-                    {vectorSettingControls.map((control) => {
-                      const rule = getTextSettingRule(selectedField, control.key)
-                      const disabled = !canEditRule(rule, isExistingIndex)
-                      const severity = fieldRuleSeverity(rule, isExistingIndex)
-                      return (
-                        <label key={control.key} className="indexSchemaFieldSettings__inputField">
-                          <span className="indexSchemaFieldSettings__inputLabel">
-                            <i className={`bi ${control.icon} icon--mr6`}></i>
-                            {t(control.labelKey)}
-                          </span>
-                          <input
-                            className="field__input"
-                            type={control.key === 'dimensions' ? 'number' : 'text'}
-                            min={control.key === 'dimensions' ? 2 : undefined}
-                            max={control.key === 'dimensions' ? 4096 : undefined}
-                            list={control.key === 'vectorSearchProfile' ? 'indexBuilderVectorProfiles' : undefined}
-                            value={getTextSettingValue(selectedField, control.key)}
-                            onChange={(event) => applyTextSetting(control.key, event.currentTarget.value)}
-                            disabled={disabled}
-                            placeholder={control.key === 'dimensions' ? t('indexBuilderFieldDimensionPlaceholder') : t('indexBuilderFieldVectorProfilePlaceholder')}
-                          />
-                          <span className={`indexSchemaFieldSettings__status indexSchemaFieldSettings__status--${severity}`}>
-                            <i className={`bi ${rule.supported ? updateabilityIcon(rule.updateability) : 'bi-ban'} icon--mr6`}></i>
-                            {t(fieldRuleStatusKey(rule, isExistingIndex))}
-                          </span>
-                          <span className="indexSchemaFieldSettings__note">{t(rule.noteKey)}</span>
-                        </label>
-                      )
-                    })}
-                    <datalist id="indexBuilderVectorProfiles">
-                      {analysis.vectorProfileNames.map((name) => <option key={name} value={name} />)}
-                    </datalist>
-                  </div>
+                  <span className={`indexSchemaHealth indexSchemaHealth--${isExistingIndex ? 'review' : 'safe'}`}>
+                    <i className={`bi ${isExistingIndex ? 'bi-eye' : 'bi-pencil-square'} icon--mr6`}></i>
+                    {isExistingIndex ? t('indexBuilderFieldModeExisting') : t('indexBuilderFieldModeDraft')}
+                  </span>
+                </div>
+
+                <div className="indexSchemaFieldSettings__cards">
+                  {fieldEditorMode === 'lexical' ? (
+                    <div className="indexSchemaFieldSettings__card">
+                      <div className="indexSchemaFieldSettings__cardTitle">
+                        <i className="bi bi-braces icon--mr6"></i>
+                        {t('indexBuilderFieldLexical')}
+                      </div>
+                      <FieldOptionsDatalist id="indexBuilderFieldAnalyzerOptions" options={lexicalSettingOptions.analyzers} />
+                      <FieldOptionsDatalist id="indexBuilderFieldNormalizerOptions" options={lexicalSettingOptions.normalizers} />
+                      <FieldOptionsDatalist id="indexBuilderFieldSynonymMapOptions" options={lexicalSettingOptions.synonymMaps} />
+                      <div className="indexSchemaFieldSettings__formGrid">
+                        {lexicalSettingControls.map((control) => {
+                          const rule = getTextSettingRule(selectedField, control.key)
+                          const disabled = !canEditRule(rule, isExistingIndex)
+                          const severity = fieldRuleSeverity(rule, isExistingIndex)
+                          const listId = lexicalSettingListIds[control.key]
+                          return (
+                            <div key={control.key} className="indexSchemaFieldSettings__inputField">
+                              <span className="indexSchemaFieldSettings__inputLabel">
+                                <i className={`bi ${control.icon} icon--mr6`}></i>
+                                {t(control.labelKey)}
+                              </span>
+                              <div className="indexSchemaFieldSettings__inputRow">
+                                <input
+                                  className="field__input"
+                                  value={getTextSettingValue(selectedField, control.key)}
+                                  onChange={(event) => applyTextSetting(selectedField, control.key, event.currentTarget.value)}
+                                  disabled={disabled}
+                                  list={listId}
+                                  aria-label={t(control.labelKey)}
+                                  placeholder={control.key === 'synonymMaps' ? t('indexBuilderFieldSynonymMapsPlaceholder') : t('indexBuilderFieldInputPlaceholder')}
+                                />
+                                {control.key === 'synonymMaps' ? (
+                                  <button
+                                    type="button"
+                                    className="btn btn--mini indexSchemaFieldSettings__linkBtn"
+                                    onClick={() => {
+                                      setFieldEditorOpen(false)
+                                      onOpenSynonymMapBuilder()
+                                    }}
+                                    title={t('indexBuilderOpenSynonymMapBuilderTitle')}
+                                  >
+                                    <i className="bi bi-box-arrow-up-right icon--mr6"></i>
+                                    {t('indexBuilderOpenSynonymMapBuilder')}
+                                  </button>
+                                ) : null}
+                              </div>
+                              <span className={`indexSchemaFieldSettings__status indexSchemaFieldSettings__status--${severity}`}>
+                                <i className={`bi ${rule.supported ? updateabilityIcon(rule.updateability) : 'bi-ban'} icon--mr6`}></i>
+                                {t(fieldRuleStatusKey(rule, isExistingIndex))}
+                              </span>
+                              <span className="indexSchemaFieldSettings__note">{t(rule.noteKey)}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {fieldEditorMode === 'vector' ? (
+                    <div className="indexSchemaFieldSettings__card">
+                      <div className="indexSchemaFieldSettings__cardTitle">
+                        <i className="bi bi-diagram-3 icon--mr6"></i>
+                        {t('indexBuilderFieldVector')}
+                      </div>
+                      <div className="indexSchemaFieldSettings__formGrid indexSchemaFieldSettings__formGrid--compact">
+                        {vectorSettingControls.map((control) => {
+                          const rule = getTextSettingRule(selectedField, control.key)
+                          const disabled = !canEditRule(rule, isExistingIndex)
+                          const severity = fieldRuleSeverity(rule, isExistingIndex)
+                          return (
+                            <label key={control.key} className="indexSchemaFieldSettings__inputField">
+                              <span className="indexSchemaFieldSettings__inputLabel">
+                                <i className={`bi ${control.icon} icon--mr6`}></i>
+                                {t(control.labelKey)}
+                              </span>
+                              <input
+                                className="field__input"
+                                type={control.key === 'dimensions' ? 'number' : 'text'}
+                                min={control.key === 'dimensions' ? 2 : undefined}
+                                max={control.key === 'dimensions' ? 4096 : undefined}
+                                list={control.key === 'vectorSearchProfile' ? 'indexBuilderVectorProfiles' : undefined}
+                                value={getTextSettingValue(selectedField, control.key)}
+                                onChange={(event) => applyTextSetting(selectedField, control.key, event.currentTarget.value)}
+                                disabled={disabled}
+                                placeholder={control.key === 'dimensions' ? t('indexBuilderFieldDimensionPlaceholder') : t('indexBuilderFieldVectorProfilePlaceholder')}
+                              />
+                              <span className={`indexSchemaFieldSettings__status indexSchemaFieldSettings__status--${severity}`}>
+                                <i className={`bi ${rule.supported ? updateabilityIcon(rule.updateability) : 'bi-ban'} icon--mr6`}></i>
+                                {t(fieldRuleStatusKey(rule, isExistingIndex))}
+                              </span>
+                              <span className="indexSchemaFieldSettings__note">{t(rule.noteKey)}</span>
+                            </label>
+                          )
+                        })}
+                        <datalist id="indexBuilderVectorProfiles">
+                          {analysis.vectorProfileNames.map((name) => <option key={name} value={name} />)}
+                        </datalist>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
           </div>
-        )}
-      </section>
+        </div>
+      ) : null}
 
     </div>
   )

@@ -25,6 +25,18 @@ function readArray(record: Record<string, JsonValue>, key: string): JsonValue[] 
   return Array.isArray(value) ? value : []
 }
 
+function supportsUserAssignedManagedIdentity(apiVersion: string): boolean {
+  const match = apiVersion.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!match) return false
+  const [, year, month, day] = match
+  return `${year}-${month}-${day}` >= '2026-04-01'
+}
+
+function hasUserAssignedDataSourceIdentity(dataSource: JsonValue | null): boolean {
+  if (!isRecord(dataSource) || !isRecord(dataSource.identity)) return false
+  return typeof dataSource.identity.userAssignedIdentity === 'string' && dataSource.identity.userAssignedIdentity.trim().length > 0
+}
+
 function parseResource(textValue: string): ParsedJsonResult {
   try {
     const parsed = JSON.parse(textValue) as JsonValue
@@ -136,7 +148,7 @@ export function validateIndexingPipelineDraft(params: {
   apiVersion: string
   language: Language
 }): IndexingPipelineValidationIssue[] {
-  const { draft, language } = params
+  const { draft, apiVersion, language } = params
   const issues: IndexingPipelineValidationIssue[] = []
 
   const dataSource = validateJsonParse({ draft, resource: 'dataSource', language, issues })
@@ -185,6 +197,19 @@ export function validateIndexingPipelineDraft(params: {
         language,
         `Data Source type "${dataSourceType}" は alias として認識しました。`,
         `Data source type "${dataSourceType}" was recognized as an alias.`,
+      ),
+    })
+  }
+
+  if (hasUserAssignedDataSourceIdentity(dataSource) && !supportsUserAssignedManagedIdentity(apiVersion)) {
+    addIssue(issues, {
+      id: 'dataSource:userAssignedIdentityApiVersion',
+      resource: 'dataSource',
+      severity: 'error',
+      message: text(
+        language,
+        'Data Source の User Assigned Managed Identity は REST API version 2026-04-01 以降でサポートされます。',
+        'Data source user-assigned managed identity is supported in REST API version 2026-04-01 or later.',
       ),
     })
   }

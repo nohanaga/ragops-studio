@@ -3,6 +3,11 @@ import { json } from '@codemirror/lang-json'
 import { EditorView } from '@codemirror/view'
 import { githubDark, githubLight } from '@uiw/codemirror-theme-github'
 import { ExpandableCodeMirror } from '../viewers/ExpandableCodeMirror'
+import {
+  IndexingPipelinePublishModal,
+  type IndexingPipelinePublishResourceKind,
+  type IndexingPipelinePublishReviewResource,
+} from './IndexingPipelinePublishModal'
 import type { ConnectionProfile, SearchApiVersion } from '../../lib/model'
 import type { ThemePreference } from '../../types/app'
 import type { Language } from '../../lib/translations'
@@ -24,6 +29,9 @@ import {
   type JsonValue,
   type RestResult,
 } from '../../lib/aiSearchRest'
+import { normalizeStorageResourceIdInput } from '../../lib/azureBlobStorage'
+import { computeIndexDiff } from '../../utils/indexDiff'
+import { computeResourceDiff, type ResourceDiffResult } from '../../utils/skillsetDiff'
 import {
   dataSourceLabel,
   findDataSourceDescriptor,
@@ -87,6 +95,7 @@ type VerificationState = {
 
 type PipelineStepId = 'validate' | 'dataSource' | 'index' | 'indexer' | 'run' | 'status' | 'verify'
 type PipelineStepStatus = 'idle' | 'running' | 'success' | 'error' | 'skipped'
+type DataSourceCredentialMode = 'connectionString' | 'systemAssignedManagedIdentity' | 'userAssignedManagedIdentity'
 
 type PipelineStepState = {
   status: PipelineStepStatus
@@ -97,7 +106,21 @@ type PipelineStepState = {
 
 type PipelineStepMap = Record<PipelineStepId, PipelineStepState>
 
+type PreparedPipelineDrafts = {
+  dataSource: Record<string, JsonValue>
+  index: Record<string, JsonValue>
+  indexer: Record<string, JsonValue>
+  dataSourceName: string
+  indexName: string
+  indexerName: string
+}
+
+type PipelineUpdateReviewResource = IndexingPipelinePublishReviewResource & {
+  candidate: Record<string, JsonValue>
+}
+
 const emptyResourceLists: ResourceLists = { dataSources: [], indexes: [], indexers: [] }
+const DATA_SOURCE_USER_ASSIGNED_IDENTITY_ODATA_TYPE = '#Microsoft.Azure.Search.DataUserAssignedIdentity'
 
 const stepOrder: PipelineStepId[] = ['validate', 'dataSource', 'index', 'indexer', 'run', 'status', 'verify']
 
@@ -175,7 +198,10 @@ const copy = {
     runIndexer: 'Indexer 実行',
     refreshStatus: 'Status 更新',
     verifyTarget: 'Target 検証',
-    publishRunVerify: 'Publish & Run pipeline',
+    updateRunPipeline: 'Publish & Run pipeline',
+    updateRunStarted: 'Publish & Run pipeline を開始しました。',
+    updateReviewLoading: '差分を取得中...',
+    noResourceUpdates: '更新対象はありません。Publish を省略して Run のみ実行します。',
     status: 'Indexer status',
     lastRun: 'Last run response',
     indexVerification: 'Index verification',
@@ -217,6 +243,14 @@ const copy = {
     containerName: 'Container / table / scope',
     containerQuery: 'Query / folder scope',
     credentialMode: 'Credential mode',
+    credentialModeConnectionString: '接続文字列 / キー',
+    credentialModeSystemManagedIdentity: 'システム割り当て Managed Identity',
+    credentialModeUserManagedIdentity: 'ユーザー割り当て Managed Identity',
+    managedIdentityResourceId: '接続先 Resource ID',
+    userAssignedIdentity: 'User-assigned identity Resource ID',
+    managedIdentityResourceIdHint: 'Azure Portal のストレージアカウント URL、/subscriptions/...、ResourceId=/subscriptions/... のいずれを貼り付けても、credentials.connectionString には ResourceId=/subscriptions/...; として保存します。',
+    userAssignedIdentityHint: 'Search サービスに割り当て済みの User Assigned Managed Identity の Resource ID を指定します。REST API version 2026-04-01 以降が必要です。',
+    userAssignedIdentityApiWarning: 'User Assigned Managed Identity は REST API version 2026-04-01 以降でサポートされます。',
     connectionString: '接続文字列 / 資格情報プレースホルダー',
     disabled: 'Disabled',
     scheduleInterval: 'Schedule interval',
@@ -241,9 +275,9 @@ const copy = {
     statusError: '失敗',
     statusSkipped: '未実行',
     stepValidate: 'ドラフト検証',
-    stepDataSource: 'データソース公開',
+    stepDataSource: 'データソース更新',
     stepIndex: 'インデックス作成 / 更新',
-    stepIndexer: 'インデクサー公開',
+    stepIndexer: 'インデクサー更新',
     stepRun: 'インデクサー実行',
     stepStatus: 'ステータス取得',
     stepVerify: 'ターゲット検証',
@@ -321,7 +355,10 @@ const copy = {
     runIndexer: 'Run indexer',
     refreshStatus: 'Refresh status',
     verifyTarget: 'Verify target',
-    publishRunVerify: 'Publish & Run pipeline',
+    updateRunPipeline: 'Publish & Run pipeline',
+    updateRunStarted: 'Publish & Run pipeline started.',
+    updateReviewLoading: 'Loading diff...',
+    noResourceUpdates: 'No resource updates. Skipping update and running the indexer.',
     status: 'Indexer status',
     lastRun: 'Last run response',
     indexVerification: 'Index verification',
@@ -363,6 +400,14 @@ const copy = {
     containerName: 'Container / table / scope',
     containerQuery: 'Query / folder scope',
     credentialMode: 'Credential mode',
+    credentialModeConnectionString: 'Connection string / key',
+    credentialModeSystemManagedIdentity: 'System-assigned managed identity',
+    credentialModeUserManagedIdentity: 'User-assigned managed identity',
+    managedIdentityResourceId: 'Target Resource ID',
+    userAssignedIdentity: 'User-assigned identity Resource ID',
+    managedIdentityResourceIdHint: 'Paste an Azure portal storage account URL, /subscriptions/..., or ResourceId=/subscriptions/.... It is stored in credentials.connectionString as ResourceId=/subscriptions/...;.',
+    userAssignedIdentityHint: 'Specify the Resource ID of a user-assigned managed identity already attached to the search service. Requires REST API version 2026-04-01 or later.',
+    userAssignedIdentityApiWarning: 'User-assigned managed identity is supported in REST API version 2026-04-01 or later.',
     connectionString: 'Connection string / credential placeholder',
     disabled: 'Disabled',
     scheduleInterval: 'Schedule interval',
@@ -387,9 +432,9 @@ const copy = {
     statusError: 'Failed',
     statusSkipped: 'Skipped',
     stepValidate: 'Validate draft',
-    stepDataSource: 'Publish Data Source',
+    stepDataSource: 'Update Data Source',
     stepIndex: 'Create / update Index',
-    stepIndexer: 'Publish Indexer',
+    stepIndexer: 'Update Indexer',
     stepRun: 'Run Indexer',
     stepStatus: 'Read Status',
     stepVerify: 'Verify Target Index',
@@ -400,7 +445,6 @@ type CopyKey = keyof typeof copy.ja
 
 const auxNavItems: Array<{ id: IndexingPipelineEditorTab; icon: string; labelKey: CopyKey }> = [
   { id: 'overview', icon: 'bi-diagram-3', labelKey: 'openOverview' },
-  { id: 'run', icon: 'bi-activity', labelKey: 'openRun' },
   { id: 'rawJson', icon: 'bi-braces', labelKey: 'openRawJson' },
 ]
 
@@ -549,6 +593,58 @@ function prettyJson(value: JsonValue | null | undefined): string {
   return JSON.stringify(value ?? null, null, 2)
 }
 
+function cloneRecordForDiff(value: Record<string, JsonValue>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>
+}
+
+function redactConnectionStringForDiff(value: string, marker?: 'current' | 'draft'): string {
+  const prefix = /^ResourceId=/i.test(value.trim()) ? 'ResourceId=' : ''
+  const suffix = prefix ? ';' : ''
+  return `${prefix}<redacted${marker ? `:${marker}` : ''}>${suffix}`
+}
+
+function setMaskedConnectionString(value: Record<string, unknown>, marker?: 'current' | 'draft') {
+  const credentials = value.credentials
+  if (credentials && typeof credentials === 'object' && !Array.isArray(credentials)) {
+    const credentialRecord = credentials as Record<string, unknown>
+    if (typeof credentialRecord.connectionString === 'string' && credentialRecord.connectionString.trim()) {
+      credentialRecord.connectionString = redactConnectionStringForDiff(credentialRecord.connectionString, marker)
+    }
+  }
+}
+
+function getConnectionStringForDiff(value: Record<string, unknown>): string | null {
+  const credentials = value.credentials
+  if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)) return null
+  const connectionString = (credentials as Record<string, unknown>).connectionString
+  return typeof connectionString === 'string' ? connectionString : null
+}
+
+function maskDataSourceCredentialsForDiffPair(before: Record<string, JsonValue>, after: Record<string, JsonValue>): [Record<string, unknown>, Record<string, unknown>] {
+  const maskedBefore = cloneRecordForDiff(before)
+  const maskedAfter = cloneRecordForDiff(after)
+  const beforeConnectionString = getConnectionStringForDiff(maskedBefore)
+  const afterConnectionString = getConnectionStringForDiff(maskedAfter)
+  const changed = beforeConnectionString !== afterConnectionString
+  setMaskedConnectionString(maskedBefore, changed && beforeConnectionString ? 'current' : undefined)
+  setMaskedConnectionString(maskedAfter, changed && afterConnectionString ? 'draft' : undefined)
+  return [maskedBefore, maskedAfter]
+}
+
+function computePipelineResourceDiff(kind: IndexingPipelinePublishResourceKind, before: Record<string, JsonValue>, after: Record<string, JsonValue>): ResourceDiffResult {
+  if (kind === 'index') return computeIndexDiff(cloneRecordForDiff(before), cloneRecordForDiff(after))
+  if (kind === 'dataSource') {
+    const [maskedBefore, maskedAfter] = maskDataSourceCredentialsForDiffPair(before, after)
+    return computeResourceDiff(maskedBefore, maskedAfter)
+  }
+  return computeResourceDiff(cloneRecordForDiff(before), cloneRecordForDiff(after), {
+    namedArrays: [
+      { field: 'fieldMappings', label: 'field mapping' },
+      { field: 'outputFieldMappings', label: 'output field mapping' },
+    ],
+  })
+}
+
 function responseToLogJson(result: RestResult): JsonValue {
   if (result.ok) {
     return {
@@ -644,6 +740,38 @@ function getTextInputValue(value: JsonValue | undefined): string {
   return ''
 }
 
+function isManagedIdentityConnectionString(value: JsonValue | undefined): boolean {
+  return typeof value === 'string' && /^ResourceId=/i.test(value.trim())
+}
+
+function stripManagedIdentityConnectionString(value: JsonValue | undefined): string {
+  if (typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  const match = /^ResourceId=([^;]+);?$/i.exec(trimmed)
+  return match ? match[1] : ''
+}
+
+function formatManagedIdentityConnectionString(resourceId: string): string {
+  const trimmed = normalizeStorageResourceIdInput(resourceId)
+  if (!trimmed) return 'ResourceId=;'
+  if (/^ResourceId=/i.test(trimmed)) return trimmed.endsWith(';') ? trimmed : `${trimmed};`
+  return `ResourceId=${trimmed};`
+}
+
+function getDataSourceCredentialMode(credentials: Record<string, JsonValue>, identity: Record<string, JsonValue>): DataSourceCredentialMode {
+  if (identity['@odata.type'] === DATA_SOURCE_USER_ASSIGNED_IDENTITY_ODATA_TYPE) return 'userAssignedManagedIdentity'
+  if (typeof identity.userAssignedIdentity === 'string' && identity.userAssignedIdentity.trim()) return 'userAssignedManagedIdentity'
+  if (isManagedIdentityConnectionString(credentials.connectionString)) return 'systemAssignedManagedIdentity'
+  return 'connectionString'
+}
+
+function supportsUserAssignedManagedIdentity(apiVersion: SearchApiVersion | ''): boolean {
+  const match = String(apiVersion).match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!match) return false
+  const [, year, month, day] = match
+  return `${year}-${month}-${day}` >= '2026-04-01'
+}
+
 function getMappingFunctionName(value: JsonValue | undefined): string {
   return isRecord(value) && typeof value.name === 'string' ? value.name : ''
 }
@@ -737,6 +865,11 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   const [lastStatus, setLastStatus] = useState<JsonValue | null>(null)
   const [verification, setVerification] = useState<VerificationState>({ stats: null, sample: null, error: null })
   const [runTracker, setRunTracker] = useState<PipelineStepMap>(() => createIdleRunTracker())
+  const [publishReviewOpen, setPublishReviewOpen] = useState(false)
+  const [publishReviewLoading, setPublishReviewLoading] = useState(false)
+  const [pendingUpdateResources, setPendingUpdateResources] = useState<PipelineUpdateReviewResource[]>([])
+  const [publishReviewActiveKind, setPublishReviewActiveKind] = useState<IndexingPipelinePublishResourceKind>('dataSource')
+  const [publishReviewDiffViewMode, setPublishReviewDiffViewMode] = useState<'semantic' | 'text'>('semantic')
 
   const parsed = useMemo(() => parseIndexingPipelineDraft(draft), [draft])
   const validationIssues = useMemo(
@@ -759,6 +892,11 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   const activeIndexerName = indexerName || selectedIndexerName
   const dataSourceContainer = getObjectField(parsed.dataSource, 'container')
   const dataSourceCredentials = getObjectField(parsed.dataSource, 'credentials')
+  const dataSourceIdentity = getObjectField(parsed.dataSource, 'identity')
+  const dataSourceCredentialMode = getDataSourceCredentialMode(dataSourceCredentials, dataSourceIdentity)
+  const dataSourceManagedIdentityResourceId = stripManagedIdentityConnectionString(dataSourceCredentials.connectionString)
+  const dataSourceUserAssignedIdentity = getTextInputValue(dataSourceIdentity.userAssignedIdentity)
+  const userAssignedIdentityApiSupported = supportsUserAssignedManagedIdentity(apiVersion)
   const indexerSchedule = getObjectField(parsed.indexer, 'schedule')
   const indexerParameters = getObjectField(parsed.indexer, 'parameters')
   const indexerConfiguration = getObjectField(indexerParameters, 'configuration')
@@ -832,6 +970,59 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
       else configuration[name] = value
       parameters.configuration = configuration
       return { ...current, parameters }
+    })
+  }
+
+  const setDataSourceCredentialMode = (mode: DataSourceCredentialMode) => {
+    updateResourceObject('dataSource', (current) => {
+      const credentials = isRecord(current.credentials) ? { ...current.credentials } : {}
+      const currentResourceId = stripManagedIdentityConnectionString(credentials.connectionString)
+      const next: Record<string, JsonValue> = { ...current }
+
+      if (mode === 'connectionString') {
+        delete next.identity
+        if (isManagedIdentityConnectionString(credentials.connectionString)) credentials.connectionString = ''
+        next.credentials = credentials
+        return next
+      }
+
+      credentials.connectionString = formatManagedIdentityConnectionString(currentResourceId)
+      next.credentials = credentials
+
+      if (mode === 'systemAssignedManagedIdentity') {
+        delete next.identity
+        return next
+      }
+
+      const identity = isRecord(current.identity) ? { ...current.identity } : {}
+      next.identity = {
+        ...identity,
+        '@odata.type': DATA_SOURCE_USER_ASSIGNED_IDENTITY_ODATA_TYPE,
+        userAssignedIdentity: typeof identity.userAssignedIdentity === 'string' ? identity.userAssignedIdentity : '',
+      }
+      return next
+    })
+  }
+
+  const setDataSourceManagedIdentityResourceId = (resourceId: string) => {
+    updateResourceObject('dataSource', (current) => {
+      const credentials = isRecord(current.credentials) ? { ...current.credentials } : {}
+      credentials.connectionString = formatManagedIdentityConnectionString(resourceId)
+      return { ...current, credentials }
+    })
+  }
+
+  const setDataSourceUserAssignedIdentity = (resourceId: string) => {
+    updateResourceObject('dataSource', (current) => {
+      const identity = isRecord(current.identity) ? { ...current.identity } : {}
+      return {
+        ...current,
+        identity: {
+          ...identity,
+          '@odata.type': DATA_SOURCE_USER_ASSIGNED_IDENTITY_ODATA_TYPE,
+          userAssignedIdentity: resourceId,
+        },
+      }
     })
   }
 
@@ -1147,86 +1338,205 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
     }
   }
 
-  const runFullPipeline = async () => {
+  const preparePipelineDrafts = (): PreparedPipelineDrafts | null => {
     if (!profile || !apiVersion.trim()) {
       setMessage({ type: 'error', text: t('missingConnection') })
-      return
+      return null
     }
-
-    setRunLoading(true)
-    setStatusLoading(true)
-    setVerifyLoading(true)
-    setRunTracker(createIdleRunTracker())
-    setMessage({ type: 'info', text: t('runStarted') })
 
     const dsDraft = parseDraftObject(draft.dataSource)
     const indexDraft = parseDraftObject(draft.index)
     const indexerDraft = parseDraftObject(draft.indexer)
-    setRunStep('validate', 'running')
 
     if (!dsDraft.ok || !indexDraft.ok || !indexerDraft.ok) {
       const detail = [dsDraft, indexDraft, indexerDraft].filter((result) => !result.ok).map((result) => result.message).join('\n')
-      setRunStep('validate', 'error', detail)
       setMessage({ type: 'error', text: `${t('parseBlocked')}\n${detail}` })
-      setRunLoading(false)
-      setStatusLoading(false)
-      setVerifyLoading(false)
-      return
+      return null
     }
 
     const blockingIssues = validationIssues.filter((issue) => issue.severity === 'error')
     if (blockingIssues.length > 0) {
       const detail = blockingIssues.map((issue) => issue.message).join('\n')
-      setRunStep('validate', 'error', detail)
       setMessage({ type: 'error', text: `${t('validationBlocked')}\n${detail}` })
-      setRunLoading(false)
-      setStatusLoading(false)
-      setVerifyLoading(false)
-      return
+      return null
     }
 
     const dsName = getResourceName(dsDraft.value)
     const idxName = getResourceName(indexDraft.value)
     const idxrName = getResourceName(indexerDraft.value)
-    setRunStep('validate', 'success', `${dsName} -> ${idxrName} -> ${idxName}`)
+    return {
+      dataSource: dsDraft.value,
+      index: indexDraft.value,
+      indexer: indexerDraft.value,
+      dataSourceName: dsName,
+      indexName: idxName,
+      indexerName: idxrName,
+    }
+  }
+
+  const getServiceResourceBaseline = async (kind: IndexingPipelinePublishResourceKind, name: string): Promise<{ ok: true; exists: boolean; value: Record<string, JsonValue> } | { ok: false; message: string }> => {
+    const activeProfile = profile
+    const activeApiVersion = apiVersion.trim()
+    if (!activeProfile || !activeApiVersion) return { ok: false, message: t('missingConnection') }
+    const result = kind === 'dataSource'
+      ? await getDataSourceDefinition({ profile: activeProfile, apiVersion: activeApiVersion, dataSourceName: name, language })
+      : kind === 'index'
+        ? await getIndexDefinition({ profile: activeProfile, apiVersion: activeApiVersion, indexName: name, language })
+        : await getIndexerDefinition({ profile: activeProfile, apiVersion: activeApiVersion, indexerName: name, language })
+
+    if (result.ok) {
+      return isRecord(result.response) ? { ok: true, exists: true, value: result.response } : { ok: false, message: `${name}: JSON root must be an object.` }
+    }
+    if (result.status === 404) return { ok: true, exists: false, value: {} }
+    return { ok: false, message: result.error.message }
+  }
+
+  const openUpdateRunReview = async () => {
+    const prepared = preparePipelineDrafts()
+    if (!prepared) return
+
+    setPublishReviewLoading(true)
+    setMessage(null)
+    try {
+      const specs: Array<{ kind: IndexingPipelinePublishResourceKind; label: string; name: string; candidate: Record<string, JsonValue> }> = [
+        { kind: 'dataSource', label: t('dataSource'), name: prepared.dataSourceName, candidate: prepared.dataSource },
+        { kind: 'index', label: t('index'), name: prepared.indexName, candidate: prepared.index },
+        { kind: 'indexer', label: t('indexers'), name: prepared.indexerName, candidate: prepared.indexer },
+      ]
+
+      const reviewResources: PipelineUpdateReviewResource[] = []
+      for (const spec of specs) {
+        const baseline = await getServiceResourceBaseline(spec.kind, spec.name)
+        if (!baseline.ok) {
+          setMessage({ type: 'error', text: baseline.message })
+          return
+        }
+        const semanticDiff = computePipelineResourceDiff(spec.kind, baseline.value, spec.candidate)
+        if (baseline.exists && semanticDiff.identical) continue
+        const [maskedBaseline, maskedCandidate] = spec.kind === 'dataSource'
+          ? maskDataSourceCredentialsForDiffPair(baseline.value, spec.candidate)
+          : [baseline.value, spec.candidate]
+        const baselineText = spec.kind === 'dataSource' ? JSON.stringify(maskedBaseline, null, 2) : prettyJson(baseline.value)
+        const candidateText = spec.kind === 'dataSource' ? JSON.stringify(maskedCandidate, null, 2) : prettyJson(spec.candidate)
+        reviewResources.push({
+          kind: spec.kind,
+          label: spec.label,
+          name: spec.name,
+          action: baseline.exists ? 'update' : 'create',
+          baselineText,
+          candidateText,
+          semanticDiff,
+          candidate: spec.candidate,
+        })
+      }
+
+      if (reviewResources.length === 0) {
+        setMessage({ type: 'info', text: t('noResourceUpdates') })
+        await executeUpdateAndRunPipeline([], prepared)
+        return
+      }
+
+      setPendingUpdateResources(reviewResources)
+      setPublishReviewActiveKind(reviewResources[0].kind)
+      setPublishReviewDiffViewMode('semantic')
+      setPublishReviewOpen(true)
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setPublishReviewLoading(false)
+    }
+  }
+
+  const markResourcePublished = (resource: IndexingPipelineResourceKind, name: string) => {
+    setDraft((current) => ({
+      ...current,
+      [resource]: {
+        ...current[resource],
+        baselineText: current[resource].text,
+        loadedName: name,
+        loadedAt: new Date().toISOString(),
+      },
+    }))
+  }
+
+  async function executeUpdateAndRunPipeline(updates = pendingUpdateResources, preparedInput?: PreparedPipelineDrafts) {
+    const prepared = preparedInput ?? preparePipelineDrafts()
+    if (!prepared) return
+    const activeProfile = profile
+    const activeApiVersion = apiVersion.trim()
+    if (!activeProfile || !activeApiVersion) {
+      setMessage({ type: 'error', text: t('missingConnection') })
+      return
+    }
+
+    setPublishReviewOpen(false)
+    setRunLoading(true)
+    setStatusLoading(true)
+    setVerifyLoading(true)
+    setRunTracker(createIdleRunTracker())
+    setMessage({ type: 'info', text: t('updateRunStarted') })
+
+    const updatesByKind = new Map<IndexingPipelinePublishResourceKind, PipelineUpdateReviewResource>()
+    for (const update of updates) updatesByKind.set(update.kind, update)
+
+    setRunStep('validate', 'running')
+    setRunStep('validate', 'success', `${prepared.dataSourceName} -> ${prepared.indexerName} -> ${prepared.indexName}`)
 
     try {
-      setRunStep('dataSource', 'running', dsName)
-      const dsResult = await createOrUpdateDataSource({ profile, apiVersion, dataSourceName: dsName, body: dsDraft.value, language })
-      const dsLog = responseToLogJson(dsResult)
-      setRunStep('dataSource', dsResult.ok ? 'success' : 'error', dsResult.ok ? `${dsResult.status}` : dsResult.error.message, dsLog)
-      if (!dsResult.ok) throw new Error(dsResult.error.message)
+      const dataSourceUpdate = updatesByKind.get('dataSource')
+      if (dataSourceUpdate) {
+        setRunStep('dataSource', 'running', prepared.dataSourceName)
+        const dsResult = await createOrUpdateDataSource({ profile: activeProfile, apiVersion: activeApiVersion, dataSourceName: prepared.dataSourceName, body: dataSourceUpdate.candidate, language })
+        const dsLog = responseToLogJson(dsResult)
+        setRunStep('dataSource', dsResult.ok ? 'success' : 'error', dsResult.ok ? `${dsResult.status}` : dsResult.error.message, dsLog)
+        if (!dsResult.ok) throw new Error(dsResult.error.message)
+        markResourcePublished('dataSource', prepared.dataSourceName)
+      } else {
+        setRunStep('dataSource', 'skipped', t('noResourceUpdates'))
+      }
 
-      setRunStep('index', 'running', idxName)
-      const indexResult = await createOrUpdateIndex({ profile, apiVersion, indexName: idxName, body: indexDraft.value, language })
-      const indexLog = responseToLogJson(indexResult)
-      setRunStep('index', indexResult.ok ? 'success' : 'error', indexResult.ok ? `${indexResult.status}` : indexResult.error.message, indexLog)
-      if (!indexResult.ok) throw new Error(indexResult.error.message)
+      const indexUpdate = updatesByKind.get('index')
+      if (indexUpdate) {
+        setRunStep('index', 'running', prepared.indexName)
+        const indexResult = await createOrUpdateIndex({ profile: activeProfile, apiVersion: activeApiVersion, indexName: prepared.indexName, body: indexUpdate.candidate, language })
+        const indexLog = responseToLogJson(indexResult)
+        setRunStep('index', indexResult.ok ? 'success' : 'error', indexResult.ok ? `${indexResult.status}` : indexResult.error.message, indexLog)
+        if (!indexResult.ok) throw new Error(indexResult.error.message)
+        markResourcePublished('index', prepared.indexName)
+      } else {
+        setRunStep('index', 'skipped', t('noResourceUpdates'))
+      }
 
-      setRunStep('indexer', 'running', idxrName)
-      const indexerResult = await createOrUpdateIndexer({ profile, apiVersion, indexerName: idxrName, body: indexerDraft.value, language })
-      const indexerLog = responseToLogJson(indexerResult)
-      setRunStep('indexer', indexerResult.ok ? 'success' : 'error', indexerResult.ok ? `${indexerResult.status}` : indexerResult.error.message, indexerLog)
-      if (!indexerResult.ok) throw new Error(indexerResult.error.message)
+      const indexerUpdate = updatesByKind.get('indexer')
+      if (indexerUpdate) {
+        setRunStep('indexer', 'running', prepared.indexerName)
+        const indexerResult = await createOrUpdateIndexer({ profile: activeProfile, apiVersion: activeApiVersion, indexerName: prepared.indexerName, body: indexerUpdate.candidate, language })
+        const indexerLog = responseToLogJson(indexerResult)
+        setRunStep('indexer', indexerResult.ok ? 'success' : 'error', indexerResult.ok ? `${indexerResult.status}` : indexerResult.error.message, indexerLog)
+        if (!indexerResult.ok) throw new Error(indexerResult.error.message)
+        markResourcePublished('indexer', prepared.indexerName)
+      } else {
+        setRunStep('indexer', 'skipped', t('noResourceUpdates'))
+      }
 
-      setRunStep('run', 'running', idxrName)
-      const runResult = await runIndexer({ profile, apiVersion, indexerName: idxrName, language })
+      setRunStep('run', 'running', prepared.indexerName)
+      const runResult = await runIndexer({ profile: activeProfile, apiVersion: activeApiVersion, indexerName: prepared.indexerName, language })
       const runLog = responseToLogJson(runResult)
       setLastRunResponse(runLog)
       setRunStep('run', runResult.ok ? 'success' : 'error', runResult.ok ? `${runResult.status}` : runResult.error.message, runLog)
       if (!runResult.ok) throw new Error(runResult.error.message)
 
-      setRunStep('status', 'running', idxrName)
-      const statusResult = await getIndexerStatus({ profile, apiVersion, indexerName: idxrName, language })
+      setRunStep('status', 'running', prepared.indexerName)
+      const statusResult = await getIndexerStatus({ profile: activeProfile, apiVersion: activeApiVersion, indexerName: prepared.indexerName, language })
       const statusLog = responseToLogJson(statusResult)
       setLastStatus(statusLog)
       setRunStep('status', statusResult.ok ? 'success' : 'error', statusResult.ok ? `${statusResult.status}` : statusResult.error.message, statusLog)
       if (!statusResult.ok) throw new Error(statusResult.error.message)
 
-      setRunStep('verify', 'running', idxName)
+      setRunStep('verify', 'running', prepared.indexName)
       const [statsResult, sampleResult] = await Promise.all([
-        getIndexStatistics({ profile, apiVersion, indexName: idxName, language }),
-        searchDocuments({ profile, apiVersion, indexName: idxName, language, body: { search: '*', top: 3, count: true } as JsonValue }),
+        getIndexStatistics({ profile: activeProfile, apiVersion: activeApiVersion, indexName: prepared.indexName, language }),
+        searchDocuments({ profile: activeProfile, apiVersion: activeApiVersion, indexName: prepared.indexName, language, body: { search: '*', top: 3, count: true } as JsonValue }),
       ])
       const verifyError = firstErrorMessage([
         { label: 'stats', result: statsResult },
@@ -1390,7 +1700,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
         <em>{fieldCount(parsed.index)} {t('fields')} / {vectorFieldCount(parsed.index)} {t('vectorFields')}</em>
       </button>
       <span className="ipbPipelineEdge"><i className="bi bi-arrow-right"></i></span>
-      <button type="button" className={pipelineNodeClass('verify', 'run', combinedPipelineStatus('verify'))} onClick={() => setTab('run')}>
+      <button type="button" className={pipelineNodeClass('verify', 'overview', combinedPipelineStatus('verify'))} onClick={() => setTab('overview')}>
         <span className="ipbPipelineNode__icon"><i className="bi bi-check2-circle"></i></span>
         <span className="ipbPipelineNode__label">{t('verification')}</span>
         <strong>{documentCountFromStats(verification.stats)}</strong>
@@ -1419,20 +1729,30 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   )
 
   const renderOverview = () => (
-    <div className="ipbOverview">
+    <div className="ipbOverview ipbRunStatus">
       <div className="ipbHeroGrid">
-        <section className="ipbHeroPanel ipbHeroPanel--run">
+        <section className="ipbHeroPanel ipbHeroPanel--run ipbRunStatus__pipeline">
           <div className="ipbHeroPanel__header">
             <div>
               <div className="ipbPanelHeader__title">{t('runPipeline')}</div>
               <div className="ipbPanelHeader__meta">{t('formsFirst')}</div>
             </div>
-            <button type="button" className="btn btn--primary" onClick={runFullPipeline} disabled={!canQuery || runLoading || statusLoading || verifyLoading}>
-              <i className="bi bi-play-fill icon--mr6"></i>
-              {runLoading ? `${t('loading')}...` : t('publishRunVerify')}
-            </button>
+            <div className="ipbRunCommandBar">
+              <button type="button" className="btn" onClick={startIndexerRun} disabled={!canQuery || runLoading || statusLoading || !activeIndexerName.trim()}>
+                <i className="bi bi-play-circle icon--mr6"></i>
+                {runLoading ? `${t('loading')}...` : t('runIndexer')}
+              </button>
+              <button type="button" className="btn" onClick={refreshIndexerStatus} disabled={!canQuery || statusLoading || !activeIndexerName.trim()}>
+                <i className="bi bi-arrow-clockwise icon--mr6"></i>
+                {statusLoading ? `${t('loading')}...` : t('refreshStatus')}
+              </button>
+              <button type="button" className="btn" onClick={verifyTargetIndex} disabled={!canQuery || verifyLoading || !(indexerRefs.targetIndexName || indexName).trim()}>
+                <i className="bi bi-check2-circle icon--mr6"></i>
+                {verifyLoading ? `${t('loading')}...` : t('verifyTarget')}
+              </button>
+            </div>
           </div>
-          {renderRunTracker(true)}
+          {renderRunTracker()}
         </section>
 
         <section className="ipbHeroPanel ipbHeroPanel--verification">
@@ -1443,6 +1763,36 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
             <div className="ipbMetric"><span>{t('activeFields')}</span><strong>{indexFieldNames.length}</strong></div>
             <div className="ipbMetric"><span>{t('vectorFields')}</span><strong>{vectorFieldCount(parsed.index)}</strong></div>
           </div>
+        </section>
+      </div>
+
+      <section className="ipbReferencePanel ipbReferencePanel--verification">
+        <div className="ipbPanelHeader__title">{t('indexVerification')}</div>
+        {verification.error && <div className="notice notice--error">{verification.error}</div>}
+        {verification.stats || verification.sample ? (
+          <div className="ipbVerificationGrid">
+            <div>
+              <div className="form__metaTitle">stats</div>
+              <pre className="ipbPre mono">{prettyJson(verification.stats)}</pre>
+            </div>
+            <div>
+              <div className="form__metaTitle">sample</div>
+              <pre className="ipbPre mono">{prettyJson(verification.sample)}</pre>
+            </div>
+          </div>
+        ) : (
+          <div className="empty">{t('noVerification')}</div>
+        )}
+      </section>
+
+      <div className="ipbReferenceGrid ipbReferenceGrid--run">
+        <section className="ipbReferencePanel">
+          <div className="ipbPanelHeader__title">{t('status')}</div>
+          {lastStatus ? <pre className="ipbPre mono">{prettyJson(lastStatus)}</pre> : <div className="empty">{t('noStatus')}</div>}
+        </section>
+        <section className="ipbReferencePanel">
+          <div className="ipbPanelHeader__title">{t('lastRun')}</div>
+          {lastRunResponse ? <pre className="ipbPre mono">{prettyJson(lastRunResponse)}</pre> : <div className="empty">{t('noStatus')}</div>}
         </section>
       </div>
     </div>
@@ -1527,10 +1877,40 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
             <span className="field__label">{renderParameterName(t('name'), 'dataSource.name')}</span>
             <input className="field__input" value={dataSourceName} onChange={(event) => updateResourceObject('dataSource', (value) => ({ ...value, name: event.target.value }))} />
           </label>
-          <label className="field ipbField ipbField--wide">
-            <span className="field__label">{renderParameterName(t('connectionString'), 'credentials.connectionString')}</span>
-            <input className="field__input" value={getTextInputValue(dataSourceCredentials.connectionString)} onChange={(event) => updateNestedObject('dataSource', 'credentials', { connectionString: event.target.value })} placeholder="<connection-string-or-managed-identity-settings>" />
+          <label className="field ipbField">
+            <span className="field__label">{t('credentialMode')}</span>
+            <select className="field__input" value={dataSourceCredentialMode} onChange={(event) => setDataSourceCredentialMode(event.target.value as DataSourceCredentialMode)}>
+              <option value="connectionString">{t('credentialModeConnectionString')}</option>
+              <option value="systemAssignedManagedIdentity">{t('credentialModeSystemManagedIdentity')}</option>
+              <option value="userAssignedManagedIdentity">{t('credentialModeUserManagedIdentity')}</option>
+            </select>
           </label>
+          {dataSourceCredentialMode === 'connectionString' ? (
+            <label className="field ipbField ipbField--wide">
+              <span className="field__label">{renderParameterName(t('connectionString'), 'credentials.connectionString')}</span>
+              <input className="field__input" value={getTextInputValue(dataSourceCredentials.connectionString)} onChange={(event) => updateNestedObject('dataSource', 'credentials', { connectionString: event.target.value })} placeholder="<connection-string-or-managed-identity-settings>" />
+            </label>
+          ) : (
+            <>
+              <label className="field ipbField ipbField--wide">
+                <span className="field__label">{renderParameterName(t('managedIdentityResourceId'), 'credentials.connectionString')}</span>
+                <input className="field__input" value={dataSourceManagedIdentityResourceId} onChange={(event) => setDataSourceManagedIdentityResourceId(event.target.value)} placeholder="/subscriptions/{subscription-id}/resourceGroups/{resource-group}/providers/Microsoft.Storage/storageAccounts/{account}" />
+                <span className="ipbParamRow__hint">{t('managedIdentityResourceIdHint')}</span>
+              </label>
+              {dataSourceCredentialMode === 'userAssignedManagedIdentity' && (
+                <label className="field ipbField ipbField--wide">
+                  <span className="field__label">{t('userAssignedIdentity')}</span>
+                  <input className="field__input" value={dataSourceUserAssignedIdentity} onChange={(event) => setDataSourceUserAssignedIdentity(event.target.value)} placeholder="/subscriptions/{subscription-id}/resourceGroups/{resource-group}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/{identity-name}" />
+                  <span className="ipbParamRow__hint">{t('userAssignedIdentityHint')}</span>
+                </label>
+              )}
+              {dataSourceCredentialMode === 'userAssignedManagedIdentity' && !userAssignedIdentityApiSupported && (
+                <div className="notice notice--warning builder__notice ipbField--wide" role="status" aria-live="polite">
+                  {t('userAssignedIdentityApiWarning')}
+                </div>
+              )}
+            </>
+          )}
         </div>
       </section>
 
@@ -1865,69 +2245,6 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
     )
   }
 
-  const renderRunStatus = () => (
-    <div className="ipbRunStatus">
-      <section className="ipbHeroPanel ipbHeroPanel--run ipbRunStatus__pipeline">
-        <div className="ipbHeroPanel__header">
-          <div>
-            <div className="ipbPanelHeader__title">{t('runPipeline')}</div>
-            <div className="ipbPanelHeader__meta">{t('formsFirst')}</div>
-          </div>
-          <div className="ipbRunCommandBar">
-            <button type="button" className="btn btn--primary" onClick={runFullPipeline} disabled={!canQuery || runLoading || statusLoading || verifyLoading}>
-              <i className="bi bi-play-fill icon--mr6"></i>
-              {runLoading ? `${t('loading')}...` : t('publishRunVerify')}
-            </button>
-            <button type="button" className="btn" onClick={startIndexerRun} disabled={!canQuery || runLoading || statusLoading || !activeIndexerName.trim()}>
-              <i className="bi bi-play-circle icon--mr6"></i>
-              {runLoading ? `${t('loading')}...` : t('runIndexer')}
-            </button>
-            <button type="button" className="btn" onClick={refreshIndexerStatus} disabled={!canQuery || statusLoading || !activeIndexerName.trim()}>
-              <i className="bi bi-arrow-clockwise icon--mr6"></i>
-              {statusLoading ? `${t('loading')}...` : t('refreshStatus')}
-            </button>
-            <button type="button" className="btn" onClick={verifyTargetIndex} disabled={!canQuery || verifyLoading || !(indexerRefs.targetIndexName || indexName).trim()}>
-              <i className="bi bi-check2-circle icon--mr6"></i>
-              {verifyLoading ? `${t('loading')}...` : t('verifyTarget')}
-            </button>
-          </div>
-        </div>
-
-        {renderRunTracker()}
-      </section>
-
-      <section className="ipbReferencePanel ipbReferencePanel--verification">
-        <div className="ipbPanelHeader__title">{t('indexVerification')}</div>
-        {verification.error && <div className="notice notice--error">{verification.error}</div>}
-        {verification.stats || verification.sample ? (
-          <div className="ipbVerificationGrid">
-            <div>
-              <div className="form__metaTitle">stats</div>
-              <pre className="ipbPre mono">{prettyJson(verification.stats)}</pre>
-            </div>
-            <div>
-              <div className="form__metaTitle">sample</div>
-              <pre className="ipbPre mono">{prettyJson(verification.sample)}</pre>
-            </div>
-          </div>
-        ) : (
-          <div className="empty">{t('noVerification')}</div>
-        )}
-      </section>
-
-      <div className="ipbReferenceGrid ipbReferenceGrid--run">
-        <section className="ipbReferencePanel">
-          <div className="ipbPanelHeader__title">{t('status')}</div>
-          {lastStatus ? <pre className="ipbPre mono">{prettyJson(lastStatus)}</pre> : <div className="empty">{t('noStatus')}</div>}
-        </section>
-        <section className="ipbReferencePanel">
-          <div className="ipbPanelHeader__title">{t('lastRun')}</div>
-          {lastRunResponse ? <pre className="ipbPre mono">{prettyJson(lastRunResponse)}</pre> : <div className="empty">{t('noStatus')}</div>}
-        </section>
-      </div>
-    </div>
-  )
-
   const renderRawJson = () => {
     const parseResult = parseDraftJson(draft[rawJsonResource].text)
     return (
@@ -2044,6 +2361,16 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
                     {t(item.labelKey)}
                   </button>
                 ))}
+                <div className="ipbAuxRunActions">
+                  <button type="button" className="btn ipbAuxRunButton" onClick={startIndexerRun} disabled={!canQuery || runLoading || statusLoading || publishReviewLoading || !activeIndexerName.trim()}>
+                    <i className="bi bi-play-circle icon--mr6"></i>
+                    {runLoading ? `${t('loading')}...` : t('runIndexer')}
+                  </button>
+                  <button type="button" className="btn btn--primary ipbAuxRunButton" onClick={openUpdateRunReview} disabled={!canQuery || runLoading || statusLoading || verifyLoading || publishReviewLoading}>
+                    <i className="bi bi-play-fill icon--mr6"></i>
+                    {publishReviewLoading ? t('updateReviewLoading') : runLoading ? `${t('loading')}...` : t('updateRunPipeline')}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -2052,12 +2379,25 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
               {activeTab === 'source' && renderDataSourceDesigner()}
               {activeTab === 'index' && renderIndexDesigner()}
               {activeTab === 'indexer' && renderIndexerDesigner()}
-              {activeTab === 'run' && renderRunStatus()}
               {activeTab === 'rawJson' && renderRawJson()}
             </div>
           </main>
           {renderChecks()}
         </div>
+        <IndexingPipelinePublishModal
+          open={publishReviewOpen}
+          language={language}
+          theme={theme}
+          resources={pendingUpdateResources}
+          activeKind={publishReviewActiveKind}
+          diffViewMode={publishReviewDiffViewMode}
+          updateLoading={runLoading}
+          copyToClipboard={copyToClipboard}
+          onActiveKindChange={setPublishReviewActiveKind}
+          onDiffViewModeChange={setPublishReviewDiffViewMode}
+          onConfirmUpdateRun={() => { void executeUpdateAndRunPipeline() }}
+          onClose={() => setPublishReviewOpen(false)}
+        />
       </div>
     </div>
   )

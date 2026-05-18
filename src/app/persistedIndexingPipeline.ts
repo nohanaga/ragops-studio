@@ -130,8 +130,8 @@ function normalizeDraft(raw: unknown): IndexingPipelineDraft | null {
       ? 'source'
       : activeTab === 'mappings'
       ? 'indexer'
-      : activeTab === 'runStatus'
-      ? 'run'
+      : activeTab === 'runStatus' || activeTab === 'run'
+      ? 'overview'
       : activeTab
   return {
     version: 1,
@@ -141,7 +141,6 @@ function normalizeDraft(raw: unknown): IndexingPipelineDraft | null {
       migratedActiveTab === 'source' ||
       migratedActiveTab === 'index' ||
       migratedActiveTab === 'indexer' ||
-      migratedActiveTab === 'run' ||
       migratedActiveTab === 'rawJson'
         ? migratedActiveTab
         : fallback.activeTab,

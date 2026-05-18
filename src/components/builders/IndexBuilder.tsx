@@ -12,7 +12,7 @@ import { json } from '@codemirror/lang-json'
 import { EditorView } from '@codemirror/view'
 import type { ConnectionProfile, SearchApiVersion } from '../../lib/model'
 import type { ThemePreference } from '../../types/app'
-import { deleteIndex, getIndexDefinition, getIndexStatistics, listIndexes, type JsonValue } from '../../lib/aiSearchRest'
+import { deleteIndex, getIndexDefinition, getIndexStatistics, listIndexes, listSynonymMaps, type JsonValue } from '../../lib/aiSearchRest'
 import { translations, type Language } from '../../lib/translations'
 import { useIndexPublishFlow } from '../../hooks/useIndexPublishFlow'
 import { PublishDiffModal } from './PublishDiffModal'
@@ -28,6 +28,7 @@ type IndexBuilderProps = {
   language: Language
   theme: ThemePreference
   onClose: () => void
+  onOpenSynonymMapBuilder: () => void
   copyToClipboard: (text: string) => Promise<void>
 }
 
@@ -104,7 +105,7 @@ function formatCount(n: number | null | undefined, locale: string): string {
   }
 }
 
-export function IndexBuilder({ profile, apiVersion, activeIndexName, language, theme, copyToClipboard }: IndexBuilderProps) {
+export function IndexBuilder({ profile, apiVersion, activeIndexName, language, theme, onOpenSynonymMapBuilder, copyToClipboard }: IndexBuilderProps) {
   const t = (key: keyof typeof translations.ja): string => String(translations[language][key] ?? '')
   const format = (key: keyof typeof translations.ja, params: Record<string, string | number>): string => {
     let text: string = t(key)
@@ -123,6 +124,7 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
   const [definition, setDefinition] = useState<JsonValue | null>(null)
   const [editedJson, setEditedJson] = useState('')
   const [baselineJson, setBaselineJson] = useState('')
+  const [synonymMapNames, setSynonymMapNames] = useState<string[]>([])
 
   const [saving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -150,6 +152,34 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
     setActiveConfigEditorTab(tab)
     setRightTab('config')
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!profile) {
+      setSynonymMapNames([])
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void (async () => {
+      const result = await listSynonymMaps({ profile, language })
+      if (cancelled) return
+      if (!result.ok) {
+        setSynonymMapNames([])
+        return
+      }
+      const response = result.response as { value?: Array<{ name?: unknown }> } | null
+      const names = Array.isArray(response?.value)
+        ? response.value.map((item) => (typeof item.name === 'string' ? item.name : '')).filter(Boolean)
+        : []
+      setSynonymMapNames(Array.from(new Set(names)))
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [profile, language])
 
   const isDirty = useMemo(() => {
     return editedJson.trim().length > 0 && editedJson !== baselineJson
@@ -574,18 +604,6 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
 
         <div className="section__hint">{t('indexBuilderJsonEditHint')}</div>
 
-        {!canQuery && (
-          <div className="notice notice--error builder__notice">
-            {t('indexBuilderMissingProfileOrApiVersion')}
-          </div>
-        )}
-
-        {message && (
-          <div className={`notice notice--${message.type} builder__notice`}>
-            {message.text}
-          </div>
-        )}
-
         <div ref={splitContainerRef} className="builder__grid builder__grid--resizable" style={indexBuilderGridStyle}>
           <div className="builder__listPane">
             <div className="builder__sidebarTitle">{format('indexBuilderIndexes', { count: indexNames.length })}</div>
@@ -671,6 +689,31 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
                 ? format('indexBuilderDefinitionWithName', { name: selectedName })
                 : t('indexBuilderDefinition')}
             </div>
+
+            {!canQuery && (
+              <div className="notice notice--error builder__notice">
+                {t('indexBuilderMissingProfileOrApiVersion')}
+              </div>
+            )}
+
+            {message && (
+              <div className={`notice notice--${message.type} builder__notice`}>
+                {message.text}
+              </div>
+            )}
+
+            {indexPublish.publishError && (
+              <div className="notice notice--error builder__notice">
+                {indexPublish.publishError}
+                <button type="button" className="btn btn--sm" style={{ marginLeft: 8 }} onClick={indexPublish.clearMessages}>✕</button>
+              </div>
+            )}
+            {indexPublish.publishOkMessage && (
+              <div className="notice notice--success builder__notice">
+                {indexPublish.publishOkMessage}
+                <button type="button" className="btn btn--sm" style={{ marginLeft: 8 }} onClick={indexPublish.clearMessages}>✕</button>
+              </div>
+            )}
 
             {selectedName.trim() && isExistingSelectedIndex && (
               <div className="section__hint">
@@ -788,6 +831,8 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
                   language={language}
                   onApplyTemplate={onApplySchemaTemplate}
                   onOpenConfigEditorTab={openConfigEditorTab}
+                  onOpenSynonymMapBuilder={onOpenSynonymMapBuilder}
+                  synonymMapNames={synonymMapNames}
                   onChangeIndex={onChangeSchemaIndex}
                 />
               </div>
@@ -861,19 +906,6 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
           </div>
         </div>
 
-        {/* ── Publish error from the diff flow ──────────────────── */}
-        {indexPublish.publishError && (
-          <div className="notice notice--error builder__notice" style={{ marginTop: 8 }}>
-            {indexPublish.publishError}
-            <button type="button" className="btn btn--sm" style={{ marginLeft: 8 }} onClick={indexPublish.clearMessages}>✕</button>
-          </div>
-        )}
-        {indexPublish.publishOkMessage && (
-          <div className="notice notice--success builder__notice" style={{ marginTop: 8 }}>
-            {indexPublish.publishOkMessage}
-            <button type="button" className="btn btn--sm" style={{ marginLeft: 8 }} onClick={indexPublish.clearMessages}>✕</button>
-          </div>
-        )}
       </div>
 
       {/* ── Index Diff Modal ───────────────────────────────────── */}

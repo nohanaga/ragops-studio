@@ -38,6 +38,22 @@ export function parseStorageAccountNameFromResourceId(resourceId: string): strin
   return match ? match[1] : null
 }
 
+export function normalizeStorageResourceIdInput(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return ''
+
+  const withoutPrefix = trimmed.replace(/^ResourceId=/i, '').replace(/;$/, '')
+  let decoded = withoutPrefix
+  try {
+    decoded = decodeURIComponent(withoutPrefix)
+  } catch {
+    decoded = withoutPrefix
+  }
+
+  const match = decoded.match(/\/subscriptions\/[^/?#;]+\/resourceGroups\/[^/?#;]+\/providers\/Microsoft\.Storage\/storageAccounts\/[^/?#;]+/i)
+  return match ? match[0] : withoutPrefix
+}
+
 // ---------------------------------------------------------------------------
 // Auth helpers (SAS vs Bearer)
 // ---------------------------------------------------------------------------

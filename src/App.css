@@ -5665,7 +5665,7 @@ html[data-theme='light'] .rawJsonViewer {
 
 .indexSchemaFieldMatrix table {
   width: 100%;
-  min-width: 720px;
+  min-width: 1080px;
   border-collapse: collapse;
 }
 
@@ -5739,6 +5739,7 @@ html[data-theme='light'] .rawJsonViewer {
   border-radius: 6px;
   color: color-mix(in srgb, var(--muted) 55%, transparent);
   background: var(--panel);
+  cursor: pointer;
 }
 
 .indexSchemaFieldMatrix__attr--active {
@@ -5747,8 +5748,117 @@ html[data-theme='light'] .rawJsonViewer {
   background: color-mix(in srgb, var(--accent) 10%, var(--panel));
 }
 
+.indexSchemaFieldMatrix__attr:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.indexSchemaFieldMatrix__attr--safe:not(:disabled) {
+  border-color: color-mix(in srgb, #14b8a6 24%, var(--border));
+}
+
+.indexSchemaFieldMatrix__attr--review:not(:disabled) {
+  border-color: color-mix(in srgb, #f59e0b 24%, var(--border));
+}
+
+.indexSchemaFieldMatrix__attr--rebuild:not(:disabled) {
+  border-color: color-mix(in srgb, #ef4444 24%, var(--border));
+}
+
+.indexSchemaFieldMatrix__settings {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.indexSchemaFieldMatrix__settingChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.indexSchemaFieldMatrix__settingChip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 180px;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface2);
+  color: var(--fg);
+  font-size: 11px;
+}
+
+.indexSchemaFieldMatrix__settingChip--lexical {
+  border-color: color-mix(in srgb, #14b8a6 28%, var(--border));
+  background: color-mix(in srgb, #14b8a6 10%, var(--panel));
+  color: color-mix(in srgb, #14b8a6 74%, var(--fg));
+}
+
+.indexSchemaFieldMatrix__settingChip--vector {
+  border-color: color-mix(in srgb, #2563eb 28%, var(--border));
+  background: color-mix(in srgb, #2563eb 10%, var(--panel));
+  color: color-mix(in srgb, #2563eb 76%, var(--fg));
+}
+
+.indexSchemaFieldMatrix__settingChip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.indexSchemaFieldMatrix__emptyValue {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.indexSchemaFieldMatrix__editBtn {
+  flex: 0 0 auto;
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--accent);
+  font-weight: 750;
+}
+
+.indexSchemaFieldMatrix__editBtn:hover {
+  background: color-mix(in srgb, var(--accent) 24%, var(--surface));
+}
+
+.indexSchemaFieldMatrix__editBtn--vector {
+  border-color: color-mix(in srgb, #2563eb 46%, var(--border));
+  background: color-mix(in srgb, #2563eb 13%, var(--surface));
+  color: color-mix(in srgb, #2563eb 84%, var(--fg));
+}
+
+.indexSchemaFieldMatrix__editBtn--vector:hover {
+  background: color-mix(in srgb, #2563eb 22%, var(--surface));
+}
+
 .indexSchemaFieldMatrix__more {
   margin-top: 7px;
+}
+
+.indexSchemaFieldEditorModal {
+  width: 92vw;
+  max-width: 1180px;
+  min-width: min(760px, 92vw);
+  max-height: 92vh;
+}
+
+.indexSchemaFieldEditorModal__body {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  overflow: auto;
+}
+
+.indexSchemaFieldEditorModal__toolbar {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .indexSchemaFieldSettings {
@@ -5951,6 +6061,23 @@ html[data-theme='light'] .rawJsonViewer {
   font-size: 12px;
 }
 
+.indexSchemaFieldSettings__inputRow {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.indexSchemaFieldSettings__inputRow .field__input {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.indexSchemaFieldSettings__linkBtn {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
 .indexSchemaConfigEditor {
   display: grid;
   gap: 10px;
@@ -5995,10 +6122,8 @@ html[data-theme='light'] .rawJsonViewer {
 .indexSchemaConfigEditor__checkbox.field--vectorAlgorithm,
 .indexSchemaConfigEditor__checkbox.field--vectorizer,
 .indexSchemaConfigEditor__checkbox.field--vectorCompression {
-  border-color: color-mix(in srgb, var(--vector-section-color) 46%, var(--border));
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--vector-section-color) 14%, transparent), transparent 64%),
-    color-mix(in srgb, var(--surface) 88%, var(--vector-section-color) 12%);
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
 }
 
 .indexSchemaConfigEditor__checkbox.field--vectorProfile .indexSchemaConfigEditor__checkboxLabel,
@@ -6075,9 +6200,7 @@ html[data-theme='light'] .rawJsonViewer {
 .indexSchemaConfigEditor__card--vectorCompression {
   border-color: color-mix(in srgb, var(--vector-section-color) 42%, var(--border));
   border-left-width: 4px;
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--vector-section-color) 12%, transparent), transparent 42%),
-    color-mix(in srgb, var(--panel-2) 94%, var(--vector-section-color) 6%);
+  background: var(--panel-2);
 }
 
 .indexSchemaConfigEditor__card--vectorProfile,
@@ -6193,7 +6316,7 @@ html[data-theme='light'] .rawJsonViewer {
 .indexSchemaConfigEditor__nestedCard--vectorizer,
 .indexSchemaConfigEditor__nestedCard--vectorCompression {
   border-color: color-mix(in srgb, var(--vector-section-color) 32%, var(--border));
-  background: color-mix(in srgb, var(--surface) 86%, var(--vector-section-color) 14%);
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
 }
 
 .indexSchemaConfigEditor__componentGrid {
@@ -7719,6 +7842,50 @@ html[data-theme='light'] .rawJsonViewer {
 
 .ipbAuxTab {
   font-size: 12px;
+}
+
+.ipbAuxRunActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.ipbAuxRunButton {
+  font-size: 12px;
+}
+
+.ipbPublishReviewSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ipbPublishDiffTableWrap {
+  max-height: 440px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.ipbPublishDiffTable {
+  width: 100%;
+  font-size: 12px;
+}
+
+.ipbPublishDiffTable th,
+.ipbPublishDiffTable td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.ipbPublishDiffTable td {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  overflow-wrap: anywhere;
 }
 
 /* Inspector pattern (per-node panels) */
