@@ -7173,6 +7173,14 @@ html[data-theme='light'] .rawJsonViewer {
   .ipbIssue {
     grid-template-columns: 1fr;
   }
+
+  .ipbLocalDraftItem {
+    grid-template-columns: 1fr;
+  }
+
+  .ipbLocalDraftItem__actions {
+    justify-content: flex-end;
+  }
 }
 
 .btn--primary {
@@ -7338,6 +7346,92 @@ html[data-theme='light'] .rawJsonViewer {
 
 .ipbLoadedIndexerBar__meta {
   color: var(--muted);
+}
+
+.ipbLocalDraftLibrary {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  margin: 8px 0 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.ipbLocalDraftLibrary__header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ipbLocalDraftLibrary__empty {
+  padding: 8px;
+}
+
+.ipbLocalDraftList {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.ipbLocalDraftItem {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+}
+
+.ipbLocalDraftItem--current {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+}
+
+.ipbLocalDraftItem__main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ipbLocalDraftItem__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ipbLocalDraftItem__badge {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 15%, var(--panel));
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.ipbLocalDraftItem__date {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.ipbLocalDraftItem__actions {
+  display: inline-flex;
+  gap: 5px;
 }
 
 .ipbStudioLayout {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { v4 as uuidv4 } from 'uuid'
 import { json } from '@codemirror/lang-json'
 import { EditorView } from '@codemirror/view'
 import { githubDark, githubLight } from '@uiw/codemirror-theme-github'
@@ -46,8 +47,12 @@ import {
 } from '../../lib/aiSearchIndexerSchemas'
 import {
   createDefaultIndexingPipelineDraft,
-  loadIndexingPipelineDraft,
-  saveIndexingPipelineDraft,
+  deleteIndexingPipelineDraft,
+  deriveIndexingPipelineDraftTitle,
+  getIndexingPipelineDraft,
+  listIndexingPipelineDrafts,
+  upsertIndexingPipelineDraft,
+  type PersistedIndexingPipelineItem,
 } from '../../app/persistedIndexingPipeline'
 import type {
   IndexingPipelineDraft,
@@ -139,8 +144,24 @@ const copy = {
     indexes: 'Indexes',
     index: 'Index',
     indexers: 'Indexers',
-    newDraft: '新規 draft',
-    saveDraft: 'draft 保存',
+    newDraft: '新規ドラフト',
+    saveDraft: 'ドラフトを保存',
+    saveDraftAs: '名前を付けて保存',
+    savedDrafts: 'ローカルドラフト一覧',
+    localDraftLibraryHint: 'Indexing Pipeline のドラフトをブラウザーに保存し、読み込み・複製・削除できます。シークレット値は保存時に自動的にマスキングされます。',
+    noSavedDrafts: '保存済みドラフトはありません。',
+    loadDraft: '読み込み',
+    cloneDraft: '複製',
+    deleteDraft: '削除',
+    saveDraftAsPrompt: 'ドラフト名を入力してください:',
+    loadDraftConfirm: '現在の編集中の内容は破棄されます。選択したドラフトを読み込みますか？',
+    cloneDraftConfirm: '選択したドラフトを複製して開きますか？',
+    deleteDraftConfirm: 'このドラフトを削除しますか？',
+    draftLoaded: 'ドラフトを読み込みました。',
+    draftDeleted: 'ドラフトを削除しました。',
+    draftCloned: 'ドラフトを複製しました。',
+    currentDraft: '編集中',
+    noLocalDraftLoaded: 'ローカルドラフト未読込',
     copyJson: 'JSON コピー',
     close: '閉じる',
     overview: 'Pipeline',
@@ -298,6 +319,22 @@ const copy = {
     indexers: 'Indexers',
     newDraft: 'New draft',
     saveDraft: 'Save draft',
+    saveDraftAs: 'Save as',
+    savedDrafts: 'Local Pipeline Draft Library',
+    localDraftLibraryHint: 'Save, load, clone, and delete Indexing Pipeline drafts in this browser. Secret values are redacted automatically on save.',
+    noSavedDrafts: 'No saved drafts.',
+    loadDraft: 'Load',
+    cloneDraft: 'Clone',
+    deleteDraft: 'Delete',
+    saveDraftAsPrompt: 'Enter a draft name:',
+    loadDraftConfirm: 'This will discard your current edits. Load the selected draft?',
+    cloneDraftConfirm: 'Clone the selected draft and open the copy?',
+    deleteDraftConfirm: 'Delete this draft?',
+    draftLoaded: 'Draft loaded.',
+    draftDeleted: 'Draft deleted.',
+    draftCloned: 'Draft cloned.',
+    currentDraft: 'Current',
+    noLocalDraftLoaded: 'No local draft loaded',
     copyJson: 'Copy JSON',
     close: 'Close',
     overview: 'Pipeline',
@@ -852,9 +889,14 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   const canQuery = !!profile && !!apiVersion && apiVersion.trim().length > 0
   const codeMirrorTheme = useMemo(() => (theme === 'light' || theme === 'solarized' ? githubLight : githubDark), [theme])
 
-  const initialDraft = useMemo(() => loadIndexingPipelineDraft(), [])
+  const initialDraft = useMemo(() => createDefaultIndexingPipelineDraft(), [])
+  const initialSavedDrafts = useMemo(() => listIndexingPipelineDrafts(), [])
   const [draft, setDraft] = useState<IndexingPipelineDraft>(() => initialDraft)
   const [activeTab, setActiveTab] = useState<IndexingPipelineEditorTab>(() => initialDraft.activeTab)
+  const [currentDraftId, setCurrentDraftId] = useState<string | null>(null)
+  const [savedDrafts, setSavedDrafts] = useState<PersistedIndexingPipelineItem[]>(() => initialSavedDrafts)
+  const [localDraftLibraryOpen, setLocalDraftLibraryOpen] = useState(false)
+  const [localDraftError, setLocalDraftError] = useState<string | null>(null)
   const [rawJsonResource, setRawJsonResource] = useState<IndexingPipelineResourceKind>('indexer')
   const [resourceLists, setResourceLists] = useState<ResourceLists>(emptyResourceLists)
   const [selectedIndexerName, setSelectedIndexerName] = useState('')
@@ -883,6 +925,11 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   )
   const issueCounts = useMemo(() => countIssuesBySeverity(validationIssues), [validationIssues])
   const unsavedResources = useMemo(() => dirtyResources(draft), [draft])
+  const currentSavedDraft = useMemo(
+    () => currentDraftId ? savedDrafts.find((item) => item.id === currentDraftId) ?? null : null,
+    [currentDraftId, savedDrafts],
+  )
+  const currentDraftTitle = currentSavedDraft?.title ?? deriveIndexingPipelineDraftTitle(draft)
 
   const dataSourceName = getResourceName(parsed.dataSource)
   const dataSourceType = getDataSourceType(parsed.dataSource)
@@ -1208,9 +1255,153 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
     void refreshResourceLists()
   }, [canQuery, refreshResourceLists])
 
+  const refreshSavedDrafts = useCallback(() => {
+    setSavedDrafts(listIndexingPipelineDrafts())
+  }, [])
+
+  useEffect(() => {
+    if (localDraftLibraryOpen) refreshSavedDrafts()
+  }, [localDraftLibraryOpen, refreshSavedDrafts])
+
+  const resetTransientPipelineState = () => {
+    setLastRunResponse(null)
+    setLastStatus(null)
+    setVerification({ stats: null, sample: null, error: null })
+    setRunTracker(createIdleRunTracker())
+  }
+
+  const saveDraftToLibrary = (mode: 'save' | 'saveAs', titleOverride?: string) => {
+    const id = mode === 'save' && currentDraftId ? currentDraftId : uuidv4()
+    const nextDraft = { ...draft, activeTab }
+    const title = (titleOverride ?? currentSavedDraft?.title ?? deriveIndexingPipelineDraftTitle(nextDraft)).trim() || deriveIndexingPipelineDraftTitle(nextDraft)
+
+    try {
+      upsertIndexingPipelineDraft({ id, title, updatedAt: Date.now(), draft: nextDraft })
+      setCurrentDraftId(id)
+      setLocalDraftError(null)
+      refreshSavedDrafts()
+      setMessage({ type: 'success', text: t('draftSaved') })
+    } catch (error) {
+      setLocalDraftError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   const saveDraft = () => {
-    saveIndexingPipelineDraft({ ...draft, activeTab })
-    setMessage({ type: 'success', text: t('draftSaved') })
+    saveDraftToLibrary('save')
+  }
+
+  const saveDraftAs = () => {
+    const name = window.prompt(t('saveDraftAsPrompt'), currentDraftTitle)
+    if (name == null) return
+    saveDraftToLibrary('saveAs', name.trim() || currentDraftTitle)
+  }
+
+  const loadSavedDraft = (id: string) => {
+    if (id !== currentDraftId && unsavedResources.length > 0) {
+      const ok = window.confirm(t('loadDraftConfirm'))
+      if (!ok) return
+    }
+
+    const item = getIndexingPipelineDraft(id)
+    if (!item) {
+      refreshSavedDrafts()
+      setLocalDraftError(language === 'ja' ? '選択したドラフトが見つかりません。' : 'The selected draft was not found.')
+      return
+    }
+
+    setDraft(item.draft)
+    setActiveTab(item.draft.activeTab)
+    setCurrentDraftId(item.id)
+    setRawJsonResource('indexer')
+    resetTransientPipelineState()
+    setLocalDraftError(null)
+    setMessage({ type: 'success', text: t('draftLoaded') })
+  }
+
+  const cloneSavedDraft = (id: string) => {
+    const ok = window.confirm(t('cloneDraftConfirm'))
+    if (!ok) return
+
+    const item = getIndexingPipelineDraft(id)
+    if (!item) {
+      refreshSavedDrafts()
+      setLocalDraftError(language === 'ja' ? '選択したドラフトが見つかりません。' : 'The selected draft was not found.')
+      return
+    }
+
+    const clonedId = uuidv4()
+    const clonedTitle = `${item.title} (copy)`
+    upsertIndexingPipelineDraft({
+      id: clonedId,
+      title: clonedTitle,
+      updatedAt: Date.now(),
+      draft: item.draft,
+    })
+    setDraft(item.draft)
+    setActiveTab(item.draft.activeTab)
+    setCurrentDraftId(clonedId)
+    setRawJsonResource('indexer')
+    resetTransientPipelineState()
+    setLocalDraftError(null)
+    refreshSavedDrafts()
+    setMessage({ type: 'success', text: t('draftCloned') })
+  }
+
+  const deleteSavedDraft = (id: string) => {
+    const ok = window.confirm(t('deleteDraftConfirm'))
+    if (!ok) return
+
+    deleteIndexingPipelineDraft(id)
+    if (id === currentDraftId) {
+      setCurrentDraftId(null)
+    }
+    refreshSavedDrafts()
+    setMessage({ type: 'success', text: t('draftDeleted') })
+  }
+
+  const renderLocalDraftLibrary = () => {
+    if (!localDraftLibraryOpen) return null
+
+    return (
+      <section className="ipbLocalDraftLibrary" data-guide-target="ipb-local-drafts">
+        <div className="ipbLocalDraftLibrary__header">
+          <div>
+            <div className="ipbPanelHeader__title">{t('savedDrafts')} ({savedDrafts.length})</div>
+            <div className="ipbPanelHeader__meta">{t('localDraftLibraryHint')}</div>
+          </div>
+        </div>
+        {localDraftError && <div className="notice notice--error builder__notice">{localDraftError}</div>}
+        {savedDrafts.length === 0 ? (
+          <div className="empty ipbLocalDraftLibrary__empty">{t('noSavedDrafts')}</div>
+        ) : (
+          <div className="ipbLocalDraftList">
+            {savedDrafts.map((item) => {
+              const isCurrent = item.id === currentDraftId
+              return (
+                <div key={item.id} className={'ipbLocalDraftItem' + (isCurrent ? ' ipbLocalDraftItem--current' : '')}>
+                  <div className="ipbLocalDraftItem__main" title={`${item.title} - ${new Date(item.updatedAt).toLocaleString(language === 'ja' ? 'ja-JP' : 'en-US')}`}>
+                    <span className="ipbLocalDraftItem__title">{item.title}</span>
+                    {isCurrent && <span className="ipbLocalDraftItem__badge">{t('currentDraft')}</span>}
+                  </div>
+                  <span className="ipbLocalDraftItem__date">{new Date(item.updatedAt).toLocaleString(language === 'ja' ? 'ja-JP' : 'en-US')}</span>
+                  <div className="ipbLocalDraftItem__actions">
+                    <button type="button" className="btn btn--sm" onClick={() => loadSavedDraft(item.id)} title={t('loadDraft')} aria-label={t('loadDraft')}>
+                      <i className="bi bi-file-earmark-play"></i>
+                    </button>
+                    <button type="button" className="btn btn--sm" onClick={() => cloneSavedDraft(item.id)} title={t('cloneDraft')} aria-label={t('cloneDraft')}>
+                      <i className="bi bi-copy"></i>
+                    </button>
+                    <button type="button" className="btn btn--sm" onClick={() => deleteSavedDraft(item.id)} title={t('deleteDraft')} aria-label={t('deleteDraft')}>
+                      <i className="bi bi-trash"></i>
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
+    )
   }
 
   const createNewDraft = () => {
@@ -1221,11 +1412,9 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
     const next = createDefaultIndexingPipelineDraft()
     setDraft(next)
     setActiveTab(next.activeTab)
+    setCurrentDraftId(null)
     setRawJsonResource('indexer')
-    setLastRunResponse(null)
-    setLastStatus(null)
-    setVerification({ stats: null, sample: null, error: null })
-    setRunTracker(createIdleRunTracker())
+    resetTransientPipelineState()
     setMessage({ type: 'success', text: t('draftReset') })
   }
 
@@ -1659,6 +1848,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
         <span className="ipbLoadedIndexerBar__main mono">
           {isServiceLoaded ? (loadedName || '-') : currentName}
         </span>
+        <span className="ipbLoadedIndexerBar__meta">{currentDraftId ? `${t('currentDraft')}: ${currentDraftTitle}` : t('noLocalDraftLoaded')}</span>
         {isServiceLoaded && currentName !== loadedName && (
           <span className="ipbLoadedIndexerBar__meta mono">{t('draftIndexerName')}: {currentName}</span>
         )}
@@ -2353,6 +2543,18 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
               <i className="bi bi-save icon--mr6"></i>
               {t('saveDraft')}
             </button>
+            <button type="button" className="btn" onClick={saveDraftAs}>
+              <i className="bi bi-save2 icon--mr6"></i>
+              {t('saveDraftAs')}
+            </button>
+            <button
+              type="button"
+              className={'btn ' + (localDraftLibraryOpen ? 'btn--active' : '')}
+              onClick={() => setLocalDraftLibraryOpen((open) => !open)}
+            >
+              <i className="bi bi-folder2-open icon--mr6"></i>
+              {t('savedDrafts')} ({savedDrafts.length})
+            </button>
             <button type="button" className="btn" onClick={copyActiveJson} disabled={activeTab !== 'rawJson'}>
               <i className="bi bi-clipboard icon--mr6"></i>
               {t('copyJson')}
@@ -2363,6 +2565,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
 
         {!canQuery && <div className="notice notice--error builder__notice">{t('missingConnection')}</div>}
         {message && <div className={`notice notice--${message.type} builder__notice`}>{message.text}</div>}
+        {renderLocalDraftLibrary()}
 
         {renderResourceHub()}
         {renderLoadedIndexerBar()}

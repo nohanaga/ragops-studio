@@ -1,7 +1,20 @@
 import type { JsonValue } from '../lib/aiSearchRest'
 import type { IndexingPipelineDraft, IndexingPipelineJsonDraft } from '../types/indexingPipeline'
 
-const STORAGE_KEY = 'ragops.indexingPipeline.current.v1'
+const CURRENT_DRAFT_STORAGE_KEY = 'ragops.indexingPipeline.current.v1'
+const LIBRARY_STORAGE_KEY = 'ragops.indexingPipeline.library.v1'
+const CURRENT_DRAFT_ID_STORAGE_KEY = 'ragops.indexingPipeline.currentId.v1'
+
+export type PersistedIndexingPipelineItem = {
+  id: string
+  title: string
+  updatedAt: number
+  draft: IndexingPipelineDraft
+}
+
+type PersistedIndexingPipelineRoot = {
+  items: PersistedIndexingPipelineItem[]
+}
 
 const DEFAULT_DATA_SOURCE: JsonValue = {
   name: 'sample-datasource',
@@ -106,6 +119,15 @@ function isString(value: unknown): value is string {
   return typeof value === 'string'
 }
 
+function safeParse(jsonText: string | null): unknown {
+  if (!jsonText) return null
+  try {
+    return JSON.parse(jsonText) as unknown
+  } catch {
+    return null
+  }
+}
+
 function isJsonDraft(value: unknown): value is IndexingPipelineJsonDraft {
   return isObject(value) && isString(value.text) && isString(value.baselineText)
 }
@@ -148,6 +170,25 @@ function normalizeDraft(raw: unknown): IndexingPipelineDraft | null {
     index: normalizeJsonDraft(raw.index, fallback.index),
     indexer: normalizeJsonDraft(raw.indexer, fallback.indexer),
   }
+}
+
+function readJsonName(jsonText: string): string {
+  const parsed = safeParse(jsonText)
+  if (!isObject(parsed)) return ''
+  return typeof parsed.name === 'string' ? parsed.name.trim() : ''
+}
+
+export function deriveIndexingPipelineDraftTitle(draft: IndexingPipelineDraft, fallback = 'Indexing Pipeline draft'): string {
+  const indexerName = readJsonName(draft.indexer.text)
+  const indexName = readJsonName(draft.index.text)
+  const dataSourceName = readJsonName(draft.dataSource.text)
+
+  if (indexerName && indexName) return `${indexerName} -> ${indexName}`
+  if (indexerName) return indexerName
+  if (dataSourceName && indexName) return `${dataSourceName} -> ${indexName}`
+  if (dataSourceName) return dataSourceName
+  if (indexName) return indexName
+  return fallback
 }
 
 const SECRET_JSON_KEY_PATTERN = /^(connectionString|apiKey|accountKey|applicationSecret|clientSecret|password|sasToken)$/i
@@ -198,15 +239,140 @@ export function sanitizeIndexingPipelineDraftForStorage(draft: IndexingPipelineD
   }
 }
 
-export function loadIndexingPipelineDraft(): IndexingPipelineDraft {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return createDefaultIndexingPipelineDraft()
-    const parsed = JSON.parse(raw) as unknown
-    return normalizeDraft(parsed) ?? createDefaultIndexingPipelineDraft()
-  } catch {
-    return createDefaultIndexingPipelineDraft()
+function normalizeItem(raw: unknown): PersistedIndexingPipelineItem | null {
+  if (!isObject(raw)) return null
+  if (typeof raw.id !== 'string' || !raw.id.trim()) return null
+  if (typeof raw.title !== 'string') return null
+  if (typeof raw.updatedAt !== 'number' || !Number.isFinite(raw.updatedAt)) return null
+
+  const draft = normalizeDraft(raw.draft)
+  if (!draft) return null
+
+  return {
+    id: raw.id,
+    title: raw.title.trim() || deriveIndexingPipelineDraftTitle(draft),
+    updatedAt: raw.updatedAt,
+    draft,
   }
+}
+
+function writeRoot(root: PersistedIndexingPipelineRoot): void {
+  try {
+    const sanitized: PersistedIndexingPipelineRoot = {
+      items: root.items.map((item) => ({
+        ...item,
+        draft: sanitizeIndexingPipelineDraftForStorage(item.draft),
+      })),
+    }
+    window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(sanitized))
+  } catch {
+    // Ignore restricted storage modes.
+  }
+}
+
+function readLegacyCurrentDraft(): IndexingPipelineDraft | null {
+  const parsed = safeParse(window.localStorage.getItem(CURRENT_DRAFT_STORAGE_KEY))
+  return normalizeDraft(parsed)
+}
+
+function migrateLegacyCurrentDraft(): PersistedIndexingPipelineRoot {
+  const legacyDraft = readLegacyCurrentDraft()
+  if (!legacyDraft) return { items: [] }
+
+  const item: PersistedIndexingPipelineItem = {
+    id: 'legacy-current',
+    title: deriveIndexingPipelineDraftTitle(legacyDraft),
+    updatedAt: Date.now(),
+    draft: legacyDraft,
+  }
+  const root = { items: [item] }
+  writeRoot(root)
+  return root
+}
+
+function readRoot(): PersistedIndexingPipelineRoot {
+  const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY)
+  if (!raw) return migrateLegacyCurrentDraft()
+
+  const parsed = safeParse(raw)
+  if (!isObject(parsed) || !Array.isArray(parsed.items)) return { items: [] }
+
+  const items = parsed.items
+    .map(normalizeItem)
+    .filter((item): item is PersistedIndexingPipelineItem => item !== null)
+  return { items }
+}
+
+export function listIndexingPipelineDrafts(): PersistedIndexingPipelineItem[] {
+  const root = readRoot()
+  return [...root.items].sort((left, right) => right.updatedAt - left.updatedAt)
+}
+
+export function getIndexingPipelineDraft(id: string): PersistedIndexingPipelineItem | null {
+  const root = readRoot()
+  return root.items.find((item) => item.id === id) ?? null
+}
+
+export function upsertIndexingPipelineDraft(item: PersistedIndexingPipelineItem): void {
+  const root = readRoot()
+  const now = Date.now()
+  const next: PersistedIndexingPipelineItem = {
+    ...item,
+    title: item.title.trim() || deriveIndexingPipelineDraftTitle(item.draft),
+    updatedAt: now,
+    draft: sanitizeIndexingPipelineDraftForStorage({
+      ...item.draft,
+      updatedAt: new Date(now).toISOString(),
+    }),
+  }
+  const existingIndex = root.items.findIndex((candidate) => candidate.id === next.id)
+  if (existingIndex >= 0) {
+    root.items[existingIndex] = next
+  } else {
+    root.items.unshift(next)
+  }
+
+  writeRoot(root)
+}
+
+export function deleteIndexingPipelineDraft(id: string): void {
+  const root = readRoot()
+  root.items = root.items.filter((item) => item.id !== id)
+  writeRoot(root)
+
+  if (loadIndexingPipelineCurrentDraftId() === id) {
+    saveIndexingPipelineCurrentDraftId(null)
+    try {
+      window.localStorage.removeItem(CURRENT_DRAFT_STORAGE_KEY)
+    } catch {
+      // Ignore restricted storage modes.
+    }
+  }
+}
+
+export function loadIndexingPipelineCurrentDraftId(): string | null {
+  try {
+    const value = window.localStorage.getItem(CURRENT_DRAFT_ID_STORAGE_KEY)
+    return value && value.trim() ? value : null
+  } catch {
+    return null
+  }
+}
+
+export function saveIndexingPipelineCurrentDraftId(id: string | null): void {
+  try {
+    if (id && id.trim()) {
+      window.localStorage.setItem(CURRENT_DRAFT_ID_STORAGE_KEY, id)
+    } else {
+      window.localStorage.removeItem(CURRENT_DRAFT_ID_STORAGE_KEY)
+    }
+  } catch {
+    // Ignore restricted storage modes.
+  }
+}
+
+export function loadIndexingPipelineDraft(): IndexingPipelineDraft {
+  return createDefaultIndexingPipelineDraft()
 }
 
 export function saveIndexingPipelineDraft(draft: IndexingPipelineDraft): void {
@@ -215,7 +381,7 @@ export function saveIndexingPipelineDraft(draft: IndexingPipelineDraft): void {
       ...draft,
       updatedAt: new Date().toISOString(),
     })
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized))
+    window.localStorage.setItem(CURRENT_DRAFT_STORAGE_KEY, JSON.stringify(sanitized))
   } catch {
     // Ignore restricted storage modes.
   }
