@@ -6871,6 +6871,24 @@ html[data-theme='light'] .rawJsonViewer {
   padding: 10px;
 }
 
+.ipbSummaryCard--success {
+  border-color: color-mix(in srgb, #14b8a6 48%, var(--border));
+  background: color-mix(in srgb, #14b8a6 10%, var(--panel-2));
+}
+
+.ipbSummaryCard--success .ipbSummaryCard__value {
+  color: color-mix(in srgb, #14b8a6 82%, var(--fg));
+}
+
+.ipbSummaryCard--error {
+  border-color: color-mix(in srgb, #ef4444 58%, var(--border));
+  background: color-mix(in srgb, #ef4444 10%, var(--panel-2));
+}
+
+.ipbSummaryCard--error .ipbSummaryCard__value {
+  color: color-mix(in srgb, #ef4444 82%, var(--fg));
+}
+
 .ipbSummaryCard__label {
   color: var(--muted);
   font-size: 11px;

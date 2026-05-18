@@ -50,6 +50,14 @@ const indexBuilderRightTabs: Array<{ id: IndexBuilderRightTab; labelKey: keyof t
   { id: 'aliases', labelKey: 'indexBuilderAliases', icon: 'bi-signpost-split' },
 ]
 
+const indexBuilderRightTabGuideTargets: Record<IndexBuilderRightTab, string> = {
+  schema: 'index-builder-schema',
+  config: 'index-builder-config',
+  json: 'index-builder-editor',
+  clone: 'index-builder-clone',
+  aliases: 'index-builder-aliases',
+}
+
 const indexTemplateLabelKeys: Record<IndexSchemaTemplateKind, keyof typeof translations.ja> = {
   semantic: 'indexBuilderFeatureSemantic',
   suggester: 'indexBuilderFeatureSuggesters',
@@ -814,7 +822,7 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
                   aria-selected={rightTab === tab.id}
                   className={'btn btn--tab ' + (rightTab === tab.id ? 'btn--active' : '')}
                   onClick={() => setRightTab(tab.id)}
-                  data-guide-target={tab.id === 'json' ? 'index-builder-editor' : undefined}
+                  data-guide-target={indexBuilderRightTabGuideTargets[tab.id]}
                 >
                   <i className={`bi ${tab.icon} icon--mr6`}></i>
                   {t(tab.labelKey)}

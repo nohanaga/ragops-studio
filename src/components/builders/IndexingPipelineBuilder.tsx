@@ -448,6 +448,11 @@ const auxNavItems: Array<{ id: IndexingPipelineEditorTab; icon: string; labelKey
   { id: 'rawJson', icon: 'bi-braces', labelKey: 'openRawJson' },
 ]
 
+const auxNavGuideTargets: Partial<Record<IndexingPipelineEditorTab, string>> = {
+  overview: 'ipb-tab-overview',
+  rawJson: 'ipb-tab-raw-json',
+}
+
 type ParameterGroupId =
   | 'performance'
   | 'failureTolerance'
@@ -1562,7 +1567,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   }
 
   const renderResourceHub = () => (
-    <section className="ipbResourceHub">
+    <section className="ipbResourceHub" data-guide-target="ipb-resources">
       <div className="ipbResourceHub__left">
         <div className="ipbPanelHeader__title">{t('resources')}</div>
         <div className="ipbResourceHub__counts" aria-label={t('resourceCounts')}>
@@ -1578,6 +1583,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
             <button
               type="button"
               className="field__input ipbIndexerDropdown__toggle"
+              data-guide-target="ipb-indexer-select"
               data-bs-toggle="dropdown"
               data-bs-auto-close="outside"
               data-bs-display="static"
@@ -1679,28 +1685,28 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
 
   const renderPipelineStrip = () => (
     <div className="ipbPipelineCanvas" aria-label={t('pipeline')}>
-      <button type="button" className={pipelineNodeClass('source', 'source', combinedPipelineStatus('dataSource'))} onClick={() => setTab('source')}>
+      <button type="button" className={pipelineNodeClass('source', 'source', combinedPipelineStatus('dataSource'))} data-guide-target="ipb-node-source" onClick={() => setTab('source')}>
         <span className="ipbPipelineNode__icon"><i className="bi bi-hdd-network"></i></span>
         <span className="ipbPipelineNode__label">{t('source')}</span>
         <strong>{dataSourceName || '-'}</strong>
         <em>{dataSourceDescriptor ? dataSourceLabel(dataSourceDescriptor, language) : dataSourceType || '-'}</em>
       </button>
       <span className="ipbPipelineEdge"><i className="bi bi-arrow-right"></i></span>
-      <button type="button" className={pipelineNodeClass('indexer', 'indexer', combinedPipelineStatus('indexer', 'run', 'status'))} onClick={() => setTab('indexer')}>
+      <button type="button" className={pipelineNodeClass('indexer', 'indexer', combinedPipelineStatus('indexer', 'run', 'status'))} data-guide-target="ipb-node-indexer" onClick={() => setTab('indexer')}>
         <span className="ipbPipelineNode__icon"><i className="bi bi-arrow-repeat"></i></span>
         <span className="ipbPipelineNode__label">{t('importProcess')}</span>
         <strong>{indexerName || '-'}</strong>
         <em>{getBooleanField(parsed.indexer, 'disabled') ? t('disabled') : `${fieldMappings.length + outputFieldMappings.length} mappings`}</em>
       </button>
       <span className="ipbPipelineEdge"><i className="bi bi-arrow-right"></i></span>
-      <button type="button" className={pipelineNodeClass('index', 'index', combinedPipelineStatus('index'))} onClick={() => setTab('index')}>
+      <button type="button" className={pipelineNodeClass('index', 'index', combinedPipelineStatus('index'))} data-guide-target="ipb-node-index" onClick={() => setTab('index')}>
         <span className="ipbPipelineNode__icon"><i className="bi bi-table"></i></span>
         <span className="ipbPipelineNode__label">{t('target')}</span>
         <strong>{indexerRefs.targetIndexName || indexName || '-'}</strong>
         <em>{fieldCount(parsed.index)} {t('fields')} / {vectorFieldCount(parsed.index)} {t('vectorFields')}</em>
       </button>
       <span className="ipbPipelineEdge"><i className="bi bi-arrow-right"></i></span>
-      <button type="button" className={pipelineNodeClass('verify', 'overview', combinedPipelineStatus('verify'))} onClick={() => setTab('overview')}>
+      <button type="button" className={pipelineNodeClass('verify', 'overview', combinedPipelineStatus('verify'))} data-guide-target="ipb-node-verify" onClick={() => setTab('overview')}>
         <span className="ipbPipelineNode__icon"><i className="bi bi-check2-circle"></i></span>
         <span className="ipbPipelineNode__label">{t('verification')}</span>
         <strong>{documentCountFromStats(verification.stats)}</strong>
@@ -1731,13 +1737,13 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   const renderOverview = () => (
     <div className="ipbOverview ipbRunStatus">
       <div className="ipbHeroGrid">
-        <section className="ipbHeroPanel ipbHeroPanel--run ipbRunStatus__pipeline">
+        <section className="ipbHeroPanel ipbHeroPanel--run ipbRunStatus__pipeline" data-guide-target="ipb-run-tracker">
           <div className="ipbHeroPanel__header">
             <div>
               <div className="ipbPanelHeader__title">{t('runPipeline')}</div>
               <div className="ipbPanelHeader__meta">{t('formsFirst')}</div>
             </div>
-            <div className="ipbRunCommandBar">
+            <div className="ipbRunCommandBar" data-guide-target="ipb-overview-run-actions">
               <button type="button" className="btn" onClick={startIndexerRun} disabled={!canQuery || runLoading || statusLoading || !activeIndexerName.trim()}>
                 <i className="bi bi-play-circle icon--mr6"></i>
                 {runLoading ? `${t('loading')}...` : t('runIndexer')}
@@ -1755,7 +1761,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
           {renderRunTracker()}
         </section>
 
-        <section className="ipbHeroPanel ipbHeroPanel--verification">
+        <section className="ipbHeroPanel ipbHeroPanel--verification" data-guide-target="ipb-verification">
           <div className="ipbPanelHeader__title">{t('indexVerification')}</div>
           <div className="ipbMetricGrid">
             <div className="ipbMetric"><span>{t('documentCount')}</span><strong>{documentCountFromStats(verification.stats)}</strong></div>
@@ -1823,7 +1829,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   }
 
   const renderDataSourceDesigner = () => (
-    <section className="ipbInspector ipbInspector--source">
+    <section className="ipbInspector ipbInspector--source" data-guide-target="ipb-source-designer">
       <header className="ipbInspector__hero">
         <div className="ipbInspector__heroIcon"><i className="bi bi-hdd-network"></i></div>
         <div>
@@ -1865,7 +1871,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
         </div>
       </details>
 
-      <section className="ipbGroup" data-group="connection">
+      <section className="ipbGroup" data-group="connection" data-guide-target="ipb-source-connection">
         {renderInspectorGroupHeader(
           t('connectionGroup'),
           t('connectionGroup'),
@@ -1914,7 +1920,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
         </div>
       </section>
 
-      <section className="ipbGroup" data-group="container">
+      <section className="ipbGroup" data-group="container" data-guide-target="ipb-source-container">
         {renderInspectorGroupHeader(
           t('containerGroup'),
           t('containerGroup'),
@@ -1938,16 +1944,27 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   const renderIndexDesigner = () => {
     const targetIndexName = (indexerRefs.targetIndexName || indexName).trim()
     const canOpenIndexBuilder = !!targetIndexName && !!onOpenIndexBuilder && (resourceLists.indexes.includes(targetIndexName) || draft.index.loadedName === targetIndexName)
+    const explicitTargetIndexName = indexerRefs.targetIndexName.trim()
+    const isIndexReferenceMatched = !!explicitTargetIndexName && !!indexName && explicitTargetIndexName === indexName
+    const hasIndexReferenceMismatch = !!explicitTargetIndexName && !!indexName && explicitTargetIndexName !== indexName
+    const hasIndexReferenceMissing = !explicitTargetIndexName || !indexName
+    const indexReferenceStateLabel = hasIndexReferenceMissing
+      ? (language === 'ja' ? '未設定' : 'Missing')
+      : hasIndexReferenceMismatch
+        ? (language === 'ja' ? '不一致' : 'Mismatch')
+        : (language === 'ja' ? '一致' : 'Matched')
+    const indexReferenceStateClass = hasIndexReferenceMissing || hasIndexReferenceMismatch ? 'indexSchemaBadge indexSchemaBadge--missing' : 'indexSchemaBadge indexSchemaBadge--configured'
     return (
-    <section className="ipbInspector ipbInspector--index">
+    <section className="ipbInspector ipbInspector--index" data-guide-target="ipb-index-designer">
       <header className="ipbInspector__hero">
         <div className="ipbInspector__heroIcon"><i className="bi bi-table"></i></div>
         <div>
           <div className="ipbInspector__eyebrow">{t('target')}</div>
-          <h2 className="ipbInspector__title">{indexName || (language === 'ja' ? '未設定' : 'Not set')}</h2>
+          <h2 className="ipbInspector__title">{targetIndexName || (language === 'ja' ? '未設定' : 'Not set')}</h2>
           <p className="ipbInspector__lede">{t('indexHeroHint')}</p>
         </div>
         <div className="ipbInspector__heroMeta">
+          <span className={indexReferenceStateClass}>{indexReferenceStateLabel}</span>
           <span className="indexSchemaBadge indexSchemaBadge--configured">{vectorFieldCount(parsed.index)} {t('vectorFields')}</span>
           <strong>{fieldCount(parsed.index)} {t('fields')}</strong>
           {canOpenIndexBuilder && (
@@ -1963,19 +1980,29 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
         {renderInspectorGroupHeader(
           'リファレンス',
           'References',
-          'Indexer が向けている targetIndexName と、この index 名が一致していることを確認します。',
-          'Ensure the indexer targetIndexName matches this index name.',
+          'targetIndexName は Indexer 側で設定します。この画面では draft Index の name と一致していることだけ確認します。',
+          'targetIndexName is configured on the Indexer side. This view only confirms that it matches the draft index name.',
         )}
-        <div className="ipbGroup__body ipbFormGrid ipbFormGrid--index">
-          <label className="field ipbField">
-            <span className="field__label">{renderParameterName(t('name'), 'index.name')}</span>
-            <input className="field__input" value={indexName} onChange={(event) => updateResourceObject('index', (value) => ({ ...value, name: event.target.value }))} />
-          </label>
-          <label className="field ipbField">
-            <span className="field__label">{renderParameterName(t('targetIndexName'), 'targetIndexName', true)}</span>
-            <input className="field__input" value={indexerRefs.targetIndexName || indexName} onChange={(event) => updateResourceObject('indexer', (value) => ({ ...value, targetIndexName: event.target.value }))} />
-          </label>
+        <div className="ipbGroup__body ipbSummaryGrid">
+          <div className="ipbSummaryCard">
+            <span className="ipbSummaryCard__label">{renderParameterName(t('name'), 'index.name')}</span>
+            <strong className="ipbSummaryCard__value mono">{indexName || '-'}</strong>
+            <span className="ipbSummaryCard__meta">{language === 'ja' ? 'draft Index 定義の name です。変更は Index Builder または Raw JSON で行います。' : 'The name in the draft index definition. Change it in Index Builder or Raw JSON.'}</span>
+          </div>
+          <div className="ipbSummaryCard">
+            <span className="ipbSummaryCard__label">{renderParameterName(t('targetIndexName'), 'targetIndexName', true)}</span>
+            <strong className="ipbSummaryCard__value mono">{explicitTargetIndexName || '-'}</strong>
+            <span className="ipbSummaryCard__meta">{language === 'ja' ? 'Indexer が参照する投入先です。変更は Indexer タブで行います。' : 'The target referenced by the indexer. Change it in the Indexer tab.'}</span>
+          </div>
+          <div className={'ipbSummaryCard ' + (isIndexReferenceMatched ? 'ipbSummaryCard--success' : hasIndexReferenceMismatch ? 'ipbSummaryCard--error' : '')}>
+            <span className="ipbSummaryCard__label">{language === 'ja' ? '参照状態' : 'Reference state'}</span>
+            <strong className="ipbSummaryCard__value">{indexReferenceStateLabel}</strong>
+            <span className="ipbSummaryCard__meta">{language === 'ja' ? 'Publish & Run pipeline 前に一致している必要があります。' : 'It must match before Publish & Run pipeline.'}</span>
+          </div>
         </div>
+        {!explicitTargetIndexName && <div className="notice notice--error">{language === 'ja' ? 'Indexer タブで targetIndexName を設定してください。' : 'Set targetIndexName in the Indexer tab.'}</div>}
+        {!indexName && <div className="notice notice--error">{language === 'ja' ? 'draft Index の name が未設定です。Index Builder または Raw JSON で設定してください。' : 'The draft index name is missing. Set it in Index Builder or Raw JSON.'}</div>}
+        {hasIndexReferenceMismatch && <div className="notice notice--error">{language === 'ja' ? `Indexer は "${explicitTargetIndexName}" を参照していますが、draft Index は "${indexName}" です。` : `Indexer references "${explicitTargetIndexName}" but the draft index is "${indexName}".`}</div>}
       </section>
 
       <section className="ipbGroup">
@@ -2085,7 +2112,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   const renderMappingEditor = (key: FieldMappingKey, items: ReturnType<typeof getFieldMappings>, title: string) => {
     const targetFieldListId = `${key}-target-fields`
     return (
-      <section className="ipbMappingEditor">
+      <section className="ipbMappingEditor" data-guide-target={`ipb-${key}`}>
         <div className="ipbMappingEditor__header">
           <div className="ipbMappings__title">{renderParameterName(title, key, true)}</div>
           <button type="button" className="btn btn--sm" onClick={() => addMappingRow(key)}>
@@ -2152,7 +2179,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
       }).length,
     })).filter((entry) => entry.memberCount > 0)
     return (
-      <section className="ipbInspector ipbInspector--indexer">
+      <section className="ipbInspector ipbInspector--indexer" data-guide-target="ipb-indexer-designer">
         <header className="ipbInspector__hero">
           <div className="ipbInspector__heroIcon"><i className="bi bi-arrow-repeat"></i></div>
           <div>
@@ -2215,7 +2242,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
           </div>
         </section>
 
-        <section className="ipbGroup ipbGroup--mappings">
+        <section className="ipbGroup ipbGroup--mappings" data-guide-target="ipb-indexer-mappings">
           {renderInspectorGroupHeader(
             t('indexerMappingsGroup'),
             t('indexerMappingsGroup'),
@@ -2248,7 +2275,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   const renderRawJson = () => {
     const parseResult = parseDraftJson(draft[rawJsonResource].text)
     return (
-      <div className="ipbRawJson">
+      <div className="ipbRawJson" data-guide-target="ipb-raw-json">
         <div className="ipbRawJson__header">
           <div>
             <div className="ipbPanelHeader__title">{t('rawJson')}</div>
@@ -2355,6 +2382,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
                     role="tab"
                     aria-selected={activeTab === item.id}
                     className={'btn btn--tab ipbAuxTab ' + (activeTab === item.id ? 'btn--active' : '')}
+                    data-guide-target={auxNavGuideTargets[item.id]}
                     onClick={() => setTab(item.id)}
                   >
                     <i className={`bi ${item.icon} icon--mr6`}></i>
@@ -2362,11 +2390,11 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
                   </button>
                 ))}
                 <div className="ipbAuxRunActions">
-                  <button type="button" className="btn ipbAuxRunButton" onClick={startIndexerRun} disabled={!canQuery || runLoading || statusLoading || publishReviewLoading || !activeIndexerName.trim()}>
+                  <button type="button" className="btn ipbAuxRunButton" data-guide-target="ipb-run-indexer" onClick={startIndexerRun} disabled={!canQuery || runLoading || statusLoading || publishReviewLoading || !activeIndexerName.trim()}>
                     <i className="bi bi-play-circle icon--mr6"></i>
                     {runLoading ? `${t('loading')}...` : t('runIndexer')}
                   </button>
-                  <button type="button" className="btn btn--primary ipbAuxRunButton" onClick={openUpdateRunReview} disabled={!canQuery || runLoading || statusLoading || verifyLoading || publishReviewLoading}>
+                  <button type="button" className="btn btn--primary ipbAuxRunButton" data-guide-target="ipb-publish-run" onClick={openUpdateRunReview} disabled={!canQuery || runLoading || statusLoading || verifyLoading || publishReviewLoading}>
                     <i className="bi bi-play-fill icon--mr6"></i>
                     {publishReviewLoading ? t('updateReviewLoading') : runLoading ? `${t('loading')}...` : t('updateRunPipeline')}
                   </button>
