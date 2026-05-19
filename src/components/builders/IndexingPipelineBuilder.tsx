@@ -4,6 +4,7 @@ import { json } from '@codemirror/lang-json'
 import { EditorView } from '@codemirror/view'
 import { githubDark, githubLight } from '@uiw/codemirror-theme-github'
 import { ExpandableCodeMirror } from '../viewers/ExpandableCodeMirror'
+import { JsonViewer } from '../viewers/JsonViewer'
 import {
   IndexingPipelinePublishModal,
   type IndexingPipelinePublishResourceKind,
@@ -25,6 +26,7 @@ import {
   listDataSources,
   listIndexes,
   listIndexers,
+  resetIndexer,
   runIndexer,
   searchDocuments,
   type JsonValue,
@@ -47,6 +49,7 @@ import {
 } from '../../lib/aiSearchIndexerSchemas'
 import {
   createDefaultIndexingPipelineDraft,
+  createEmptyIndexingPipelineDraft,
   deleteIndexingPipelineDraft,
   deriveIndexingPipelineDraftTitle,
   getIndexingPipelineDraft,
@@ -81,7 +84,6 @@ type IndexingPipelineBuilderProps = {
   theme: ThemePreference
   copyToClipboard: (text: string) => Promise<void>
   onOpenIndexBuilder?: (indexName: string) => void
-  onClose: () => void
 }
 
 type UiMessage = { type: 'success' | 'error' | 'info' | 'warning'; text: string }
@@ -148,7 +150,8 @@ const copy = {
     saveDraft: 'ドラフトを保存',
     saveDraftAs: '名前を付けて保存',
     savedDrafts: 'ローカルドラフト一覧',
-    localDraftLibraryHint: 'Indexing Pipeline のドラフトをブラウザーに保存し、読み込み・複製・削除できます。シークレット値は保存時に自動的にマスキングされます。',
+    noPipelineLoadedTitle: 'パイプライン未選択',
+    noPipelineLoadedHint: 'パイプラインが選択されていません。',
     noSavedDrafts: '保存済みドラフトはありません。',
     loadDraft: '読み込み',
     cloneDraft: '複製',
@@ -161,9 +164,9 @@ const copy = {
     draftDeleted: 'ドラフトを削除しました。',
     draftCloned: 'ドラフトを複製しました。',
     currentDraft: '編集中',
-    noLocalDraftLoaded: 'ローカルドラフト未読込',
+    noLocalDraftLoaded: '未保存',
     copyJson: 'JSON コピー',
-    close: '閉じる',
+    clear: 'クリア',
     overview: 'Pipeline',
     sourceInspector: 'Source node',
     indexInspector: 'Index node',
@@ -216,6 +219,9 @@ const copy = {
     addMapping: 'Mapping を追加',
     removeMapping: 'Mapping を削除',
     mappingFunctionName: 'Mapping function 名',
+    resetIndexer: 'Indexer リセット',
+    resetIndexerConfirm: 'この Indexer の変更追跡状態をリセットします。次回実行時に対象データが再処理される可能性があります。実行しますか？',
+    resetQueued: 'Indexer reset を要求しました。次回実行で再処理されます。',
     runIndexer: 'Indexer 実行',
     refreshStatus: 'Status 更新',
     verifyTarget: 'Target 検証',
@@ -320,8 +326,9 @@ const copy = {
     newDraft: 'New draft',
     saveDraft: 'Save draft',
     saveDraftAs: 'Save as',
-    savedDrafts: 'Local Pipeline Draft Library',
-    localDraftLibraryHint: 'Save, load, clone, and delete Indexing Pipeline drafts in this browser. Secret values are redacted automatically on save.',
+    savedDrafts: 'Local Pipeline Drafts',
+    noPipelineLoadedTitle: 'No pipeline selected',
+    noPipelineLoadedHint: 'No pipeline is selected.',
     noSavedDrafts: 'No saved drafts.',
     loadDraft: 'Load',
     cloneDraft: 'Clone',
@@ -334,9 +341,9 @@ const copy = {
     draftDeleted: 'Draft deleted.',
     draftCloned: 'Draft cloned.',
     currentDraft: 'Current',
-    noLocalDraftLoaded: 'No local draft loaded',
+    noLocalDraftLoaded: 'Not saved',
     copyJson: 'Copy JSON',
-    close: 'Close',
+    clear: 'Clear',
     overview: 'Pipeline',
     sourceInspector: 'Source node',
     indexInspector: 'Index node',
@@ -389,6 +396,9 @@ const copy = {
     addMapping: 'Add mapping',
     removeMapping: 'Remove mapping',
     mappingFunctionName: 'Mapping function name',
+    resetIndexer: 'Reset indexer',
+    resetIndexerConfirm: 'Reset this indexer change-tracking state? The next run may reprocess the source data.',
+    resetQueued: 'Requested indexer reset. The next run will reprocess source data.',
     runIndexer: 'Run indexer',
     refreshStatus: 'Refresh status',
     verifyTarget: 'Verify target',
@@ -883,15 +893,16 @@ function stepIcon(status: PipelineStepStatus): string {
   }
 }
 
-export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, copyToClipboard, onOpenIndexBuilder, onClose }: IndexingPipelineBuilderProps) {
+export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, copyToClipboard, onOpenIndexBuilder }: IndexingPipelineBuilderProps) {
   const t = useCallback((key: CopyKey): string => copy[language][key], [language])
   const globalT = useCallback((key: keyof typeof translations.ja): string => String(translations[language][key] ?? ''), [language])
   const canQuery = !!profile && !!apiVersion && apiVersion.trim().length > 0
   const codeMirrorTheme = useMemo(() => (theme === 'light' || theme === 'solarized' ? githubLight : githubDark), [theme])
 
-  const initialDraft = useMemo(() => createDefaultIndexingPipelineDraft(), [])
+  const initialDraft = useMemo(() => createEmptyIndexingPipelineDraft(), [])
   const initialSavedDrafts = useMemo(() => listIndexingPipelineDrafts(), [])
   const [draft, setDraft] = useState<IndexingPipelineDraft>(() => initialDraft)
+  const [hasPipelineDraft, setHasPipelineDraft] = useState(false)
   const [activeTab, setActiveTab] = useState<IndexingPipelineEditorTab>(() => initialDraft.activeTab)
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null)
   const [savedDrafts, setSavedDrafts] = useState<PersistedIndexingPipelineItem[]>(() => initialSavedDrafts)
@@ -905,6 +916,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   const [loadingResources, setLoadingResources] = useState(false)
   const [loadingPipeline, setLoadingPipeline] = useState(false)
   const [message, setMessage] = useState<UiMessage | null>(null)
+  const [resetLoading, setResetLoading] = useState(false)
   const [runLoading, setRunLoading] = useState(false)
   const [statusLoading, setStatusLoading] = useState(false)
   const [verifyLoading, setVerifyLoading] = useState(false)
@@ -920,16 +932,16 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
 
   const parsed = useMemo(() => parseIndexingPipelineDraft(draft), [draft])
   const validationIssues = useMemo(
-    () => validateIndexingPipelineDraft({ draft, apiVersion: String(apiVersion ?? ''), language }),
-    [apiVersion, draft, language],
+    () => hasPipelineDraft ? validateIndexingPipelineDraft({ draft, apiVersion: String(apiVersion ?? ''), language }) : [],
+    [apiVersion, draft, hasPipelineDraft, language],
   )
   const issueCounts = useMemo(() => countIssuesBySeverity(validationIssues), [validationIssues])
-  const unsavedResources = useMemo(() => dirtyResources(draft), [draft])
+  const unsavedResources = useMemo(() => hasPipelineDraft ? dirtyResources(draft) : [], [draft, hasPipelineDraft])
   const currentSavedDraft = useMemo(
     () => currentDraftId ? savedDrafts.find((item) => item.id === currentDraftId) ?? null : null,
     [currentDraftId, savedDrafts],
   )
-  const currentDraftTitle = currentSavedDraft?.title ?? deriveIndexingPipelineDraftTitle(draft)
+  const currentDraftTitle = hasPipelineDraft ? (currentSavedDraft?.title ?? deriveIndexingPipelineDraftTitle(draft)) : t('noPipelineLoadedTitle')
 
   const dataSourceName = getResourceName(parsed.dataSource)
   const dataSourceType = getDataSourceType(parsed.dataSource)
@@ -941,7 +953,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   const keyFieldName = getKeyFieldName(parsed.index)
   const fieldMappings = getFieldMappings(parsed.indexer, 'fieldMappings')
   const outputFieldMappings = getFieldMappings(parsed.indexer, 'outputFieldMappings')
-  const activeIndexerName = indexerName || selectedIndexerName
+  const activeIndexerName = hasPipelineDraft ? indexerName : ''
   const dataSourceContainer = getObjectField(parsed.dataSource, 'container')
   const dataSourceCredentials = getObjectField(parsed.dataSource, 'credentials')
   const dataSourceIdentity = getObjectField(parsed.dataSource, 'identity')
@@ -1231,9 +1243,11 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
           ? jsonDraftFromValue(indexResult.response, refs.targetIndexName)
           : current.index,
       }))
+      setHasPipelineDraft(true)
       setActiveTab('overview')
       setRawJsonResource('indexer')
       setSelectedIndexerName(targetIndexerName)
+      setCurrentDraftId(null)
       setRunTracker(createIdleRunTracker())
 
       const dependencyErrors = firstErrorMessage([
@@ -1271,6 +1285,11 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   }
 
   const saveDraftToLibrary = (mode: 'save' | 'saveAs', titleOverride?: string) => {
+    if (!hasPipelineDraft) {
+      setMessage({ type: 'info', text: t('noPipelineLoadedHint') })
+      return
+    }
+
     const id = mode === 'save' && currentDraftId ? currentDraftId : uuidv4()
     const nextDraft = { ...draft, activeTab }
     const title = (titleOverride ?? currentSavedDraft?.title ?? deriveIndexingPipelineDraftTitle(nextDraft)).trim() || deriveIndexingPipelineDraftTitle(nextDraft)
@@ -1310,6 +1329,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
     }
 
     setDraft(item.draft)
+    setHasPipelineDraft(true)
     setActiveTab(item.draft.activeTab)
     setCurrentDraftId(item.id)
     setRawJsonResource('indexer')
@@ -1338,6 +1358,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
       draft: item.draft,
     })
     setDraft(item.draft)
+    setHasPipelineDraft(true)
     setActiveTab(item.draft.activeTab)
     setCurrentDraftId(clonedId)
     setRawJsonResource('indexer')
@@ -1353,7 +1374,13 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
 
     deleteIndexingPipelineDraft(id)
     if (id === currentDraftId) {
+      const next = createEmptyIndexingPipelineDraft()
+      setDraft(next)
+      setActiveTab(next.activeTab)
+      setHasPipelineDraft(false)
       setCurrentDraftId(null)
+      setRawJsonResource('indexer')
+      resetTransientPipelineState()
     }
     refreshSavedDrafts()
     setMessage({ type: 'success', text: t('draftDeleted') })
@@ -1367,7 +1394,6 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
         <div className="ipbLocalDraftLibrary__header">
           <div>
             <div className="ipbPanelHeader__title">{t('savedDrafts')} ({savedDrafts.length})</div>
-            <div className="ipbPanelHeader__meta">{t('localDraftLibraryHint')}</div>
           </div>
         </div>
         {localDraftError && <div className="notice notice--error builder__notice">{localDraftError}</div>}
@@ -1411,6 +1437,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
     }
     const next = createDefaultIndexingPipelineDraft()
     setDraft(next)
+    setHasPipelineDraft(true)
     setActiveTab(next.activeTab)
     setCurrentDraftId(null)
     setRawJsonResource('indexer')
@@ -1418,12 +1445,39 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
     setMessage({ type: 'success', text: t('draftReset') })
   }
 
+  const clearPipeline = () => {
+    if (unsavedResources.length > 0) {
+      const ok = window.confirm(language === 'ja' ? '未保存の変更を破棄しますか？' : 'Discard unsaved changes?')
+      if (!ok) return
+    }
+
+    const next = createEmptyIndexingPipelineDraft()
+    setDraft(next)
+    setHasPipelineDraft(false)
+    setActiveTab(next.activeTab)
+    setCurrentDraftId(null)
+    setRawJsonResource('indexer')
+    setPublishReviewOpen(false)
+    setPendingUpdateResources([])
+    resetTransientPipelineState()
+    setMessage(null)
+  }
+
   const copyActiveJson = async () => {
+    if (!hasPipelineDraft) {
+      setMessage({ type: 'info', text: t('noPipelineLoadedHint') })
+      return
+    }
     await copyToClipboard(draft[rawJsonResource].text)
     setMessage({ type: 'success', text: t('copied') })
   }
 
   const refreshIndexerStatus = useCallback(async () => {
+    if (!hasPipelineDraft) {
+      setMessage({ type: 'info', text: t('noPipelineLoadedHint') })
+      return
+    }
+
     const targetIndexerName = activeIndexerName.trim()
     if (!profile || !apiVersion.trim() || !targetIndexerName) {
       setMessage({ type: 'error', text: t('indexerNameUnset') })
@@ -1451,9 +1505,47 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
     } finally {
       setStatusLoading(false)
     }
-  }, [activeIndexerName, apiVersion, language, profile, t])
+  }, [activeIndexerName, apiVersion, hasPipelineDraft, language, profile, t])
+
+  const startIndexerReset = async () => {
+    if (!hasPipelineDraft) {
+      setMessage({ type: 'info', text: t('noPipelineLoadedHint') })
+      return
+    }
+
+    const targetIndexerName = activeIndexerName.trim()
+    if (!profile || !apiVersion.trim() || !targetIndexerName) {
+      setMessage({ type: 'error', text: t('indexerNameUnset') })
+      return
+    }
+
+    const ok = window.confirm(t('resetIndexerConfirm'))
+    if (!ok) return
+
+    setResetLoading(true)
+    setMessage(null)
+    try {
+      const resetResult = await resetIndexer({ profile, apiVersion, indexerName: targetIndexerName, language })
+      if (!resetResult.ok) {
+        setMessage({ type: 'error', text: resetResult.error.message })
+        return
+      }
+      setMessage({ type: 'success', text: t('resetQueued') })
+      await refreshIndexerStatus()
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      setMessage({ type: 'error', text: detail })
+    } finally {
+      setResetLoading(false)
+    }
+  }
 
   const startIndexerRun = async () => {
+    if (!hasPipelineDraft) {
+      setMessage({ type: 'info', text: t('noPipelineLoadedHint') })
+      return
+    }
+
     const targetIndexerName = activeIndexerName.trim()
     if (!profile || !apiVersion.trim() || !targetIndexerName) {
       setMessage({ type: 'error', text: t('indexerNameUnset') })
@@ -1485,6 +1577,11 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   }
 
   const verifyTargetIndex = async () => {
+    if (!hasPipelineDraft) {
+      setMessage({ type: 'info', text: t('noPipelineLoadedHint') })
+      return
+    }
+
     const targetIndexName = (indexerRefs.targetIndexName || indexName).trim()
     if (!profile || !apiVersion.trim() || !targetIndexName) {
       setMessage({ type: 'error', text: t('targetIndexUnset') })
@@ -1533,6 +1630,11 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   }
 
   const preparePipelineDrafts = (): PreparedPipelineDrafts | null => {
+    if (!hasPipelineDraft) {
+      setMessage({ type: 'info', text: t('noPipelineLoadedHint') })
+      return null
+    }
+
     if (!profile || !apiVersion.trim()) {
       setMessage({ type: 'error', text: t('missingConnection') })
       return null
@@ -1825,8 +1927,8 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
         <button
           type="button"
           className="btn btn--primary"
-          onClick={() => void loadPipelineFromIndexer(selectedIndexerName || indexerName)}
-          disabled={!canQuery || loadingPipeline || !(selectedIndexerName || indexerName).trim()}
+          onClick={() => void loadPipelineFromIndexer(selectedIndexerName)}
+          disabled={!canQuery || loadingPipeline || !selectedIndexerName.trim()}
         >
           <i className="bi bi-box-arrow-in-down icon--mr6"></i>
           {loadingPipeline ? `${t('loading')}...` : t('loadSelected')}
@@ -1836,6 +1938,15 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
   )
 
   const renderLoadedIndexerBar = () => {
+    if (!hasPipelineDraft) {
+      return (
+        <div className="ipbLoadedIndexerBar" aria-label={t('loadedIndexerContext')}>
+          <span className="ipbLoadedIndexerBar__badge ipbLoadedIndexerBar__badge--new">{t('noPipelineLoadedTitle')}</span>
+          <span className="ipbLoadedIndexerBar__meta">{t('noLocalDraftLoaded')}</span>
+        </div>
+      )
+    }
+
     const isServiceLoaded = !!draft.indexer.loadedAt
     const loadedName = draft.indexer.loadedName?.trim() || ''
     const currentName = indexerName || loadedName || '-'
@@ -1934,15 +2045,19 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
               <div className="ipbPanelHeader__meta">{t('formsFirst')}</div>
             </div>
             <div className="ipbRunCommandBar" data-guide-target="ipb-overview-run-actions">
-              <button type="button" className="btn" onClick={startIndexerRun} disabled={!canQuery || runLoading || statusLoading || !activeIndexerName.trim()}>
+              <button type="button" className="btn" onClick={startIndexerReset} disabled={!hasPipelineDraft || !canQuery || resetLoading || runLoading || statusLoading || !activeIndexerName.trim()}>
+                <i className="bi bi-arrow-counterclockwise icon--mr6"></i>
+                {resetLoading ? `${t('loading')}...` : t('resetIndexer')}
+              </button>
+              <button type="button" className="btn" onClick={startIndexerRun} disabled={!hasPipelineDraft || !canQuery || resetLoading || runLoading || statusLoading || !activeIndexerName.trim()}>
                 <i className="bi bi-play-circle icon--mr6"></i>
                 {runLoading ? `${t('loading')}...` : t('runIndexer')}
               </button>
-              <button type="button" className="btn" onClick={refreshIndexerStatus} disabled={!canQuery || statusLoading || !activeIndexerName.trim()}>
+              <button type="button" className="btn" onClick={refreshIndexerStatus} disabled={!hasPipelineDraft || !canQuery || resetLoading || statusLoading || !activeIndexerName.trim()}>
                 <i className="bi bi-arrow-clockwise icon--mr6"></i>
                 {statusLoading ? `${t('loading')}...` : t('refreshStatus')}
               </button>
-              <button type="button" className="btn" onClick={verifyTargetIndex} disabled={!canQuery || verifyLoading || !(indexerRefs.targetIndexName || indexName).trim()}>
+              <button type="button" className="btn" onClick={verifyTargetIndex} disabled={!hasPipelineDraft || !canQuery || verifyLoading || !(indexerRefs.targetIndexName || indexName).trim()}>
                 <i className="bi bi-check2-circle icon--mr6"></i>
                 {verifyLoading ? `${t('loading')}...` : t('verifyTarget')}
               </button>
@@ -1969,11 +2084,15 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
           <div className="ipbVerificationGrid">
             <div>
               <div className="form__metaTitle">stats</div>
-              <pre className="ipbPre mono">{prettyJson(verification.stats)}</pre>
+              <div className="mono jsonViewer__body rawJsonViewer">
+                <JsonViewer data={verification.stats ?? null} t={globalT} />
+              </div>
             </div>
             <div>
               <div className="form__metaTitle">sample</div>
-              <pre className="ipbPre mono">{prettyJson(verification.sample)}</pre>
+              <div className="mono jsonViewer__body rawJsonViewer">
+                <JsonViewer data={verification.sample ?? null} t={globalT} />
+              </div>
             </div>
           </div>
         ) : (
@@ -1984,7 +2103,11 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
       <div className="ipbReferenceGrid ipbReferenceGrid--run">
         <section className="ipbReferencePanel">
           <div className="ipbPanelHeader__title">{t('status')}</div>
-          {lastStatus ? <pre className="ipbPre mono">{prettyJson(lastStatus)}</pre> : <div className="empty">{t('noStatus')}</div>}
+          {lastStatus ? (
+            <div className="mono jsonViewer__body rawJsonViewer">
+              <JsonViewer data={lastStatus} t={globalT} />
+            </div>
+          ) : <div className="empty">{t('noStatus')}</div>}
         </section>
         <section className="ipbReferencePanel">
           <div className="ipbPanelHeader__title">{t('lastRun')}</div>
@@ -2523,6 +2646,27 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
     </aside>
   )
 
+  const renderNoPipelineState = () => (
+    <section className="ipbReferencePanel">
+      <div className="ipbPanelHeader__title">{t('noPipelineLoadedTitle')}</div>
+      <div className="actions actions--mt10">
+        <button type="button" className="btn btn--primary" onClick={createNewDraft}>
+          <i className="bi bi-plus-lg icon--mr6"></i>
+          {t('newDraft')}
+        </button>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => void loadPipelineFromIndexer(selectedIndexerName)}
+          disabled={!canQuery || loadingPipeline || !selectedIndexerName.trim()}
+        >
+          <i className="bi bi-box-arrow-in-down icon--mr6"></i>
+          {loadingPipeline ? `${t('loading')}...` : t('loadSelected')}
+        </button>
+      </div>
+    </section>
+  )
+
   return (
     <div className="pane__centerContent ipb">
       <div className="section ipb__section">
@@ -2539,11 +2683,11 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
               <i className="bi bi-plus-lg icon--mr6"></i>
               {t('newDraft')}
             </button>
-            <button type="button" className="btn" onClick={saveDraft}>
+            <button type="button" className="btn" onClick={saveDraft} disabled={!hasPipelineDraft}>
               <i className="bi bi-save icon--mr6"></i>
               {t('saveDraft')}
             </button>
-            <button type="button" className="btn" onClick={saveDraftAs}>
+            <button type="button" className="btn" onClick={saveDraftAs} disabled={!hasPipelineDraft}>
               <i className="bi bi-save2 icon--mr6"></i>
               {t('saveDraftAs')}
             </button>
@@ -2555,11 +2699,19 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
               <i className="bi bi-folder2-open icon--mr6"></i>
               {t('savedDrafts')} ({savedDrafts.length})
             </button>
-            <button type="button" className="btn" onClick={copyActiveJson} disabled={activeTab !== 'rawJson'}>
+            <button type="button" className="btn" onClick={copyActiveJson} disabled={!hasPipelineDraft || activeTab !== 'rawJson'}>
               <i className="bi bi-clipboard icon--mr6"></i>
               {t('copyJson')}
             </button>
-            <button type="button" className="btn" onClick={onClose}>{t('close')}</button>
+            <button
+              type="button"
+              className="btn"
+              onClick={clearPipeline}
+              disabled={loadingPipeline || resetLoading || runLoading || statusLoading || verifyLoading || publishReviewLoading}
+            >
+              <i className="bi bi-eraser icon--mr6"></i>
+              {t('clear')}
+            </button>
           </div>
         </div>
 
@@ -2570,7 +2722,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
         {renderResourceHub()}
         {renderLoadedIndexerBar()}
 
-        <div className="ipbStudioLayout">
+        {hasPipelineDraft ? <div className="ipbStudioLayout">
           <main className="ipbWorkbench">
             <div className="ipbPrimaryNav" role="tablist" aria-label={globalT('indexingPipelineBuilder')}>
               <div className="ipbPrimaryNav__pipeline">
@@ -2593,11 +2745,15 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
                   </button>
                 ))}
                 <div className="ipbAuxRunActions">
-                  <button type="button" className="btn ipbAuxRunButton" data-guide-target="ipb-run-indexer" onClick={startIndexerRun} disabled={!canQuery || runLoading || statusLoading || publishReviewLoading || !activeIndexerName.trim()}>
+                  <button type="button" className="btn ipbAuxRunButton" data-guide-target="ipb-reset-indexer" onClick={startIndexerReset} disabled={!hasPipelineDraft || !canQuery || resetLoading || runLoading || statusLoading || publishReviewLoading || !activeIndexerName.trim()}>
+                    <i className="bi bi-arrow-counterclockwise icon--mr6"></i>
+                    {resetLoading ? `${t('loading')}...` : t('resetIndexer')}
+                  </button>
+                  <button type="button" className="btn ipbAuxRunButton" data-guide-target="ipb-run-indexer" onClick={startIndexerRun} disabled={!hasPipelineDraft || !canQuery || resetLoading || runLoading || statusLoading || publishReviewLoading || !activeIndexerName.trim()}>
                     <i className="bi bi-play-circle icon--mr6"></i>
                     {runLoading ? `${t('loading')}...` : t('runIndexer')}
                   </button>
-                  <button type="button" className="btn btn--primary ipbAuxRunButton" data-guide-target="ipb-publish-run" onClick={openUpdateRunReview} disabled={!canQuery || runLoading || statusLoading || verifyLoading || publishReviewLoading}>
+                  <button type="button" className="btn btn--primary ipbAuxRunButton" data-guide-target="ipb-publish-run" onClick={openUpdateRunReview} disabled={!hasPipelineDraft || !canQuery || resetLoading || runLoading || statusLoading || verifyLoading || publishReviewLoading}>
                     <i className="bi bi-play-fill icon--mr6"></i>
                     {publishReviewLoading ? t('updateReviewLoading') : runLoading ? `${t('loading')}...` : t('updateRunPipeline')}
                   </button>
@@ -2614,7 +2770,7 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
             </div>
           </main>
           {renderChecks()}
-        </div>
+        </div> : renderNoPipelineState()}
         <IndexingPipelinePublishModal
           open={publishReviewOpen}
           language={language}

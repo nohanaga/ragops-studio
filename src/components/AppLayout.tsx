@@ -1269,7 +1269,6 @@ export function AppLayout(props: {
                 language={language}
                 theme={theme}
                 onOpenIndexBuilder={onOpenIndexBuilderTab}
-                onClose={() => setCenterTab('builder')}
                 copyToClipboard={copyToClipboard}
               />
               </Suspense>

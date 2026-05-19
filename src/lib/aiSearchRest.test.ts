@@ -29,6 +29,7 @@ import {
   listKnowledgeBases,
   listKnowledgeSources,
   listSynonymMaps,
+  resetIndexer,
   searchDocuments,
   suggestDocuments,
 } from './aiSearchRest'
@@ -738,6 +739,50 @@ describe('lib/aiSearchRest', () => {
     expect(agt.status).toBe(403)
     // agenticRetrieve intentionally does not run extractErrorMessage.
     expect(agt.error.message).toBe('HTTP 403')
+  })
+
+  it('posts indexer reset with api-version and request id', async () => {
+    const observed: { apiVersion?: string; apiKey?: string; clientRequestId?: string; target?: string } = {}
+    server.use(
+      http.post('/api-proxy/indexers/myindexer/reset', async ({ request }) => {
+        const url = new URL(request.url)
+        observed.apiVersion = url.searchParams.get('api-version') ?? undefined
+        observed.apiKey = request.headers.get('api-key') ?? undefined
+        observed.clientRequestId = request.headers.get('x-ms-client-request-id') ?? undefined
+        observed.target = request.headers.get('x-ais-proxy-target') ?? undefined
+        return new HttpResponse(null, { status: 204, headers: { 'request-id': 'req-reset' } })
+      }),
+      http.post('https://example.search.windows.net/indexers/myindexer/reset', async ({ request }) => {
+        const url = new URL(request.url)
+        observed.apiVersion = url.searchParams.get('api-version') ?? undefined
+        observed.apiKey = request.headers.get('api-key') ?? undefined
+        observed.clientRequestId = request.headers.get('x-ms-client-request-id') ?? undefined
+        observed.target = request.headers.get('x-ais-proxy-target') ?? undefined
+        return new HttpResponse(null, { status: 204, headers: { 'request-id': 'req-reset' } })
+      }),
+    )
+
+    const result = await resetIndexer({
+      profile: {
+        endpoint: 'https://example.search.windows.net',
+        apiVersion: '2025-09-01',
+        authType: 'apiKey',
+        apiKey: 'k',
+      },
+      indexerName: 'myindexer',
+      apiVersion: '2025-09-01',
+      language: 'ja',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.status).toBe(204)
+    expect(result.requestId).toBe('req-reset')
+    expect(result.response).toBeNull()
+    expect(observed.apiVersion).toBe('2025-09-01')
+    expect(observed.apiKey).toBe('k')
+    expect(observed.clientRequestId).toBeTruthy()
+    if (observed.target) expect(observed.target).toBe('https://example.search.windows.net')
   })
 
   it('covers alias list/get/put/delete operations', async () => {

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
   createDefaultIndexingPipelineDraft,
+  createEmptyIndexingPipelineDraft,
   deleteIndexingPipelineDraft,
   getIndexingPipelineDraft,
   listIndexingPipelineDrafts,
@@ -16,6 +17,16 @@ import {
 describe('app/persistedIndexingPipeline', () => {
   beforeEach(() => {
     localStorage.clear()
+  })
+
+  it('creates an empty no-load draft for startup', () => {
+    const empty = createEmptyIndexingPipelineDraft()
+    expect(JSON.parse(empty.dataSource.text)).toEqual({})
+    expect(JSON.parse(empty.index.text)).toEqual({})
+    expect(JSON.parse(empty.indexer.text)).toEqual({})
+
+    const template = createDefaultIndexingPipelineDraft()
+    expect(JSON.parse(template.indexer.text).name).toBe('sample-indexer')
   })
 
   it('persists multiple drafts and redacts data source secrets', () => {
@@ -42,7 +53,7 @@ describe('app/persistedIndexingPipeline', () => {
     expect(items).toHaveLength(1)
     expect(items[0].title).toBe('Blob ingest pipeline')
     expect(loadIndexingPipelineCurrentDraftId()).toBeNull()
-    expect(JSON.parse(loadIndexingPipelineDraft().indexer.text).name).toBe('sample-indexer')
+    expect(JSON.parse(loadIndexingPipelineDraft().indexer.text)).toEqual({})
 
     const loaded = getIndexingPipelineDraft('pipeline-1')
     expect(loaded).not.toBeNull()
@@ -68,7 +79,7 @@ describe('app/persistedIndexingPipeline', () => {
     expect(items[0].id).toBe('legacy-current')
     expect(items[0].title).toBe('legacy-indexer -> sample-index')
     expect(loadIndexingPipelineCurrentDraftId()).toBeNull()
-    expect(JSON.parse(loadIndexingPipelineDraft().indexer.text).name).toBe('sample-indexer')
+    expect(JSON.parse(loadIndexingPipelineDraft().indexer.text)).toEqual({})
   })
 
   it('removes a saved draft and clears the current draft id', () => {
@@ -92,6 +103,6 @@ describe('app/persistedIndexingPipeline', () => {
 
     expect(listIndexingPipelineDrafts()).toEqual([])
     expect(loadIndexingPipelineCurrentDraftId()).toBeNull()
-    expect(JSON.parse(loadIndexingPipelineDraft().indexer.text).name).toBe('sample-indexer')
+    expect(JSON.parse(loadIndexingPipelineDraft().indexer.text)).toEqual({})
   })
 })

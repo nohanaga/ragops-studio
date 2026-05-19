@@ -2240,6 +2240,69 @@ export async function runIndexer(input: {
   };
 }
 
+export async function resetIndexer(input: {
+  profile: ConnectionProfile;
+  indexerName: string;
+  apiVersion: SearchApiVersion;
+  language?: Language;
+}): Promise<RestResult> {
+  const lang = getLang(input.language);
+  const endpoint = normalizeEndpoint(input.profile.endpoint);
+  const name = input.indexerName.trim();
+  if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
+  if (!name) throw new Error('indexerName is required');
+
+  const clientRequestId = uuidv4();
+  const url = `${endpoint}/indexers/${encodeURIComponent(name)}/reset?api-version=${encodeURIComponent(input.apiVersion)}`;
+
+  const headers: Record<string, string> = {
+    'x-ms-client-request-id': clientRequestId,
+    ...makeAuthHeaders(input.profile, lang),
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'POST', headers });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      status: 0,
+      requestId: clientRequestId,
+      clientRequestId,
+      url,
+      error: { message: makeNetworkErrorMessage(lang, msg) },
+    };
+  }
+
+  const requestId = getServiceRequestId(res) ?? clientRequestId;
+  const parsed = await readJsonOrText(res);
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      requestId,
+      clientRequestId,
+      url,
+      error: {
+        message: extractErrorMessage(res.status, parsed),
+        response: parsed.json,
+        responseText: parsed.text,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    status: res.status,
+    requestId,
+    clientRequestId,
+    url,
+    response: parsed.json ?? null,
+    responseText: parsed.text,
+  };
+}
+
 export async function getIndexerStatus(input: {
   profile: ConnectionProfile;
   indexerName: string;

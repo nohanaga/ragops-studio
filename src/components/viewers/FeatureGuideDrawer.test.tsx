@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from 'vitest'
-import { focusGuideTargetElement } from './FeatureGuideDrawer'
+import { focusGuideTargetElement } from './featureGuideFocus'
 
 describe('focusGuideTargetElement', () => {
   it('focuses the first enabled control inside a guide target', () => {

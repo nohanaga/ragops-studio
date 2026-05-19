@@ -99,6 +99,22 @@ function draftFromValue(value: JsonValue, name?: string): IndexingPipelineJsonDr
   }
 }
 
+function emptyJsonDraft(): IndexingPipelineJsonDraft {
+  const text = '{}'
+  return { text, baselineText: text }
+}
+
+export function createEmptyIndexingPipelineDraft(): IndexingPipelineDraft {
+  return {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    activeTab: 'overview',
+    dataSource: emptyJsonDraft(),
+    index: emptyJsonDraft(),
+    indexer: emptyJsonDraft(),
+  }
+}
+
 export function createDefaultIndexingPipelineDraft(): IndexingPipelineDraft {
   const now = new Date().toISOString()
   return {
@@ -372,7 +388,7 @@ export function saveIndexingPipelineCurrentDraftId(id: string | null): void {
 }
 
 export function loadIndexingPipelineDraft(): IndexingPipelineDraft {
-  return createDefaultIndexingPipelineDraft()
+  return createEmptyIndexingPipelineDraft()
 }
 
 export function saveIndexingPipelineDraft(draft: IndexingPipelineDraft): void {
