@@ -28,7 +28,9 @@ A web-based development tool for learning and experimenting with advanced featur
 
 - 🔍 **4 Search Modes**: Classic search, Semantic & Vector search, Agentic search (Knowledge Retrieval API), Text analysis
 - 🛠️ **Builder Tools**: Create and manage indexes, index aliases, indexing pipelines, knowledge sources, knowledge bases, synonym maps, and skillsets (visual pipeline builder)
-- 🔄 **Indexing Pipeline Builder**: Design, publish, run, and verify Azure AI Search data source → indexer → index ingestion flows
+- 🔖 **Index Builder**: Field Matrix schema editing, index-level configuration editors, diff-reviewed publishing, Clone Assistant, and Alias-based index swaps
+- 🔄 **Indexing Pipeline Builder**: Design, publish, run, and verify Azure AI Search data source → indexer → index ingestion flows with draft management and per-node inspectors
+- 🧭 **Index Cluster Visualizer**: EFLC-based vector scanning, clustering, graph exploration, LLM meta-index generation, and Global → Local 2-stage search
 - 🧩 **Skill Pipeline Builder**: Visual DAG editor for skillset authoring with built-in skill templates, enrichment tree preview, and debug runner
 - 📝 **Custom Skill LiveEditor**: Browser-integrated Python IDE for Custom Skills with local execution (Pyodide/WASM), cloud deployment (Azure Container Apps), and Blob Storage sync
 - 🧬 **Eval Dataset Generator**: Automatically generate AutoTuning-compatible JSONL evaluation datasets from index documents using Azure OpenAI, with multi-stage quality filters (round-trip consistency, semantic dedup, difficulty evolution, hard negative mining), and RAFT/HyDE dataset generation

@@ -76,6 +76,10 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
 ### Index Builder
 - **Index list**: Display all indexes from connected service
 - **Create/update indexes**: Edit schema in JSON editor and create/update
+- **Schema Workbench**: Edit fields through Field Matrix toggles for `key`, `searchable`, `filterable`, `sortable`, `facetable`, `retrievable`, lexical settings, synonym maps, and vector dimensions/profiles
+- **Index-level configuration editors**: Form editors for semantic configurations, scoring profiles, suggesters, analyzers, normalizers, and vector profiles that sync back to JSON
+- **Diff-reviewed publishing**: Review semantic and normalized JSON diffs before updating existing indexes
+- **Clone Assistant**: Create a replacement index definition from an existing index and prepare rebuilds that require destructive schema changes
 - **Delete indexes**: Remove existing indexes
 - **Statistics**: Display `documentCount`, `storageSize`, `vectorIndexSize`
 - **Alias management**: Create, update, delete, and repoint index aliases for safe index swaps
@@ -85,9 +89,12 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
 
 ### Indexing Pipeline Builder
 - **Pipeline hub**: Load an existing indexer and inspect its related data source and target index in one workspace
-- **Data source design**: Select source type, configure connection/authentication, and keep secrets masked in saved drafts
-- **Indexer configuration**: Edit identity, schedule, field mappings, output field mappings, and source-specific parameters
-- **Publish & Run pipeline**: Track data source publish → index create/update → indexer publish → indexer run → status refresh
+- **Per-node inspectors**: Switch between Pipeline, Source, Target index, Indexer, Run tracker, and Raw JSON views without losing context
+- **Local draft library**: Create, save, clone, load, and delete pipeline drafts while redacting data source secrets before browser storage
+- **Data source design**: Select source type, configure connection/authentication, paste Azure portal Storage Account URLs, and choose connection string, system-assigned Managed Identity, or user-assigned Managed Identity
+- **Indexer configuration**: Edit identity, schedule, field mappings, output field mappings, and source-specific parameters with target-field suggestions and validation notices
+- **Raw JSON and checks**: Review and directly edit final data source / index / indexer payloads, then inspect validation issues before publishing
+- **Publish & Run pipeline**: Review diffs against existing resources, then track data source publish → index create/update → indexer publish → indexer run → status refresh
 - **Target verification**: Check document count, sample documents, key fields, and mapped fields after ingestion
 
 ### Knowledge Source Builder
@@ -235,6 +242,17 @@ A browser-integrated Python development environment for building, testing, and d
 - **Save results**: Save test results as experiment runs
 
 ![](./docs/images/screenshot10_en.png)
+
+### Index Cluster Visualizer
+- **EFLC-based index exploration**: Scan existing vector fields and discover document groups using Embedding-First Lightweight Clustering
+- **Adaptive Sampling**: Detect chunked, independent, or unknown index structures and choose a sampling strategy that avoids over-representing one source document
+- **Clustering and projection**: Run K-Means++ clustering, optional Macro → Micro hierarchical clustering, and 2D projection via PCA, UMAP, t-SNE, or PCA → UMAP
+- **Cluster scatter and document browsing**: Explore the scatter plot, hover/highlight clusters, and open cluster member documents from the visualization
+- **Cluster relationship graph**: Build centroid-similarity graphs, inspect bridge documents, shared facets/keywords, edge confidence, and drill down from macro graphs into micro cluster graphs
+- **EFLC v1/v2 summary modes**: Keep the lightweight v1 path, or use v2 for role-aware evidence, multi-facet naming, sibling-aware inclusion/exclusion criteria, ETA topology diagnostics, and HSA bottom-up macro summaries
+- **Meta-index generation**: Store cluster summaries, facets, criteria, centroid data, traces, and token usage in an Azure AI Search meta-index
+- **Global → Local 2-stage search**: Search the meta-index first, route through macro / micro / facet / question nodes, then run local document search against the source index with trace and stats views
+- **Visualization and Meta JSON persistence**: Save `.ragvis.json` for cluster coordinates/graph structure and `.ragmeta.json` for LLM summaries, traces, token usage, and reusable meta state
 
 ### Eval Dataset Generator
 - **LLM-powered evaluation dataset generation**: Automatically generate Search Parameter AutoTuning-compatible JSONL evaluation datasets from real documents in your Azure AI Search index

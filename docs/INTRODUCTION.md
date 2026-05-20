@@ -316,7 +316,28 @@ Furthermore, with integrated Text-to-Vector (embedding generation), you can **ve
 
 https://qiita.com/nohanaga/items/dcc933fc185b0e82df58#%E3%83%99%E3%82%AF%E3%83%88%E3%83%AB%E6%A4%9C%E7%B4%A2%E6%9C%80%E9%81%A9%E5%8C%96%E6%88%A6%E7%95%A5%E3%81%AB%E9%96%A2%E3%81%99%E3%82%8B-ga
 
-## 5. Builder Tools - Integrated Management Environment
+## 5. Index Cluster Visualizer - Understanding the Shape of an Index
+
+Index Cluster Visualizer helps you inspect a large vector index as a set of semantic regions instead of a flat list of documents. It scans existing vector fields, clusters similar documents, projects them into 2D, and turns those clusters into reusable search assets.
+
+**EFLC (Embedding-First Lightweight Clustering)**
+- Adaptive Sampling detects chunked, independent, or unknown index structures and avoids sampling too many chunks from the same source document
+- K-Means++ clustering, optional Macro → Micro hierarchical clustering, and PCA / UMAP / t-SNE / PCA → UMAP projection
+- Scatter plot exploration with cluster highlighting, document drill-down, and cluster member browsing
+
+**Cluster Graph and Meta-Index**
+- Cluster relationship graph based on centroid similarity, bridge documents, shared facets/keywords, and edge confidence
+- Macro graph → micro graph drill-down when hierarchical clustering is enabled
+- EFLC v1 lightweight summaries, plus EFLC v2 high-precision semantic signatures with role-aware evidence, multi-facet labels, sibling-aware inclusion/exclusion criteria, ETA topology diagnostics, and HSA macro summaries
+- Azure AI Search meta-index generation for cluster summaries, facets, criteria, centroid data, traces, and token usage
+
+**Global → Local 2-Stage Search**
+- First search the meta-index to identify relevant macro / micro / facet / question nodes
+- Then search the original index with the narrowed candidate set
+- Trace and Stats views show candidate reduction, Global/Local timings, and routing decisions
+- `.ragvis.json` saves visualization structure, while `.ragmeta.json` saves LLM summaries, traces, token usage, and reusable meta state
+
+## 6. Builder Tools - Integrated Management Environment
 
 ### Index Builder
 ![image.png](./images/screenshot6_en.png)
@@ -324,10 +345,27 @@ https://qiita.com/nohanaga/items/dcc933fc185b0e82df58#%E3%83%99%E3%82%AF%E3%83%8
 **Complete Index Management**
 - Display all indexes of connected services in list view
 - Direct schema editing in JSON editor (syntax highlighting, error detection)
+- Schema Workbench with Field Matrix editing for per-field flags, lexical settings, synonym maps, and vector dimensions/profiles
+- Index-level configuration editors for Semantic, Scoring Profiles, Suggesters, Analyzers, Normalizers, and Vector profiles
 - Support for all Vector Search configurations (HNSW, Quantization, MRL)
 - Real-time display of statistics (`documentCount`, `storageSize`, `vectorIndexSize`)
+- Diff-reviewed publishing for existing index updates
+- Clone Assistant for creating replacement index definitions when schema changes require a rebuild
+- Alias management for safe index swaps by repointing application-facing alias names
 - CRUD operations: Create, update, delete from GUI
 - Import/Export: Import from JSON files, export to clipboard
+
+### Indexing Pipeline Builder
+
+Indexing Pipeline Builder treats data source → indexer → target index as one operational unit. Instead of editing each Azure AI Search resource in isolation, it keeps dependencies, JSON payloads, publishing diffs, and run status in the same workspace.
+
+- Resource Hub loads an existing indexer together with its referenced data source and target index
+- Per-node inspectors for Pipeline, Source, Target index, Indexer, Run tracker, and Raw JSON
+- Local draft library with explicit New / Save / Clone / Load / Delete actions and secret redaction before browser storage
+- Data source design for connection strings, system-assigned Managed Identity, user-assigned Managed Identity, and Storage Account URL normalization
+- Indexer mapping editor with target-field suggestions, validation notices, source-specific parameters, schedule, disabled state, and skillset references
+- Publish & Run pipeline reviews resource diffs first, then publishes the data source, index, and indexer before running and refreshing status
+- Target verification checks index stats, sample documents, key fields, and mapped fields after ingestion
 
 ### Knowledge Base & Knowledge Source Builder
 

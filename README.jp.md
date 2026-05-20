@@ -28,7 +28,9 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 
 - 🔍 **4つの検索モード**: クラシック検索、セマンティック&ベクトル検索、エージェント検索（Knowledge Retrieval API）、テキスト分析
 - 🛠️ **ビルダーツール**: インデックス、インデックスAlias、取り込みパイプライン、ナレッジソース、ナレッジベース、シノニムマップ、スキルセット（ビジュアルパイプラインビルダー）の作成・管理
-- 🔄 **Indexing Pipeline Builder**: Azure AI Searchのデータソース→インデクサー→インデックスの取り込みフローを設計・公開・実行・検証
+- 🔖 **Index Builder（インデックスビルダー）**: フィールドマトリックスによるスキーマ編集、インデックスレベル設定エディター、差分確認付き公開、クローンアシスタント、Aliasによる安全な切り替え
+- 🔄 **Indexing Pipeline Builder（インデックス取り込みビルダー）**: Azure AI Searchのデータソース→インデクサー→インデックスの取り込みフローを、ドラフト管理とノード別インスペクター付きで設計・公開・実行・検証
+- 🧭 **Index Cluster Visualizer（インデックスクラスター可視化）**: EFLCベースのベクトルスキャン、クラスタリング、グラフ探索、LLMメタインデックス生成、Global→Localの2段階検索
 - 🧩 **スキルパイプラインビルダー**: ビルトインスキルテンプレート、エンリッチメントツリープレビュー、デバッグランナー付きのビジュアル DAG エディター
 - 📝 **Custom Skill LiveEditor**: Custom Skill のブラウザ統合 Python IDE—ローカル実行（Pyodide/WASM）、クラウドデプロイ（Azure Container Apps）、Blob Storage 同期対応
 - 🧬 **Eval Dataset Generator**: Azure OpenAI を使用してインデックス内の実ドキュメントから AutoTuning 互換 JSONL 評価データセットを自動生成。多段階品質フィルター（Round-trip Consistency、意味的重複排除、Difficulty Evolution、Hard Negative Mining）および RAFT/HyDE データセット生成対応
