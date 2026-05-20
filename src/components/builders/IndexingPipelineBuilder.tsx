@@ -1920,10 +1920,6 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
             </div>
           </div>
         </label>
-        <button type="button" className="btn" onClick={refreshResourceLists} disabled={!canQuery || loadingResources}>
-          <i className="bi bi-arrow-clockwise icon--mr6"></i>
-          {loadingResources ? t('loading') : t('refreshResources')}
-        </button>
         <button
           type="button"
           className="btn btn--primary"
@@ -1932,6 +1928,10 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
         >
           <i className="bi bi-box-arrow-in-down icon--mr6"></i>
           {loadingPipeline ? `${t('loading')}...` : t('loadSelected')}
+        </button>
+        <button type="button" className="btn" onClick={refreshResourceLists} disabled={!canQuery || loadingResources}>
+          <i className="bi bi-arrow-clockwise icon--mr6"></i>
+          {loadingResources ? t('loading') : t('refreshResources')}
         </button>
       </div>
     </section>
