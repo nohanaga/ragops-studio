@@ -36,6 +36,8 @@ type IndexCloneAssistantProps = {
   indexNames: string[]
   selectedIndexName: string
   editedJson: string
+  isIndexNamesLoading: boolean
+  onReloadIndexNames: () => void | Promise<void>
   onApplyCloneJson: (definition: JsonValue, sourceIndexName: string, targetIndexName: string) => void
   onCloneCompleted: (targetIndexName: string) => Promise<void>
 }
@@ -71,6 +73,8 @@ export function IndexCloneAssistant(props: IndexCloneAssistantProps) {
     indexNames,
     selectedIndexName,
     editedJson,
+    isIndexNamesLoading,
+    onReloadIndexNames,
     onApplyCloneJson,
     onCloneCompleted,
   } = props
@@ -379,23 +383,35 @@ export function IndexCloneAssistant(props: IndexCloneAssistantProps) {
           <div className="form form--compact indexCloneAssistant__form">
             <label className="field">
               <span className="field__label">{t('indexCloneSourceIndex')}</span>
-              <select
-                className="field__input"
-                value={sourceIndexName}
-                onChange={(event) => {
-                  const next = event.target.value
-                  setSourceIndexName(next)
-                  setSourceDefinition(null)
-                  setPreparedSourceName('')
-                  if (!targetTouched) setTargetIndexName(defaultCloneName(next, indexNames))
-                }}
-                disabled={!canRun || isRunning}
-              >
-                <option value="">{t('placeholderUnset')}</option>
-                {indexNames.map((name) => (
-                  <option key={name} value={name}>{name}</option>
-                ))}
-              </select>
+              <div className="indexSelectControl">
+                <select
+                  className="field__input"
+                  value={sourceIndexName}
+                  onChange={(event) => {
+                    const next = event.target.value
+                    setSourceIndexName(next)
+                    setSourceDefinition(null)
+                    setPreparedSourceName('')
+                    if (!targetTouched) setTargetIndexName(defaultCloneName(next, indexNames))
+                  }}
+                  disabled={!canRun || isRunning}
+                >
+                  <option value="">{t('placeholderUnset')}</option>
+                  {indexNames.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn btn--icon indexSelectReloadBtn"
+                  onClick={() => void onReloadIndexNames()}
+                  disabled={!canRun || isRunning || isIndexNamesLoading}
+                  title={t('indexBuilderRefreshIndexListTitle')}
+                  aria-label={t('indexBuilderRefreshIndexListTitle')}
+                >
+                  <i className={isIndexNamesLoading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'} aria-hidden="true" />
+                </button>
+              </div>
             </label>
 
             <label className="field">

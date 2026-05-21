@@ -40,6 +40,8 @@ export type IndexVisualizerProps = {
   indexName: string
   language: Language
   availableIndexNames: string[]
+  isIndexNamesLoading: boolean
+  onReloadIndexNames: () => void | Promise<void>
   sharedLlm: SharedLlmConfig
   onOpenLlmSettings: () => void
   openIndexInspector: (name?: string) => void
@@ -167,6 +169,8 @@ export function IndexVisualizer({
   indexName: appIndexName,
   language,
   availableIndexNames,
+  isIndexNamesLoading,
+  onReloadIndexNames,
   sharedLlm,
   onOpenLlmSettings,
   openIndexInspector,
@@ -415,29 +419,39 @@ export function IndexVisualizer({
           {/* Index selection */}
           <div className="field">
             <span className="field__label">{t(language, 'ivIndexLabel')}</span>
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-              {availableIndexNames.length > 0 ? (
-                <select
-                  className="field__input"
-                  value={vis.selectedIndex}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => vis.setSelectedIndex(e.target.value)}
-                  disabled={isRunning}
-                  style={{ flex: 1 }}
+            <div className="indexSelectActionRow">
+              <div className="indexSelectControl">
+                {availableIndexNames.length > 0 ? (
+                  <select
+                    className="field__input"
+                    value={vis.selectedIndex}
+                    onChange={(e: ChangeEvent<HTMLSelectElement>) => vis.setSelectedIndex(e.target.value)}
+                    disabled={isRunning}
+                  >
+                    <option value="">--</option>
+                    {availableIndexNames.map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="field__input"
+                    value={vis.selectedIndex}
+                    onChange={(e) => vis.setSelectedIndex(e.target.value)}
+                    disabled={isRunning}
+                  />
+                )}
+                <button
+                  type="button"
+                  className="btn btn--icon indexSelectReloadBtn"
+                  onClick={() => void onReloadIndexNames()}
+                  disabled={!profile || !apiVersion.trim() || isRunning || isIndexNamesLoading}
+                  title={t(language, 'indexBuilderRefreshIndexListTitle')}
+                  aria-label={t(language, 'indexBuilderRefreshIndexListTitle')}
                 >
-                  <option value="">--</option>
-                  {availableIndexNames.map((name) => (
-                    <option key={name} value={name}>{name}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className="field__input"
-                  value={vis.selectedIndex}
-                  onChange={(e) => vis.setSelectedIndex(e.target.value)}
-                  disabled={isRunning}
-                  style={{ flex: 1 }}
-                />
-              )}
+                  <i className={isIndexNamesLoading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'} aria-hidden="true" />
+                </button>
+              </div>
               <button
                 type="button"
                 className="btn btn--xs"

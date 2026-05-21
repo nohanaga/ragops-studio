@@ -90,6 +90,11 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+
+.edgIndexRow > .indexSelectControl {
+  flex: 1 1 auto;
+}
+
 .edgQueryTypes {
   display: flex;
   flex-wrap: wrap;
@@ -2799,6 +2804,35 @@ select:focus {
   align-items: center;
 }
 
+.indexSelectActionRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.indexSelectActionRow > .indexSelectControl {
+  flex: 1 1 auto;
+}
+
+.indexSelectControl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.indexSelectControl > .dropdown,
+.indexSelectControl > .field__input,
+.indexSelectControl > .field__select {
+  min-width: 0;
+  width: 100%;
+}
+
+.indexSelectReloadBtn {
+  flex: 0 0 auto;
+}
+
 .list-editor__chips {
   display: flex;
   flex-wrap: wrap;
@@ -4233,6 +4267,64 @@ html[data-theme='light'] .rawJsonViewer {
   align-items: baseline;
   gap: 12px;
   margin-bottom: 6px;
+}
+
+.resultDocumentNotice {
+  margin-bottom: 12px;
+}
+
+.resultCard__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.resultCard__actionBtn {
+  width: 30px;
+  height: 30px;
+  font-size: 13px;
+}
+
+.resultCard__actionBtn--danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.resultCard__actionBtn--danger:hover:not(:disabled) {
+  border-color: var(--danger);
+}
+
+.resultDocumentEditor {
+  width: min(980px, 94vw);
+  max-height: 92vh;
+}
+
+.resultDocumentEditor__body {
+  display: grid;
+  gap: 10px;
+}
+
+.resultDocumentEditor__meta {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.resultDocumentEditor__hint {
+  margin: 0;
+}
+
+.resultDocumentEditor__textarea {
+  min-height: min(58vh, 520px);
+  resize: vertical;
+}
+
+.resultDocumentEditor__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .typeaheadOptions {

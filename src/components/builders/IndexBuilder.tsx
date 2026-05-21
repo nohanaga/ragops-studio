@@ -897,6 +897,8 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
                 indexNames={indexNames}
                 selectedIndexName={selectedName}
                 editedJson={editedJson}
+                isIndexNamesLoading={loadingList}
+                onReloadIndexNames={loadIndexes}
                 onApplyCloneJson={onApplyCloneJson}
                 onCloneCompleted={onCloneCompleted}
               />
@@ -909,6 +911,8 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
                 language={language}
                 indexNames={indexNames}
                 selectedIndexName={selectedName}
+                isIndexNamesLoading={loadingList}
+                onReloadIndexNames={loadIndexes}
               />
             </div>
           </div>

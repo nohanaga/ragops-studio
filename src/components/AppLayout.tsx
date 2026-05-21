@@ -122,6 +122,8 @@ export function AppLayout(props: {
   indexFilterText: string
   setIndexFilterText: Dispatch<SetStateAction<string>>
   filteredIndexNameOptions: string[]
+  isIndexNamesLoading: boolean
+  onReloadIndexNames: () => void | Promise<void>
   openIndexInspector: (name?: string) => void
   onOpenIndexBuilderTab: (indexName?: string) => void
   indexDropdownToggleRef: RefObject<HTMLButtonElement | null>
@@ -337,6 +339,8 @@ export function AppLayout(props: {
     indexFilterText,
     setIndexFilterText,
     filteredIndexNameOptions,
+    isIndexNamesLoading,
+    onReloadIndexNames,
     openIndexInspector,
     onOpenIndexBuilderTab,
     indexDropdownToggleRef,
@@ -1083,6 +1087,8 @@ export function AppLayout(props: {
                 indexFilterText={indexFilterText}
                 setIndexFilterText={setIndexFilterText}
                 filteredIndexNameOptions={filteredIndexNameOptions}
+                isIndexNamesLoading={isIndexNamesLoading}
+                onReloadIndexNames={onReloadIndexNames}
                 openIndexInspector={openIndexInspector}
                 onOpenIndexBuilderTab={onOpenIndexBuilderTab}
                 indexDropdownToggleRef={indexDropdownToggleRef}
@@ -1175,6 +1181,8 @@ export function AppLayout(props: {
                 activeProfile={activeProfile}
                 indexName={indexName}
                 availableIndexNames={availableIndexNames}
+                isIndexNamesLoading={isIndexNamesLoading}
+                onReloadIndexNames={onReloadIndexNames}
                 setIndexName={setIndexName}
                 apiVersion={effectiveApiVersion}
                 isPreviewApiVersion={isPreviewApiVersion}
@@ -1206,6 +1214,8 @@ export function AppLayout(props: {
                 apiVersion={effectiveApiVersion}
                 indexName={indexName}
                 availableIndexNames={availableIndexNames}
+                isIndexNamesLoading={isIndexNamesLoading}
+                onReloadIndexNames={onReloadIndexNames}
                 setIndexName={setIndexName}
                 indexFieldNames={props.requestBuilderIndexFieldNames}
                 defaultIdFieldName={props.requestBuilderKeyFieldName}
@@ -1333,6 +1343,8 @@ export function AppLayout(props: {
                 indexName={indexName}
                 language={language}
                 availableIndexNames={availableIndexNames}
+                isIndexNamesLoading={isIndexNamesLoading}
+                onReloadIndexNames={onReloadIndexNames}
                 sharedLlm={props.sharedLlm}
                 onOpenLlmSettings={() => setIsLlmSettingsOpen(true)}
                 openIndexInspector={openIndexInspector}

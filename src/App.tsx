@@ -169,6 +169,9 @@ function App() {
   const [compareMode, setCompareMode] = useState(false)
 
   const [availableIndexNames, setAvailableIndexNames] = useState<string[]>([])
+  const [isIndexNamesLoading, setIsIndexNamesLoading] = useState(false)
+  const [indexNamesReloadToken, setIndexNamesReloadToken] = useState(0)
+  const reloadIndexNames = useCallback(() => setIndexNamesReloadToken((value) => value + 1), [])
 
   const analyzeDropdownFilters = useAnalyzeDropdownFilters()
 
@@ -268,22 +271,21 @@ function App() {
     setIndexFilterText,
   } = useIndexDropdownState()
 
-  // Load index list for indexName suggestions (query / semantic-vector / analyze)
+  // Load index list for indexName suggestions and index-aware tools.
   useEffect(() => {
     if (!activeProfile) {
       setAvailableIndexNames([])
-      return
-    }
-    if (labMode === 'agentic') {
-      setAvailableIndexNames([])
+      setIsIndexNamesLoading(false)
       return
     }
     if (!effectiveApiVersion.trim()) {
       setAvailableIndexNames([])
+      setIsIndexNamesLoading(false)
       return
     }
 
     let cancelled = false
+    setIsIndexNamesLoading(true)
     ;(async () => {
       try {
         const res = await listIndexes({ profile: activeProfile, apiVersion: effectiveApiVersion, language })
@@ -308,13 +310,15 @@ function App() {
       } catch {
         if (cancelled) return
         setAvailableIndexNames([])
+      } finally {
+        if (!cancelled) setIsIndexNamesLoading(false)
       }
     })()
 
     return () => {
       cancelled = true
     }
-  }, [activeProfile, effectiveApiVersion, labMode, language])
+  }, [activeProfile, effectiveApiVersion, indexNamesReloadToken, language])
 
   const indexNameOptions = useMemo(() => {
     const opts = new Set<string>()
@@ -606,6 +610,8 @@ function App() {
         response: latestResponse,
         runType: latestResponse?.runType ?? null,
         runId: latestResponse?.runId,
+        indexName: latestResponse && latestResponse.runType !== 'agentic_retrieve' ? indexName.trim() : undefined,
+        apiVersion: latestResponse && latestResponse.runType !== 'agentic_retrieve' ? activeProfile?.apiVersion : undefined,
       },
     ]
 
@@ -618,11 +624,13 @@ function App() {
         response: entry?.response ?? null,
         runType: entry?.response?.runType ?? entry?.run?.runType ?? null,
         runId,
+        indexName: entry?.run?.context.indexName,
+        apiVersion: entry?.run?.context.apiVersion,
       })
     }
 
     return views
-  }, [latestResponse, runResultMap, selectedRunIds, t])
+  }, [activeProfile?.apiVersion, indexName, latestResponse, runResultMap, selectedRunIds, t])
 
   const activeRunId = useMemo<string | null>(() => {
     if (centerTab === 'latest') return latestResponse?.runId ?? null
@@ -813,11 +821,17 @@ function App() {
     t,
     language,
     settings,
+    activeProfile,
+    indexName,
+    apiVersion: activeProfile?.apiVersion ?? '',
+    requestBuilderKeyFieldName,
     resultPages,
     setResultPages,
     compareMode,
     setCompareMode,
     latestResponse,
+    setLatestResponse,
+    setRunResultMap,
   })
 
   /** Pastes the generated vector into the classic request builder's vector field. */
@@ -949,6 +963,8 @@ function App() {
       indexFilterText={indexFilterText}
       setIndexFilterText={setIndexFilterText}
       filteredIndexNameOptions={filteredIndexNameOptions}
+      isIndexNamesLoading={isIndexNamesLoading}
+      onReloadIndexNames={reloadIndexNames}
       openIndexInspector={openIndexInspector}
       onOpenIndexBuilderTab={(targetIndexName) => {
         const nextIndexName = targetIndexName?.trim()

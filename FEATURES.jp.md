@@ -30,6 +30,7 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 - **スコアリング**: `scoringProfile`, `scoringParameters`
 - **高度なオプション**: `minimumCoverage`, `scoringStatistics`, `sessionId`
 - **フォーム/JSONモード切替**: GUIフォームまたは生JSONでリクエスト編集
+- **検索結果ドキュメント操作**: Results タブから返却されたインデックスドキュメントを編集または削除
 
 ![](./docs/images/screenshot2_jp.png)
 

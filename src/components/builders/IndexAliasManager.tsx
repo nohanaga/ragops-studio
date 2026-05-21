@@ -14,6 +14,8 @@ type IndexAliasManagerProps = {
   language: Language
   indexNames: string[]
   selectedIndexName: string
+  isIndexNamesLoading: boolean
+  onReloadIndexNames: () => void | Promise<void>
 }
 
 type UiMessage = { type: 'success' | 'error'; text: string }
@@ -45,7 +47,7 @@ function parseAliases(response: JsonValue | null): IndexAlias[] {
     .sort((left, right) => left.name.localeCompare(right.name))
 }
 
-export function IndexAliasManager({ profile, apiVersion, language, indexNames, selectedIndexName }: IndexAliasManagerProps) {
+export function IndexAliasManager({ profile, apiVersion, language, indexNames, selectedIndexName, isIndexNamesLoading, onReloadIndexNames }: IndexAliasManagerProps) {
   const t = (key: keyof typeof translations.ja): string => String(translations[language][key] ?? '')
   const format = (key: keyof typeof translations.ja, params: Record<string, string | number>): string => {
     let text = t(key)
@@ -247,17 +249,29 @@ export function IndexAliasManager({ profile, apiVersion, language, indexNames, s
           </label>
           <label className="field">
             <span className="field__label">{t('indexBuilderAliasTargetIndex')}</span>
-            <select
-              className="field__select"
-              value={targetIndexName}
-              onChange={onTargetIndexChange}
-              disabled={!canQuery || indexNames.length === 0 || savingAlias || !!deletingAliasName}
-            >
-              <option value="">{t('indexBuilderAliasSelectTarget')}</option>
-              {indexNames.map((indexName) => (
-                <option key={indexName} value={indexName}>{indexName}</option>
-              ))}
-            </select>
+            <div className="indexSelectControl">
+              <select
+                className="field__select"
+                value={targetIndexName}
+                onChange={onTargetIndexChange}
+                disabled={!canQuery || indexNames.length === 0 || savingAlias || !!deletingAliasName}
+              >
+                <option value="">{t('indexBuilderAliasSelectTarget')}</option>
+                {indexNames.map((indexName) => (
+                  <option key={indexName} value={indexName}>{indexName}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="btn btn--icon indexSelectReloadBtn"
+                onClick={() => void onReloadIndexNames()}
+                disabled={!canQuery || loadingAliases || isIndexNamesLoading || savingAlias || !!deletingAliasName}
+                title={t('indexBuilderRefreshIndexListTitle')}
+                aria-label={t('indexBuilderRefreshIndexListTitle')}
+              >
+                <i className={isIndexNamesLoading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'} aria-hidden="true" />
+              </button>
+            </div>
           </label>
         </div>
         <div className="actions actions--mt10">

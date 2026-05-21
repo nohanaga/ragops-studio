@@ -27,6 +27,7 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
 - **Scoring**: `scoringProfile`, `scoringParameters`
 - **Advanced options**: `minimumCoverage`, `scoringStatistics`, `sessionId`
 - **Form/JSON mode toggle**: Edit requests via GUI form or raw JSON
+- **Result document actions**: Edit or delete returned index documents from the Results tab using the Index Documents API
 
 ![](./docs/images/screenshot2_en.png)
 

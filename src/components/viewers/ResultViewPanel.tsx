@@ -12,11 +12,11 @@ import { memo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { ResultView, LabMode, LatestResponse } from '../../types'
 import type { Language, TranslationKey } from '../../lib/translations'
-import type { AppSettings } from '../../lib/model'
+import type { AppSettings, ConnectionProfile, SearchApiVersion } from '../../lib/model'
 import { extractDocs, extractAgenticResponse, pickPrimaryText, pickFirstStringField } from '../../utils'
 import { formatLocalDateTime } from '../../utils/helpers'
 import { unifiedDiff } from '../../lib/diffText'
-import type { JsonValue } from '../../lib/aiSearchRest'
+import { indexDocuments, type JsonValue } from '../../lib/aiSearchRest'
 import { JsonViewer } from './JsonViewer'
 import { AgenticActivityTimeline } from './AgenticActivityTimeline'
 import { JSON_VIEWER_MAX_STRING_LENGTH } from '../../app/constants'
@@ -38,6 +38,61 @@ function sanitizeSearchHighlightsHtml(html: string): string {
     ALLOWED_TAGS: ['em'],
     ALLOWED_ATTR: [],
   })
+}
+
+function formatTemplate(template: string, params: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (match, key) => String(params[key] ?? match))
+}
+
+function stringifyDocumentKey(value: JsonValue): string {
+  return typeof value === 'string' ? value : JSON.stringify(value)
+}
+
+function stripSearchMetadata(document: JsonObject): JsonObject {
+  const out: JsonObject = {}
+  for (const [key, value] of Object.entries(document)) {
+    if (key.startsWith('@search.')) continue
+    out[key] = value
+  }
+  return out
+}
+
+function getIndexingFailure(response: JsonValue): { key: string; statusCode: string; message: string } | null {
+  if (!isJsonObject(response) || !Array.isArray(response.value)) return null
+  for (const item of response.value) {
+    if (!isJsonObject(item)) continue
+    const failed = item.status === false || item.succeeded === false
+    if (!failed) continue
+    return {
+      key: typeof item.key === 'string' ? item.key : '',
+      statusCode: typeof item.statusCode === 'number' ? String(item.statusCode) : '',
+      message: typeof item.errorMessage === 'string' ? item.errorMessage : '',
+    }
+  }
+  return null
+}
+
+function parseIndexNameFromUrl(urlText: string): string {
+  try {
+    const parsed = new URL(urlText, window.location.origin)
+    const segments = parsed.pathname.split('/').filter(Boolean)
+    const indexesSegmentIndex = segments.findIndex((segment) => segment === 'indexes')
+    if (indexesSegmentIndex >= 0 && segments[indexesSegmentIndex + 1]) {
+      return decodeURIComponent(segments[indexesSegmentIndex + 1])
+    }
+  } catch {
+    // Ignore malformed historical URLs and fall back to the active builder index.
+  }
+  return ''
+}
+
+function parseApiVersionFromUrl(urlText: string): string {
+  try {
+    const parsed = new URL(urlText, window.location.origin)
+    return parsed.searchParams.get('api-version') ?? ''
+  } catch {
+    return ''
+  }
 }
 
 function TruncTextInline(props: { text: string; collapsedChars?: number; t: (key: TranslationKey) => string }) {
@@ -87,6 +142,19 @@ type ResultViewPanelProps = {
   onCompareModeChange: (next: boolean) => void
   compareBaseline?: LatestResponse | null
   settings?: AppSettings | null
+  documentActionProfile?: ConnectionProfile | null
+  documentActionIndexName?: string
+  documentActionApiVersion?: SearchApiVersion | ''
+  documentActionKeyFieldName?: string | null
+  onDocumentActionApplied?: (change: { keyFieldName: string; keyValue: JsonValue; nextDocument: JsonObject | null }) => void
+}
+
+type DocumentActionNotice = { type: 'success' | 'error' | 'warning' | 'info'; text: string }
+
+type EditingDocumentState = {
+  keyValue: JsonValue
+  keyText: string
+  text: string
 }
 
 type InlineSeg =
@@ -196,14 +264,204 @@ function getTypeaheadTitle(mode: LabMode, item: JsonValue): string {
       : '(empty)'
 }
 
-export function ResultViewPanel({ view, currentPage, onPageChange, t, compareMode, onCompareModeChange, compareBaseline, settings }: ResultViewPanelProps) {
+export function ResultViewPanel({
+  view,
+  currentPage,
+  onPageChange,
+  t,
+  language,
+  compareMode,
+  onCompareModeChange,
+  compareBaseline,
+  settings,
+  documentActionProfile,
+  documentActionIndexName,
+  documentActionApiVersion,
+  documentActionKeyFieldName,
+  onDocumentActionApplied,
+}: ResultViewPanelProps) {
   const latestResponse = view.response
   const rawDetailsResetKey = `${view.id}|${view.runId ?? ''}|${latestResponse?.requestId ?? ''}|${latestResponse?.at ?? ''}`
+  const [documentActionNotice, setDocumentActionNotice] = useState<DocumentActionNotice | null>(null)
+  const [documentActionBusyKey, setDocumentActionBusyKey] = useState<string | null>(null)
+  const [editingDocument, setEditingDocument] = useState<EditingDocumentState | null>(null)
   const labMode: LabMode = view.runType === 'agentic_retrieve' ? 'agentic' 
     : view.runType === 'analyze' ? 'analyze'
     : view.runType === 'autocomplete' ? 'autocomplete'
     : view.runType === 'suggest' ? 'suggest'
     : 'semantic-vector'
+
+  const resultUrl = latestResponse?.url ?? ''
+  const effectiveDocumentActionIndexName = parseIndexNameFromUrl(resultUrl) || (documentActionIndexName ?? '').trim()
+  const effectiveDocumentActionApiVersion = (parseApiVersionFromUrl(resultUrl) || documentActionApiVersion || '') as SearchApiVersion | ''
+
+  function getDocumentActionUnavailableReason(doc: JsonObject): string | null {
+    if (!documentActionProfile) return t('resultDocumentActionUnavailable')
+    if (!effectiveDocumentActionIndexName.trim()) return t('resultDocumentActionUnavailable')
+    if (!String(effectiveDocumentActionApiVersion).trim()) return t('resultDocumentActionUnavailable')
+    if (!documentActionKeyFieldName?.trim()) return t('resultDocumentKeyUnavailable')
+    if (!(documentActionKeyFieldName in doc) || doc[documentActionKeyFieldName] === null) return t('resultDocumentKeyUnavailable')
+    return null
+  }
+
+  function openDocumentEditor(doc: JsonObject) {
+    if (!documentActionKeyFieldName) return
+    const keyValue = doc[documentActionKeyFieldName]
+    if (keyValue === undefined || keyValue === null) return
+    const editableDocument = stripSearchMetadata(doc)
+    setDocumentActionNotice(null)
+    setEditingDocument({
+      keyValue,
+      keyText: stringifyDocumentKey(keyValue),
+      text: JSON.stringify(editableDocument, null, 2),
+    })
+  }
+
+  async function saveEditingDocument() {
+    if (!editingDocument || !documentActionProfile || !documentActionKeyFieldName || !effectiveDocumentActionIndexName || !effectiveDocumentActionApiVersion) return
+
+    let parsed: JsonValue
+    try {
+      parsed = JSON.parse(editingDocument.text)
+    } catch (e) {
+      setDocumentActionNotice({ type: 'error', text: formatTemplate(t('indexBuilderJsonParseError'), { error: e instanceof Error ? e.message : String(e) }) })
+      return
+    }
+
+    if (!isJsonObject(parsed)) {
+      setDocumentActionNotice({ type: 'error', text: t('resultDocumentJsonMustBeObject') })
+      return
+    }
+
+    const parsedKeyValue = parsed[documentActionKeyFieldName]
+    if (parsedKeyValue !== undefined && parsedKeyValue !== null && String(parsedKeyValue) !== String(editingDocument.keyValue)) {
+      setDocumentActionNotice({ type: 'error', text: t('resultDocumentKeyCannotChange') })
+      return
+    }
+
+    const nextDocument: JsonObject = {
+      ...stripSearchMetadata(parsed),
+      [documentActionKeyFieldName]: editingDocument.keyValue,
+    }
+    const actionDocument: JsonObject = {
+      '@search.action': 'mergeOrUpload',
+      ...nextDocument,
+    }
+
+    setDocumentActionBusyKey(editingDocument.keyText)
+    setDocumentActionNotice(null)
+    try {
+      const res = await indexDocuments({
+        profile: documentActionProfile,
+        indexName: effectiveDocumentActionIndexName,
+        apiVersion: effectiveDocumentActionApiVersion,
+        body: { value: [actionDocument] },
+        language,
+      })
+      if (!res.ok) {
+        setDocumentActionNotice({ type: 'error', text: res.error.message })
+        return
+      }
+
+      const indexingFailure = getIndexingFailure(res.response)
+      if (indexingFailure) {
+        setDocumentActionNotice({
+          type: 'error',
+          text: formatTemplate(t('resultDocumentIndexingFailed'), {
+            key: indexingFailure.key || editingDocument.keyText,
+            statusCode: indexingFailure.statusCode || res.status,
+            message: indexingFailure.message || t('failed'),
+          }),
+        })
+        return
+      }
+
+      onDocumentActionApplied?.({
+        keyFieldName: documentActionKeyFieldName,
+        keyValue: editingDocument.keyValue,
+        nextDocument,
+      })
+      setEditingDocument(null)
+      setDocumentActionNotice({ type: 'success', text: formatTemplate(t('resultDocumentSaved'), { key: editingDocument.keyText, status: res.status }) })
+    } catch (e) {
+      setDocumentActionNotice({ type: 'error', text: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setDocumentActionBusyKey(null)
+    }
+  }
+
+  async function deleteDocument(doc: JsonObject) {
+    if (!documentActionProfile || !documentActionKeyFieldName || !effectiveDocumentActionIndexName || !effectiveDocumentActionApiVersion) return
+    const keyValue = doc[documentActionKeyFieldName]
+    if (keyValue === undefined || keyValue === null) return
+    const keyText = stringifyDocumentKey(keyValue)
+
+    const confirmed = window.confirm(formatTemplate(t('resultDocumentDeleteConfirm'), { key: keyText }))
+    if (!confirmed) return
+
+    const actionDocument: JsonObject = {
+      '@search.action': 'delete',
+      [documentActionKeyFieldName]: keyValue,
+    }
+
+    setDocumentActionBusyKey(keyText)
+    setDocumentActionNotice(null)
+    try {
+      const res = await indexDocuments({
+        profile: documentActionProfile,
+        indexName: effectiveDocumentActionIndexName,
+        apiVersion: effectiveDocumentActionApiVersion,
+        body: { value: [actionDocument] },
+        language,
+      })
+      if (!res.ok) {
+        setDocumentActionNotice({ type: 'error', text: res.error.message })
+        return
+      }
+
+      const indexingFailure = getIndexingFailure(res.response)
+      if (indexingFailure) {
+        setDocumentActionNotice({
+          type: 'error',
+          text: formatTemplate(t('resultDocumentIndexingFailed'), {
+            key: indexingFailure.key || keyText,
+            statusCode: indexingFailure.statusCode || res.status,
+            message: indexingFailure.message || t('failed'),
+          }),
+        })
+        return
+      }
+
+      onDocumentActionApplied?.({
+        keyFieldName: documentActionKeyFieldName,
+        keyValue,
+        nextDocument: null,
+      })
+      setDocumentActionNotice({ type: 'success', text: formatTemplate(t('resultDocumentDeleted'), { key: keyText, status: res.status }) })
+    } catch (e) {
+      setDocumentActionNotice({ type: 'error', text: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setDocumentActionBusyKey(null)
+    }
+  }
+
+  function renderDocumentActionNotice() {
+    if (!documentActionNotice) return null
+    return (
+      <div className={`notice notice--${documentActionNotice.type} resultDocumentNotice`} role="status" aria-live="polite">
+        <button
+          type="button"
+          className="notice__close"
+          onClick={() => setDocumentActionNotice(null)}
+          aria-label={t('resultDocumentNoticeClose')}
+          title={t('resultDocumentNoticeClose')}
+        >
+          ×
+        </button>
+        {documentActionNotice.text}
+      </div>
+    )
+  }
 
   if (!latestResponse) {
     return (
@@ -248,6 +506,7 @@ export function ResultViewPanel({ view, currentPage, onPageChange, t, compareMod
           <span>{t('compareMode')}</span>
         </label>
       </div>
+      {!editingDocument && renderDocumentActionNotice()}
       <>
         <div className="kv">
           <div className="kv__row">
@@ -1061,6 +1320,36 @@ export function ResultViewPanel({ view, currentPage, onPageChange, t, compareMod
                       <div className="resultCard__index">#{startIdx + idx + 1}</div>
                       <div className="resultCard__top">
                         <div className="resultCard__title">{pickPrimaryText(doc, settings?.displayTitleFields)}</div>
+                        {(() => {
+                          const disabledReason = getDocumentActionUnavailableReason(doc)
+                          const keyValue = documentActionKeyFieldName ? doc[documentActionKeyFieldName] : null
+                          const keyText = keyValue === undefined || keyValue === null ? '' : stringifyDocumentKey(keyValue)
+                          const isBusy = keyText.length > 0 && documentActionBusyKey === keyText
+                          return (
+                            <div className="resultCard__actions" aria-label={t('resultDocumentActions')}>
+                              <button
+                                type="button"
+                                className="btn btn--icon resultCard__actionBtn"
+                                onClick={() => openDocumentEditor(doc)}
+                                disabled={!!disabledReason || isBusy}
+                                title={disabledReason ?? t('resultDocumentEdit')}
+                                aria-label={t('resultDocumentEdit')}
+                              >
+                                <i className="bi bi-pencil-square" aria-hidden="true"></i>
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn--icon resultCard__actionBtn resultCard__actionBtn--danger"
+                                onClick={() => deleteDocument(doc)}
+                                disabled={!!disabledReason || isBusy}
+                                title={disabledReason ?? t('resultDocumentDelete')}
+                                aria-label={t('resultDocumentDelete')}
+                              >
+                                {isBusy ? <span className="spinner-border spinner-border-sm" aria-hidden="true"></span> : <i className="bi bi-trash3" aria-hidden="true"></i>}
+                              </button>
+                            </div>
+                          )
+                        })()}
                         <div className="resultCard__scores">
                           {typeof rerankerBoostedScore === 'number' && (
                             <div className="resultCard__rerankerScore">
@@ -1163,6 +1452,46 @@ export function ResultViewPanel({ view, currentPage, onPageChange, t, compareMod
           </>
         )}
       </>
+      {editingDocument && (
+        <div className="modal-overlay" onClick={() => setEditingDocument(null)}>
+          <div className="modal-content resultDocumentEditor" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{t('resultDocumentEditTitle')}</h2>
+              <button
+                type="button"
+                className="btn btn--icon"
+                onClick={() => setEditingDocument(null)}
+                aria-label={t('cancel')}
+                title={t('cancel')}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="modal-body resultDocumentEditor__body">
+              {renderDocumentActionNotice()}
+              <div className="resultDocumentEditor__meta mono">
+                {documentActionKeyFieldName}: {editingDocument.keyText}
+              </div>
+              <div className="field__hint resultDocumentEditor__hint">{t('resultDocumentEditorHint')}</div>
+              <textarea
+                className="field__textarea mono resultDocumentEditor__textarea"
+                value={editingDocument.text}
+                onChange={(e) => setEditingDocument((prev) => prev ? { ...prev, text: e.target.value } : prev)}
+                spellCheck={false}
+                aria-label={t('resultDocumentEditorRaw')}
+              />
+              <div className="resultDocumentEditor__actions">
+                <button type="button" className="btn" onClick={() => setEditingDocument(null)} disabled={!!documentActionBusyKey}>
+                  {t('cancel')}
+                </button>
+                <button type="button" className="btn btn--search" onClick={saveEditingDocument} disabled={!!documentActionBusyKey}>
+                  {documentActionBusyKey ? t('saving') : t('resultDocumentSave')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

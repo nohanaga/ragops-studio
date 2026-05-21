@@ -2532,10 +2532,22 @@ export function IndexingPipelineBuilder({ profile, apiVersion, language, theme, 
             </label>
             <label className="field ipbField">
               <span className="field__label">{renderParameterName(t('targetIndexName'), 'targetIndexName', true)}</span>
-              <select className="field__input" value={indexerRefs.targetIndexName || indexName} onChange={(event) => updateResourceObject('indexer', (value) => ({ ...value, targetIndexName: event.target.value }))}>
-                <option value={indexName}>{indexName || '-'}</option>
-                {resourceLists.indexes.map((name) => <option key={name} value={name}>{name}</option>)}
-              </select>
+              <div className="indexSelectControl">
+                <select className="field__input" value={indexerRefs.targetIndexName || indexName} onChange={(event) => updateResourceObject('indexer', (value) => ({ ...value, targetIndexName: event.target.value }))}>
+                  <option value={indexName}>{indexName || '-'}</option>
+                  {resourceLists.indexes.map((name) => <option key={name} value={name}>{name}</option>)}
+                </select>
+                <button
+                  type="button"
+                  className="btn btn--icon indexSelectReloadBtn"
+                  onClick={refreshResourceLists}
+                  disabled={!canQuery || loadingResources}
+                  title={t('refreshResources')}
+                  aria-label={t('refreshResources')}
+                >
+                  <i className={loadingResources ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'} aria-hidden="true" />
+                </button>
+              </div>
             </label>
             <label className="field ipbField">
               <span className="field__label">{renderParameterName(t('skillsetName'), 'skillsetName', true)}</span>

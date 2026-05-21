@@ -35,6 +35,8 @@ export type ResultView = {
   response: LatestResponse | null
   runType: RunType | null
   runId?: string
+  indexName?: string
+  apiVersion?: string
 }
 
 export type UiLogEntry = {

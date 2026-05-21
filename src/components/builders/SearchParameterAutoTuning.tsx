@@ -268,6 +268,8 @@ export type SearchParameterAutoTuningProps = {
   activeProfile: ConnectionProfile | null
   indexName: string
   availableIndexNames: string[]
+  isIndexNamesLoading: boolean
+  onReloadIndexNames: () => void | Promise<void>
   setIndexName: (indexName: string) => void
   apiVersion: SearchApiVersion
   isPreviewApiVersion: boolean
@@ -294,6 +296,8 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
     activeProfile,
     indexName,
     availableIndexNames,
+    isIndexNamesLoading,
+    onReloadIndexNames,
     setIndexName,
     apiVersion,
     isPreviewApiVersion,
@@ -1795,61 +1799,73 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
                 <div className="actions" style={{ gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
                   <div className="mono" style={{ display: 'grid', gridTemplateColumns: '60px 1fr', alignItems: 'center', gap: 8, width: '100%' }}>
                     <span style={{ marginRight: 4 }}>{t('atValuesLabel')}</span>
-                    <div className="dropdown analyzer-bs" style={{ width: '100%' }}>
-                      <button
-                        ref={indexDropdownToggleRef}
-                        type="button"
-                        className="field__input"
-                        data-bs-toggle="dropdown"
-                        data-bs-auto-close="outside"
-                        data-bs-display="static"
-                        disabled={!optIndexName}
-                        onClick={() => {
-                          setIndexFilterText('')
-                          window.setTimeout(() => indexFilterInputRef.current?.focus(), 0)
-                        }}
-                        style={{ width: '100%', textAlign: 'left' }}
-                      >
-                        <span className="dropdown-toggle__label">
-                          {(() => {
-                            const selected = parseCsvStrings(indexNameValuesCsv)
-                            return formatSelectedListLabel(selected, 3, t('atNone'))
-                          })()}
-                        </span>
-                        <span className="dropdown-toggle__caret" aria-hidden="true" />
-                      </button>
+                    <div className="indexSelectControl">
+                      <div className="dropdown analyzer-bs" style={{ width: '100%' }}>
+                        <button
+                          ref={indexDropdownToggleRef}
+                          type="button"
+                          className="field__input"
+                          data-bs-toggle="dropdown"
+                          data-bs-auto-close="outside"
+                          data-bs-display="static"
+                          disabled={!optIndexName}
+                          onClick={() => {
+                            setIndexFilterText('')
+                            window.setTimeout(() => indexFilterInputRef.current?.focus(), 0)
+                          }}
+                          style={{ width: '100%', textAlign: 'left' }}
+                        >
+                          <span className="dropdown-toggle__label">
+                            {(() => {
+                              const selected = parseCsvStrings(indexNameValuesCsv)
+                              return formatSelectedListLabel(selected, 3, t('atNone'))
+                            })()}
+                          </span>
+                          <span className="dropdown-toggle__caret" aria-hidden="true" />
+                        </button>
 
-                      <div className="dropdown-menu dropdown-menu--left" style={{ width: '100%' }}>
-                        <div className="dropdown-menu__pad">
-                          <input
-                            ref={indexFilterInputRef}
-                            className="field__input"
-                            value={indexFilterText}
-                            onChange={(e) => setIndexFilterText(e.target.value)}
-                            placeholder={t('atFilterPlaceholder')}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Escape') hideClosestBootstrapDropdown(e.currentTarget)
-                            }}
-                          />
-                        </div>
-
-                        {filteredIndexNameOptions.map((name) => {
-                          const selected = parseCsvStrings(indexNameValuesCsv).includes(name)
-                          return (
-                            <button
-                              key={name}
-                              type="button"
-                              className={'dropdown-item dropdown-item--check' + (selected ? ' active' : '')}
-                              onClick={() => {
-                                setIndexNameValuesCsv((p) => toggleCsvSelectionOrdered(p, name, indexNameOptions))
+                        <div className="dropdown-menu dropdown-menu--left" style={{ width: '100%' }}>
+                          <div className="dropdown-menu__pad">
+                            <input
+                              ref={indexFilterInputRef}
+                              className="field__input"
+                              value={indexFilterText}
+                              onChange={(e) => setIndexFilterText(e.target.value)}
+                              placeholder={t('atFilterPlaceholder')}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') hideClosestBootstrapDropdown(e.currentTarget)
                               }}
-                            >
-                              <input className="dropdown-check" type="checkbox" checked={selected} readOnly />
-                              <span className="dropdown-label">{name}</span>
-                            </button>
-                          )
-                        })}
+                            />
+                          </div>
+
+                          {filteredIndexNameOptions.map((name) => {
+                            const selected = parseCsvStrings(indexNameValuesCsv).includes(name)
+                            return (
+                              <button
+                                key={name}
+                                type="button"
+                                className={'dropdown-item dropdown-item--check' + (selected ? ' active' : '')}
+                                onClick={() => {
+                                  setIndexNameValuesCsv((p) => toggleCsvSelectionOrdered(p, name, indexNameOptions))
+                                }}
+                              >
+                                <input className="dropdown-check" type="checkbox" checked={selected} readOnly />
+                                <span className="dropdown-label">{name}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
                       </div>
+                      <button
+                        type="button"
+                        className="btn btn--icon indexSelectReloadBtn"
+                        onClick={() => void onReloadIndexNames()}
+                        disabled={!activeProfile || !apiVersion.trim() || isIndexNamesLoading}
+                        title={t('indexBuilderRefreshIndexListTitle')}
+                        aria-label={t('indexBuilderRefreshIndexListTitle')}
+                      >
+                        <i className={isIndexNamesLoading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'} aria-hidden="true" />
+                      </button>
                     </div>
                   </div>
                 </div>

@@ -55,6 +55,8 @@ export interface EvalDatasetGeneratorProps {
 
   indexName: string
   availableIndexNames: string[]
+  isIndexNamesLoading: boolean
+  onReloadIndexNames: () => void | Promise<void>
   setIndexName: (indexName: string) => void
 
   indexFieldNames: string[]
@@ -86,6 +88,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     apiVersion,
     indexName,
     availableIndexNames,
+    isIndexNamesLoading,
+    onReloadIndexNames,
     setIndexName,
     indexFieldNames,
     defaultIdFieldName,
@@ -663,26 +667,38 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
           <label className="field" data-guide-target="edg-index">
             <span className="field__label">{t('edgIndexNameLabel')}</span>
             <div className="edgIndexRow">
-              {availableIndexNames.length > 0 ? (
-                <select
-                  className="field__input"
-                  value={indexName}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setIndexName(e.target.value)}
+              <div className="indexSelectControl">
+                {availableIndexNames.length > 0 ? (
+                  <select
+                    className="field__input"
+                    value={indexName}
+                    onChange={(e: ChangeEvent<HTMLSelectElement>) => setIndexName(e.target.value)}
+                  >
+                    <option value="">--</option>
+                    {availableIndexNames.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="field__input"
+                    value={indexName}
+                    onChange={(e) => setIndexName(e.target.value)}
+                  />
+                )}
+                <button
+                  type="button"
+                  className="btn btn--icon indexSelectReloadBtn"
+                  onClick={() => void onReloadIndexNames()}
+                  disabled={!activeProfile || !apiVersion.trim() || isIndexNamesLoading}
+                  title={t('indexBuilderRefreshIndexListTitle')}
+                  aria-label={t('indexBuilderRefreshIndexListTitle')}
                 >
-                  <option value="">--</option>
-                  {availableIndexNames.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className="field__input"
-                  value={indexName}
-                  onChange={(e) => setIndexName(e.target.value)}
-                />
-              )}
+                  <i className={isIndexNamesLoading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'} aria-hidden="true" />
+                </button>
+              </div>
               <button
                 type="button"
                 className="btn btn--xs"
