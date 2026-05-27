@@ -148,6 +148,20 @@ ragops-studio/
 - Azure AI Search CORS is limited. Microsoft documentation notes that, **for security reasons, only query APIs support CORS** (configured via index `corsOptions`).
 - `npm run dev` includes a development proxy to avoid CORS during local development. `npm run preview` serves the production build and will make direct browser requests unless you provide a back-end/proxy.
 
+## Contributing
+
+This project is a personally maintained community project, but it welcomes constructive and safe participation by following the contribution principles used by Microsoft Open Source where applicable.
+
+- Bug reports, improvement suggestions, documentation fixes, and feature pull requests are welcome.
+- Before making a change, consider opening an issue or discussion to share the background and proposed direction.
+- Pull requests should describe the purpose, main changes, validation performed, and related issues.
+- Keep changes focused and consistent with the existing architecture, naming, bilingual support, and security guidance.
+- If you use AI-generated content or assistance tools, you are still responsible for reviewing the result and ensuring that it is accurate, appropriate, and contribution-ready.
+
+### Code of Conduct
+
+This project refers to the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/) and expects all participants to communicate with respect and care. Harassment, inappropriate conduct, or publishing another person's private information without permission is not acceptable. 
+
 
 ## License
 
