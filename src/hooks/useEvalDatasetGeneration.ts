@@ -17,7 +17,7 @@ import { useCallback, useRef, useState } from 'react'
 
 import type { ConnectionProfile, SearchApiVersion } from '../lib/model'
 import type { Language } from '../lib/translations'
-import { computeRelevanceGrades, generateForDoc, generateForScenario, generateHydeHypothesis, generateRaftAnswer, hardenQuery, markSurfaceDuplicates } from '../lib/evalDatasetGenerator'
+import { computeFoundryRetrievalGroundTruth, computeRelevanceGrades, generateForDoc, generateForScenario, generateHydeHypothesis, generateRaftAnswer, hardenQuery, markSurfaceDuplicates } from '../lib/evalDatasetGenerator'
 import { fetchDistractorDocs } from '../lib/evalDatasetGrounding'
 import { LlmAuthError, formatLlmAuthErrorMessage } from '../lib/llmAuth'
 import { sampleDocsFromIndex, detectIndexStructure, sampleDocsAdaptive } from '../lib/evalDatasetSampling'
@@ -704,8 +704,9 @@ export function useEvalDatasetGeneration(
         }
 
         // 8) Relevance grading (Phase 6, NDCG/XDCG compatibility).
-        //    Stamps each kept item with `relevance_grades`. Runs locally
-        //    (no LLM/search), so it is cheap to leave on by default.
+        //    Stamps each kept item with `relevance_grades` and Foundry's
+        //    `retrieval_ground_truth`. Runs locally (no LLM/search), so it is
+        //    cheap to leave on by default.
         if (config.enableRelevanceGrades) {
           currentPhase++
           for (const it of pipeline) {
@@ -713,6 +714,7 @@ export function useEvalDatasetGeneration(
             const grades = computeRelevanceGrades(it)
             if (grades) {
               it.relevance_grades = grades
+              it.retrieval_ground_truth = computeFoundryRetrievalGroundTruth(it)
               if (tracing) pushTrace(it, { step: 8, phase: 'relevance', action: 'enriched', detail: { reason: `${Object.keys(grades).length} grades` } })
             }
           }

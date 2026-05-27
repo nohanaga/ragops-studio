@@ -182,9 +182,16 @@ export interface GeneratedQAItem {
    *   - `expected_ids` -> 3
    *   - secondary multi-hop docs (when shape is multi_*) -> 2
    *   - `hard_negative_ids` -> 0
-   * Foundry / TREC-style evaluators consume this directly.
+  * Legacy/TREC-style consumers can use this map directly. Azure AI Foundry's
+  * Document Retrieval Evaluator uses `retrieval_ground_truth` instead.
    */
   relevance_grades?: Record<string, number>
+  /**
+  * Azure AI Foundry Document Retrieval Evaluator ground truth.
+  * Each entry matches the required `{ document_id, query_relevance_label }`
+  * shape for the `retrieval_ground_truth` data mapping.
+  */
+  retrieval_ground_truth?: RetrievalGroundTruthItem[]
   // Phase 7: Style Evolution (SNS mode) — which degradation was applied.
   style_evolution_kind?: StyleEvolutionKind
   // Phase 7: Query Transformation Trace — full lifecycle of this item.
@@ -203,6 +210,11 @@ export interface GeneratedQAItem {
   hyde_model?: string
   /** ISO-8601 timestamp when the hypothesis was generated. */
   hyde_generated_at?: string
+}
+
+export interface RetrievalGroundTruthItem {
+  document_id: string
+  query_relevance_label: number
 }
 
 /**

@@ -7,7 +7,7 @@
  * - Provides a simple Jaccard-based dedup utility (surface dedup only in MVP).
  */
 
-import type { GeneratedQAItem, EvalQueryType } from '../types'
+import type { GeneratedQAItem, EvalQueryType, RetrievalGroundTruthItem } from '../types'
 import type { SampledDoc } from './evalDatasetSampling'
 import type { BuildPromptParams, ExpectedQueryObject } from './evalDatasetPrompts'
 import { buildSystemPrompt, buildUserPrompt } from './evalDatasetPrompts'
@@ -427,6 +427,9 @@ export function toJsonl(items: GeneratedQAItem[]): string {
         out['hard_negative_ids'] = i.hard_negative_ids
       if (i.relevance_grades && Object.keys(i.relevance_grades).length > 0)
         out['relevance_grades'] = i.relevance_grades
+      const retrievalGroundTruth = i.retrieval_ground_truth ?? foundryRetrievalGroundTruthFromGrades(i.relevance_grades)
+      if (retrievalGroundTruth && retrievalGroundTruth.length > 0)
+        out['retrieval_ground_truth'] = retrievalGroundTruth
       if (i.style_evolution_kind) out['style_evolution_kind'] = i.style_evolution_kind
       if (i.trace && i.trace.length > 0) out['trace'] = i.trace
       if (i.hyde_hypothesis) out['hyde_hypothesis'] = i.hyde_hypothesis
@@ -470,6 +473,55 @@ export function computeRelevanceGrades(
     if (!(id in grades)) grades[id] = 0
   }
   return Object.keys(grades).length > 0 ? grades : undefined
+}
+
+/**
+ * Compute Azure AI Foundry Document Retrieval Evaluator ground truth.
+ *
+ * Foundry expects an array of `{ document_id, query_relevance_label }` entries
+ * for the `retrieval_ground_truth` input. The default label range is 0..4, so
+ * the primary anchor is mapped to 4, secondary expected docs to 2, and hard
+ * negatives to 0.
+ */
+export function computeFoundryRetrievalGroundTruth(
+  item: GeneratedQAItem,
+): RetrievalGroundTruthItem[] | undefined {
+  const labels = new Map<string, number>()
+  const exp = item.expected_ids ?? []
+  if (exp.length > 0) {
+    const primary = item.source_doc_id && exp.includes(item.source_doc_id)
+      ? item.source_doc_id
+      : exp[0]
+    labels.set(primary, 4)
+    for (const id of exp) {
+      if (!labels.has(id)) labels.set(id, 2)
+    }
+  }
+  for (const id of item.hard_negative_ids ?? []) {
+    if (!labels.has(id)) labels.set(id, 0)
+  }
+  return foundryRetrievalGroundTruthFromLabels(labels)
+}
+
+function foundryRetrievalGroundTruthFromGrades(
+  grades: Record<string, number> | undefined,
+): RetrievalGroundTruthItem[] | undefined {
+  if (!grades || Object.keys(grades).length === 0) return undefined
+  const labels = new Map<string, number>()
+  for (const [documentId, grade] of Object.entries(grades)) {
+    labels.set(documentId, grade === 3 ? 4 : grade)
+  }
+  return foundryRetrievalGroundTruthFromLabels(labels)
+}
+
+function foundryRetrievalGroundTruthFromLabels(
+  labels: Map<string, number>,
+): RetrievalGroundTruthItem[] | undefined {
+  if (labels.size === 0) return undefined
+  return Array.from(labels.entries()).map(([document_id, query_relevance_label]) => ({
+    document_id,
+    query_relevance_label,
+  }))
 }
 
 /* ------------------------------------------------------------------ */
