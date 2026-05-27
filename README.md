@@ -27,7 +27,10 @@ A web-based development tool for learning and experimenting with advanced featur
 ## Features
 
 - 🔍 **4 Search Modes**: Classic search, Semantic & Vector search, Agentic search (Knowledge Retrieval API), Text analysis
-- 🛠️ **Builder Tools**: Create and manage indexes, knowledge sources, knowledge bases, synonym maps, and skillsets (visual pipeline builder)
+- 🛠️ **Builder Tools**: Create and manage indexes, index aliases, indexing pipelines, knowledge sources, knowledge bases, synonym maps, and skillsets (visual pipeline builder)
+- 🔖 **Index Builder**: Field Matrix schema editing, index-level configuration editors, diff-reviewed publishing, Clone Assistant, and Alias-based index swaps
+- 🔄 **Indexing Pipeline Builder**: Design, publish, run, and verify Azure AI Search data source → indexer → index ingestion flows with draft management and per-node inspectors
+- 🧭 **Index Cluster Visualizer**: EFLC-based vector scanning, clustering, graph exploration, LLM meta-index generation, and Global → Local 2-stage search
 - 🧩 **Skill Pipeline Builder**: Visual DAG editor for skillset authoring with built-in skill templates, enrichment tree preview, and debug runner
 - 📝 **Custom Skill LiveEditor**: Browser-integrated Python IDE for Custom Skills with local execution (Pyodide/WASM), cloud deployment (Azure Container Apps), and Blob Storage sync
 - 🧬 **Eval Dataset Generator**: Automatically generate AutoTuning-compatible JSONL evaluation datasets from index documents using Azure OpenAI, with multi-stage quality filters (round-trip consistency, semantic dedup, difficulty evolution, hard negative mining), and RAFT/HyDE dataset generation
@@ -144,6 +147,20 @@ ragops-studio/
 - **Do not ship a public deployment that exposes Azure AI Search credentials to end users.** For production/public use, put credentials on a **server-side** component and call Azure AI Search via your own back-end/proxy.
 - Azure AI Search CORS is limited. Microsoft documentation notes that, **for security reasons, only query APIs support CORS** (configured via index `corsOptions`).
 - `npm run dev` includes a development proxy to avoid CORS during local development. `npm run preview` serves the production build and will make direct browser requests unless you provide a back-end/proxy.
+
+## Contributing
+
+This project is a personally maintained community project, but it welcomes constructive and safe participation by following the contribution principles used by Microsoft Open Source where applicable.
+
+- Bug reports, improvement suggestions, documentation fixes, and feature pull requests are welcome.
+- Before making a change, consider opening an issue or discussion to share the background and proposed direction.
+- Pull requests should describe the purpose, main changes, validation performed, and related issues.
+- Keep changes focused and consistent with the existing architecture, naming, bilingual support, and security guidance.
+- If you use AI-generated content or assistance tools, you are still responsible for reviewing the result and ensuring that it is accurate, appropriate, and contribution-ready.
+
+### Code of Conduct
+
+This project refers to the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/) and expects all participants to communicate with respect and care. Harassment, inappropriate conduct, or publishing another person's private information without permission is not acceptable. 
 
 
 ## License

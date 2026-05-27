@@ -365,7 +365,7 @@ flowchart TD
 | ① | Document Sampling | Adaptive Sampling based on detection results | — (proprietary) | Search REST | Required |
 | ② | Scenario Planning | Allocate to 4 quadrants × Persona × Style × Length | Ragas, RAGEval | Local computation | Ragas mode only |
 | ③ | Query Generation | Synthesize queries via Azure OpenAI JSON mode | InPars, RAGEval | LLM (generation) | Required |
-| ④ | Surface Dedup | Exclude queries with Token Jaccard ≥ 0.85 | — (Jaccard) | Local computation | Always active |
+| ④ | Surface Dedup | Soft-reject queries with Token Jaccard ≥ 0.85 | — (Jaccard) | Local computation | Always active |
 | ⑤ | Round-trip Consistency | Verify expected_ids appear in top-k via re-search | Promptagator | Search REST | Optional |
 | ⑥ | Semantic Dedup | Exclude semantic duplicates via Embedding cosine | — (Embedding cosine) | Embeddings API | Optional |
 | ⑦ | Difficulty Evolution | Rewrite to harder variants via Evol-Instruct | Evol-Instruct | LLM (Judge) | Optional |
@@ -390,13 +390,13 @@ If the issue persists after 3 retries, the exception is propagated, but the over
 
 ### Stage ④: Surface Dedup
 
-Computes **token-level Jaccard similarity** between generated queries and removes duplicates at or above the 0.85 threshold.
+Computes **token-level Jaccard similarity** between generated queries and marks duplicates at or above the 0.85 threshold as rejected.
 
 ```
 Jaccard(A, B) = |A ∩ B| / |A ∪ B|
 ```
 
-Text is tokenized after NFKC normalization using Unicode punctuation splitting. A Greedy Forward Scan algorithm prioritizes earlier queries for retention.
+Text is tokenized after NFKC normalization using Unicode punctuation splitting. A Greedy Forward Scan algorithm prioritizes earlier queries for retention. Rejected duplicates remain in the results table when **Show rejected** is enabled, so their `surface-dup` trace can explain why they were filtered out. They are still excluded from JSONL export by default.
 
 ### Stage ⑤: Round-trip Consistency (Promptagator + Sibling-Aware)
 

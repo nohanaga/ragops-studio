@@ -8,6 +8,8 @@ describe('utils/apiHelpers', () => {
     it('returns agentic/analyze for those modes', () => {
       expect(inferRunType({}, 'agentic')).toBe('agentic_retrieve')
       expect(inferRunType({}, 'analyze')).toBe('analyze')
+      expect(inferRunType({}, 'autocomplete')).toBe('autocomplete')
+      expect(inferRunType({}, 'suggest')).toBe('suggest')
     })
 
     it('infers semantic_hybrid / semantic / hybrid / vector / query', () => {
@@ -57,6 +59,12 @@ describe('utils/apiHelpers', () => {
       expect(() => validateRequest('query', { vectorQueries: [{ perDocumentVectorLimit: -1 }] }, 'ja')).toThrow(
         ja.vectorPerDocumentVectorLimitMin0,
       )
+    })
+
+    it('requires search and suggesterName for typeahead APIs', () => {
+      expect(() => validateRequest('autocomplete', { suggesterName: 'sg' }, 'ja')).toThrow(ja.typeaheadSearchRequired)
+      expect(() => validateRequest('suggest', { search: 'lap' }, 'ja')).toThrow(ja.suggesterNameRequired)
+      expect(() => validateRequest('suggest', { search: 'lap', suggesterName: 'sg' }, 'ja')).not.toThrow()
     })
   })
 })

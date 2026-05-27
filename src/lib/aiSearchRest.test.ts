@@ -6,25 +6,32 @@ import { http, HttpResponse } from 'msw'
 import { server } from '../test/mswServer'
 import {
   agenticRetrieve,
+  autocompleteDocuments,
   analyzeIndex,
+  createOrUpdateAlias,
   createOrUpdateIndex,
   createOrUpdateKnowledgeBase,
   createOrUpdateKnowledgeSource,
   createOrUpdateSynonymMap,
   deleteIndex,
+  deleteAlias,
   deleteKnowledgeBase,
   deleteKnowledgeSource,
   deleteSynonymMap,
   getIndexDefinition,
   getIndexStatistics,
+  getAliasDefinition,
   getKnowledgeBase,
   getKnowledgeSource,
   getSynonymMap,
   listIndexes,
+  listAliases,
   listKnowledgeBases,
   listKnowledgeSources,
   listSynonymMaps,
+  resetIndexer,
   searchDocuments,
+  suggestDocuments,
 } from './aiSearchRest'
 
 function asRecord(v: unknown): Record<string, unknown> {
@@ -315,6 +322,44 @@ describe('lib/aiSearchRest', () => {
           { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-analyze' } },
         )
       }),
+
+      http.post('/api-proxy/indexes/myindex/docs/autocomplete', async ({ request }) => {
+        const body = asRecord(await request.json())
+        expect(body.search).toBe('lap')
+        expect(body.suggesterName).toBe('sg')
+        return HttpResponse.json(
+          { value: [{ text: 'laptop' }] },
+          { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-autocomplete' } },
+        )
+      }),
+      http.post('https://example.search.windows.net/indexes/myindex/docs/autocomplete', async ({ request }) => {
+        const body = asRecord(await request.json())
+        expect(body.search).toBe('lap')
+        expect(body.suggesterName).toBe('sg')
+        return HttpResponse.json(
+          { value: [{ text: 'laptop' }] },
+          { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-autocomplete' } },
+        )
+      }),
+
+      http.post('/api-proxy/indexes/myindex/docs/suggest', async ({ request }) => {
+        const body = asRecord(await request.json())
+        expect(body.search).toBe('lap')
+        expect(body.suggesterName).toBe('sg')
+        return HttpResponse.json(
+          { value: [{ text: 'Laptop', document: { id: '1' } }] },
+          { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-suggest' } },
+        )
+      }),
+      http.post('https://example.search.windows.net/indexes/myindex/docs/suggest', async ({ request }) => {
+        const body = asRecord(await request.json())
+        expect(body.search).toBe('lap')
+        expect(body.suggesterName).toBe('sg')
+        return HttpResponse.json(
+          { value: [{ text: 'Laptop', document: { id: '1' } }] },
+          { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-suggest' } },
+        )
+      }),
     )
 
     const profile = {
@@ -350,6 +395,26 @@ describe('lib/aiSearchRest', () => {
     })
     expect(analyzed.ok).toBe(true)
     if (analyzed.ok) expect(analyzed.requestId).toBe('req-analyze')
+
+    const autocomplete = await autocompleteDocuments({
+      profile,
+      indexName: 'myindex',
+      apiVersion: '2025-09-01',
+      body: { search: 'lap', suggesterName: 'sg' },
+      language: 'ja',
+    })
+    expect(autocomplete.ok).toBe(true)
+    if (autocomplete.ok) expect(autocomplete.requestId).toBe('req-autocomplete')
+
+    const suggest = await suggestDocuments({
+      profile,
+      indexName: 'myindex',
+      apiVersion: '2025-09-01',
+      body: { search: 'lap', suggesterName: 'sg' },
+      language: 'ja',
+    })
+    expect(suggest.ok).toBe(true)
+    if (suggest.ok) expect(suggest.requestId).toBe('req-suggest')
   })
 
   it('covers Knowledge Base CRUD (list/get/put/delete)', async () => {
@@ -674,5 +739,137 @@ describe('lib/aiSearchRest', () => {
     expect(agt.status).toBe(403)
     // agenticRetrieve intentionally does not run extractErrorMessage.
     expect(agt.error.message).toBe('HTTP 403')
+  })
+
+  it('posts indexer reset with api-version and request id', async () => {
+    const observed: { apiVersion?: string; apiKey?: string; clientRequestId?: string; target?: string } = {}
+    server.use(
+      http.post('/api-proxy/indexers/myindexer/reset', async ({ request }) => {
+        const url = new URL(request.url)
+        observed.apiVersion = url.searchParams.get('api-version') ?? undefined
+        observed.apiKey = request.headers.get('api-key') ?? undefined
+        observed.clientRequestId = request.headers.get('x-ms-client-request-id') ?? undefined
+        observed.target = request.headers.get('x-ais-proxy-target') ?? undefined
+        return new HttpResponse(null, { status: 204, headers: { 'request-id': 'req-reset' } })
+      }),
+      http.post('https://example.search.windows.net/indexers/myindexer/reset', async ({ request }) => {
+        const url = new URL(request.url)
+        observed.apiVersion = url.searchParams.get('api-version') ?? undefined
+        observed.apiKey = request.headers.get('api-key') ?? undefined
+        observed.clientRequestId = request.headers.get('x-ms-client-request-id') ?? undefined
+        observed.target = request.headers.get('x-ais-proxy-target') ?? undefined
+        return new HttpResponse(null, { status: 204, headers: { 'request-id': 'req-reset' } })
+      }),
+    )
+
+    const result = await resetIndexer({
+      profile: {
+        endpoint: 'https://example.search.windows.net',
+        apiVersion: '2025-09-01',
+        authType: 'apiKey',
+        apiKey: 'k',
+      },
+      indexerName: 'myindexer',
+      apiVersion: '2025-09-01',
+      language: 'ja',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.status).toBe(204)
+    expect(result.requestId).toBe('req-reset')
+    expect(result.response).toBeNull()
+    expect(observed.apiVersion).toBe('2025-09-01')
+    expect(observed.apiKey).toBe('k')
+    expect(observed.clientRequestId).toBeTruthy()
+    if (observed.target) expect(observed.target).toBe('https://example.search.windows.net')
+  })
+
+  it('covers alias list/get/put/delete operations', async () => {
+    server.use(
+      http.get('/api-proxy/aliases', async () => {
+        return HttpResponse.json(
+          { value: [{ name: 'live', indexes: ['myindex'] }] },
+          { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-alias-list' } },
+        )
+      }),
+      http.get('https://example.search.windows.net/aliases', async () => {
+        return HttpResponse.json(
+          { value: [{ name: 'live', indexes: ['myindex'] }] },
+          { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-alias-list' } },
+        )
+      }),
+      http.get('/api-proxy/aliases/live', async () => {
+        return HttpResponse.json(
+          { name: 'live', indexes: ['myindex'] },
+          { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-alias-get' } },
+        )
+      }),
+      http.get('https://example.search.windows.net/aliases/live', async () => {
+        return HttpResponse.json(
+          { name: 'live', indexes: ['myindex'] },
+          { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-alias-get' } },
+        )
+      }),
+      http.put('/api-proxy/aliases/live', async ({ request }) => {
+        const body = asRecord(await request.json())
+        expect(body.name).toBe('live')
+        expect(body.indexes).toEqual(['myindex-v2'])
+        return HttpResponse.json(
+          { name: 'live', indexes: ['myindex-v2'] },
+          { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-alias-put' } },
+        )
+      }),
+      http.put('https://example.search.windows.net/aliases/live', async ({ request }) => {
+        const body = asRecord(await request.json())
+        expect(body.name).toBe('live')
+        expect(body.indexes).toEqual(['myindex-v2'])
+        return HttpResponse.json(
+          { name: 'live', indexes: ['myindex-v2'] },
+          { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-alias-put' } },
+        )
+      }),
+      http.delete('/api-proxy/aliases/live', async () => {
+        return new HttpResponse(null, { status: 204, headers: { 'request-id': 'req-alias-del' } })
+      }),
+      http.delete('https://example.search.windows.net/aliases/live', async () => {
+        return new HttpResponse(null, { status: 204, headers: { 'request-id': 'req-alias-del' } })
+      }),
+    )
+
+    const profile = {
+      endpoint: 'https://example.search.windows.net',
+      apiVersion: '2025-09-01' as const,
+      authType: 'apiKey' as const,
+      apiKey: 'k',
+    }
+
+    const list = await listAliases({ profile, apiVersion: '2025-09-01', language: 'ja' })
+    expect(list.ok).toBe(true)
+    if (list.ok) {
+      expect(asRecord(list.response).value).toBeTruthy()
+      expect(list.requestId).toBe('req-alias-list')
+    }
+
+    const get = await getAliasDefinition({ profile, aliasName: 'live', apiVersion: '2025-09-01', language: 'ja' })
+    expect(get.ok).toBe(true)
+    if (get.ok) {
+      expect(asRecord(get.response).name).toBe('live')
+      expect(get.requestId).toBe('req-alias-get')
+    }
+
+    const put = await createOrUpdateAlias({
+      profile,
+      aliasName: 'live',
+      apiVersion: '2025-09-01',
+      body: { name: 'live', indexes: ['myindex-v2'] },
+      language: 'ja',
+    })
+    expect(put.ok).toBe(true)
+    if (put.ok) expect(put.requestId).toBe('req-alias-put')
+
+    const del = await deleteAlias({ profile, aliasName: 'live', apiVersion: '2025-09-01', language: 'ja' })
+    expect(del.ok).toBe(true)
+    if (del.ok) expect(del.requestId).toBe('req-alias-del')
   })
 })

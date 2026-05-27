@@ -12,12 +12,77 @@ import type { SampledDoc } from './evalDatasetSampling'
 import type { BuildPromptParams, ExpectedQueryObject } from './evalDatasetPrompts'
 import { buildSystemPrompt, buildUserPrompt } from './evalDatasetPrompts'
 import type { LlmAuth } from './llmAuth'
-import { callLlmChat, type LlmProviderType } from './llmProvider'
+import { callLlmChat, extractJsonFromText, type LlmProviderType, type JsonSchemaResponseFormat } from './llmProvider'
 
 /** Hard cap for the per-doc excerpt fed to the LLM (chars, not tokens). */
 const MAX_CHUNK_CHARS = 4000
 
 const KNOWN_QUERY_TYPES: EvalQueryType[] = ['factoid', 'how-to', 'comparative', 'yes-no']
+
+// ─── JSON Schemas for Structured Output ─────────────────────────────────────
+
+/** Schema for `{ queries: [{ query, query_type }] }` — multi-query generation. */
+const QUERIES_SCHEMA: JsonSchemaResponseFormat = {
+  name: 'generated_queries',
+  schema: {
+    type: 'object',
+    properties: {
+      queries: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            query_type: { type: 'string' },
+          },
+          required: ['query', 'query_type'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['queries'],
+    additionalProperties: false,
+  },
+}
+
+/** Schema for `{ query: "..." }` — single query (scenario / harden). */
+const SINGLE_QUERY_SCHEMA: JsonSchemaResponseFormat = {
+  name: 'single_query',
+  schema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string' },
+    },
+    required: ['query'],
+    additionalProperties: false,
+  },
+}
+
+/** Schema for `{ cot_answer: "..." }` — RAFT chain-of-thought answer. */
+const COT_ANSWER_SCHEMA: JsonSchemaResponseFormat = {
+  name: 'cot_answer',
+  schema: {
+    type: 'object',
+    properties: {
+      cot_answer: { type: 'string' },
+    },
+    required: ['cot_answer'],
+    additionalProperties: false,
+  },
+}
+
+/** Schema for `{ hypothesis: "..." }` — HyDE hypothetical document. */
+const HYPOTHESIS_SCHEMA: JsonSchemaResponseFormat = {
+  name: 'hypothesis',
+  schema: {
+    type: 'object',
+    properties: {
+      hypothesis: { type: 'string' },
+    },
+    required: ['hypothesis'],
+    additionalProperties: false,
+  },
+}
 
 export interface CallAoaiParams {
   endpoint: string
@@ -29,6 +94,8 @@ export interface CallAoaiParams {
   signal?: AbortSignal
   /** When false, omit `response_format: json_object`. Defaults to true. */
   jsonMode?: boolean
+  /** When supplied, use structured output with JSON Schema. */
+  jsonSchema?: JsonSchemaResponseFormat
   /** LLM provider type. Defaults to 'azure-openai' for backward compat. */
   provider?: LlmProviderType
 }
@@ -44,13 +111,14 @@ export interface AoaiChatResponse {
  * Retained as a stable entry-point for existing callers.
  */
 export async function callAzureOpenAIChat(params: CallAoaiParams): Promise<string> {
-  const { endpoint, auth, deployment, apiVersion, systemPrompt, userPrompt, signal, jsonMode = true, provider = 'azure-openai' } = params
+  const { endpoint, auth, deployment, apiVersion, systemPrompt, userPrompt, signal, jsonMode = true, jsonSchema, provider = 'azure-openai' } = params
   return callLlmChat({
     config: { provider, endpoint, auth, model: deployment, apiVersion },
     systemPrompt,
     userPrompt,
     signal,
     jsonMode,
+    jsonSchema,
   })
 }
 
@@ -70,7 +138,7 @@ export function parseGeneratedQueries(
 ): ExpectedQueryObject[] {
   let parsed: unknown
   try {
-    parsed = JSON.parse(rawJson)
+    parsed = JSON.parse(extractJsonFromText(rawJson))
   } catch {
     return []
   }
@@ -127,7 +195,7 @@ export async function generateForDoc(params: GenerateForDocParams): Promise<Gene
     chunkText,
   })
 
-  const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal })
+  const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal, jsonSchema: QUERIES_SCHEMA })
   const parsed = parseGeneratedQueries(raw, prompt.queryTypes)
   const generatedAt = provenance?.generatedAt ?? new Date().toISOString()
   return parsed.map((q) => ({
@@ -176,7 +244,7 @@ export interface GenerateForScenarioParams {
 export function parseScenarioQuery(rawJson: string): { query: string } | null {
   let parsed: unknown
   try {
-    parsed = JSON.parse(rawJson)
+    parsed = JSON.parse(extractJsonFromText(rawJson))
   } catch {
     return null
   }
@@ -227,7 +295,7 @@ export async function generateForScenario(
     domainSchema,
   })
 
-  const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal })
+  const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal, jsonSchema: SINGLE_QUERY_SCHEMA })
   const parsed = parseScenarioQuery(raw)
   if (!parsed) return null
 
@@ -291,6 +359,32 @@ export function dedupBySurface(items: GeneratedQAItem[], threshold: number): Gen
     }
   }
   return kept
+}
+
+/**
+ * Mark surface-duplicate items as rejected while preserving them for UI traceability.
+ * Order and object identity are preserved so later pipeline stages can keep mutating the same items.
+ */
+export function markSurfaceDuplicates(items: GeneratedQAItem[], threshold: number): GeneratedQAItem[] {
+  const normalizedThreshold = Math.max(0, Math.min(1, threshold))
+  const keptTokens: Set<string>[] = []
+  for (const item of items) {
+    const tokens = tokenize(item.query)
+    let duplicate = false
+    for (const previousTokens of keptTokens) {
+      if (jaccard(tokens, previousTokens) >= normalizedThreshold) {
+        duplicate = true
+        break
+      }
+    }
+    if (duplicate) {
+      item.rejected = true
+      item.rejection_reason = 'surface-dup'
+    } else {
+      keptTokens.push(tokens)
+    }
+  }
+  return items
 }
 
 /* ------------------------------------------------------------------ */
@@ -402,7 +496,7 @@ export interface HardenQueryParams {
 export function parseHardenedQuery(rawJson: string): string | null {
   let parsed: unknown
   try {
-    parsed = JSON.parse(rawJson)
+    parsed = JSON.parse(extractJsonFromText(rawJson))
   } catch {
     return null
   }
@@ -425,7 +519,7 @@ export async function hardenQuery(params: HardenQueryParams): Promise<string | n
       : contextText
   const systemPrompt = buildHardenSystemPrompt(language)
   const userPrompt = buildHardenUserPrompt({ language, query, contextText: ctx })
-  const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal })
+  const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal, jsonSchema: SINGLE_QUERY_SCHEMA })
   return parseHardenedQuery(raw)
 }
 
@@ -454,7 +548,7 @@ export interface GenerateRaftAnswerParams {
 export function parseRaftAnswer(rawJson: string): string | null {
   let parsed: unknown
   try {
-    parsed = JSON.parse(rawJson)
+    parsed = JSON.parse(extractJsonFromText(rawJson))
   } catch {
     return null
   }
@@ -499,7 +593,7 @@ export async function generateRaftAnswer(
     distractorDocs: truncDistractors,
   })
 
-  const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal })
+  const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal, jsonSchema: COT_ANSWER_SCHEMA })
   return parseRaftAnswer(raw)
 }
 
@@ -570,7 +664,7 @@ export interface GenerateHydeHypothesisParams {
 export function parseHydeHypothesis(rawJson: string): string | null {
   let parsed: unknown
   try {
-    parsed = JSON.parse(rawJson)
+    parsed = JSON.parse(extractJsonFromText(rawJson))
   } catch {
     return null
   }
@@ -594,6 +688,6 @@ export async function generateHydeHypothesis(
   const { language, query, llm, signal } = params
   const systemPrompt = buildHydeSystemPrompt(language)
   const userPrompt = buildHydeUserPrompt({ language, query })
-  const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal })
+  const raw = await callAzureOpenAIChat({ ...llm, systemPrompt, userPrompt, signal, jsonSchema: HYPOTHESIS_SCHEMA })
   return parseHydeHypothesis(raw)
 }

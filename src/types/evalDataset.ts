@@ -241,9 +241,13 @@ export interface EvalDatasetGenerationConfig {
   enableGroundingCheck: boolean
   groundingTopK: number
 
-  // Phase 2.2: Semantic dedup via Azure OpenAI embeddings.
+  // Phase 2.2: Semantic dedup via embeddings.
   enableSemanticDedup: boolean
+  embeddingProvider?: LlmProviderType
+  embeddingEndpoint?: string
+  embeddingAuth?: LlmAuth
   embeddingDeployment?: string
+  embeddingApiVersion?: string
   semanticDedupThreshold: number // cosine similarity in [0, 1]
 
   // Phase 3 (Ragas-style scenario generation, opt-in).

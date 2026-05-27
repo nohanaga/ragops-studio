@@ -12,9 +12,10 @@ import type { ConnectionProfile, SearchApiVersion } from '../../lib/model'
 import type { Language } from '../../lib/translations'
 import { translations } from '../../lib/translations'
 import { toJsonl, toRaftJsonl } from '../../lib/evalDatasetGenerator'
-import { buildAadCliCommand, type LlmAuthMode } from '../../lib/llmAuth'
-import { LLM_PROVIDER_LABELS, LLM_PROVIDER_OPTIONS, PROVIDER_DEFAULTS, type LlmProviderType } from '../../lib/llmProvider'
+import { PROVIDER_DEFAULTS, LOCAL_PROVIDERS } from '../../lib/llmProvider'
 import { useEvalDatasetGeneration } from '../../hooks/useEvalDatasetGeneration'
+import type { SharedLlmConfig } from '../../hooks/useSharedLlmConfig'
+import { LlmProfileSelector } from './LlmProfileSelector'
 import {
   deleteEvalDataset,
   getEvalDataset,
@@ -42,9 +43,6 @@ type TranslationKey = keyof typeof translations.ja
 
 const QUERY_TYPE_OPTIONS: EvalQueryType[] = ['factoid', 'how-to', 'comparative', 'yes-no']
 
-const DEFAULT_LLM_API_VERSION = '2024-10-21'
-const DEFAULT_LLM_DEPLOYMENT = 'gpt-5.4-mini'
-const DEFAULT_EMBEDDING_DEPLOYMENT = 'text-embedding-3-large'
 const DEFAULT_GROUNDING_TOP_K = 10
 const DEFAULT_SEMANTIC_THRESHOLD = 0.92
 
@@ -57,17 +55,17 @@ export interface EvalDatasetGeneratorProps {
 
   indexName: string
   availableIndexNames: string[]
+  isIndexNamesLoading: boolean
+  onReloadIndexNames: () => void | Promise<void>
   setIndexName: (indexName: string) => void
 
   indexFieldNames: string[]
   defaultIdFieldName: string | null
 
-  defaultLlmEndpoint?: string
-  defaultLlmApiKey?: string
-  defaultLlmAuthMode?: LlmAuthMode
-  defaultLlmBearerToken?: string
+  sharedLlm: SharedLlmConfig
 
   openIndexInspector: (name?: string) => void
+  onOpenLlmSettings: () => void
 }
 
 function downloadTextFile(filename: string, content: string) {
@@ -90,14 +88,14 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     apiVersion,
     indexName,
     availableIndexNames,
+    isIndexNamesLoading,
+    onReloadIndexNames,
     setIndexName,
     indexFieldNames,
     defaultIdFieldName,
-    defaultLlmEndpoint,
-    defaultLlmApiKey,
-    defaultLlmAuthMode,
-    defaultLlmBearerToken,
+    sharedLlm,
     openIndexInspector,
+    onOpenLlmSettings,
   } = props
 
   // Persisted form is loaded asynchronously from IndexedDB after mount.
@@ -126,23 +124,15 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
   const [queryTypes, setQueryTypes] = useState<EvalQueryType[]>(['factoid', 'how-to'])
   const [domainDescription, setDomainDescription] = useState<string>('')
 
-  // LLM state. apiKey / bearerToken are persisted in IndexedDB to match the
-  // Connection profile (admin keys) behavior. Persisted values take
-  // precedence over the defaults inherited from the Connection.
-  const [llmProvider, setLlmProvider] = useState<LlmProviderType>('azure-openai')
-  const [llmEndpoint, setLlmEndpoint] = useState<string>(defaultLlmEndpoint ?? '')
-  const [llmAuthMode, setLlmAuthMode] = useState<LlmAuthMode>(defaultLlmAuthMode ?? 'apiKey')
-  const [llmApiKey, setLlmApiKey] = useState<string>(defaultLlmApiKey ?? '')
-  const [llmBearerToken, setLlmBearerToken] = useState<string>(defaultLlmBearerToken ?? '')
-  const [llmDeployment, setLlmDeployment] = useState<string>(DEFAULT_LLM_DEPLOYMENT)
-  const [llmApiVersion, setLlmApiVersion] = useState<string>(DEFAULT_LLM_API_VERSION)
-  const [cliCopied, setCliCopied] = useState<boolean>(false)
+  // LLM connection settings are shared across the app via sharedLlm.
+  // Only deployment and apiVersion have local defaults specific to this generator.
+  const [selectedLlmProfileId, setSelectedLlmProfileId] = useState<string>('')
 
   // Phase 2 quality filters
   const [enableGroundingCheck, setEnableGroundingCheck] = useState<boolean>(true)
   const [groundingTopK, setGroundingTopK] = useState<number>(DEFAULT_GROUNDING_TOP_K)
   const [enableSemanticDedup, setEnableSemanticDedup] = useState<boolean>(false)
-  const [embeddingDeployment, setEmbeddingDeployment] = useState<string>(DEFAULT_EMBEDDING_DEPLOYMENT)
+  const [selectedEmbeddingProfileId, setSelectedEmbeddingProfileId] = useState<string>('')
   const [semanticThreshold, setSemanticThreshold] = useState<number>(DEFAULT_SEMANTIC_THRESHOLD)
   const [showRejected, setShowRejected] = useState<boolean>(false)
 
@@ -229,17 +219,10 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         if (form.edgLanguage !== undefined) setEdgLanguage(form.edgLanguage)
         if (form.queryTypes !== undefined) setQueryTypes(form.queryTypes)
         if (form.domainDescription !== undefined) setDomainDescription(form.domainDescription)
-        if (form.llmProvider !== undefined) setLlmProvider(form.llmProvider)
-        if (form.llmEndpoint !== undefined) setLlmEndpoint(form.llmEndpoint)
-        if (form.llmAuthMode !== undefined) setLlmAuthMode(form.llmAuthMode)
-        if (form.llmApiKey !== undefined) setLlmApiKey(form.llmApiKey)
-        if (form.llmBearerToken !== undefined) setLlmBearerToken(form.llmBearerToken)
-        if (form.llmDeployment !== undefined) setLlmDeployment(form.llmDeployment)
-        if (form.llmApiVersion !== undefined) setLlmApiVersion(form.llmApiVersion)
         if (form.enableGroundingCheck !== undefined) setEnableGroundingCheck(form.enableGroundingCheck)
         if (form.groundingTopK !== undefined) setGroundingTopK(form.groundingTopK)
         if (form.enableSemanticDedup !== undefined) setEnableSemanticDedup(form.enableSemanticDedup)
-        if (form.embeddingDeployment !== undefined) setEmbeddingDeployment(form.embeddingDeployment)
+        if (form.embeddingProfileId !== undefined) setSelectedEmbeddingProfileId(form.embeddingProfileId)
         if (form.semanticThreshold !== undefined) setSemanticThreshold(form.semanticThreshold)
         if (form.showRejected !== undefined) setShowRejected(form.showRejected)
         if (form.enableRagasMode !== undefined) setEnableRagasMode(form.enableRagasMode)
@@ -309,17 +292,10 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
         edgLanguage,
         queryTypes,
         domainDescription,
-        llmProvider,
-        llmEndpoint,
-        llmAuthMode,
-        llmApiKey,
-        llmBearerToken,
-        llmDeployment,
-        llmApiVersion,
         enableGroundingCheck,
         groundingTopK,
         enableSemanticDedup,
-        embeddingDeployment,
+        embeddingProfileId: selectedEmbeddingProfileId,
         semanticThreshold,
         showRejected,
         enableRagasMode,
@@ -370,17 +346,10 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     edgLanguage,
     queryTypes,
     domainDescription,
-    llmProvider,
-    llmEndpoint,
-    llmAuthMode,
-    llmApiKey,
-    llmBearerToken,
-    llmDeployment,
-    llmApiVersion,
     enableGroundingCheck,
     groundingTopK,
     enableSemanticDedup,
-    embeddingDeployment,
+    selectedEmbeddingProfileId,
     semanticThreshold,
     showRejected,
     enableRagasMode,
@@ -465,14 +434,17 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     if (!indexName.trim()) return String(t('edgErrIndexName'))
     if (!keyField.trim()) return String(t('edgErrKeyField'))
     if (contentFields.length === 0) return String(t('edgErrContentFields'))
-    if (llmProvider !== 'openai' && !llmEndpoint.trim()) return String(t('edgErrLlmEndpoint'))
-    // OpenAI mode forces apiKey auth
-    const effectiveLlmAuthMode = llmProvider === 'openai' ? 'apiKey' : llmAuthMode
-    if (effectiveLlmAuthMode === 'apiKey' && !llmApiKey.trim()) return String(t('edgErrLlmApiKey'))
-    if (effectiveLlmAuthMode === 'bearer' && !llmBearerToken.trim()) return String(t('edgErrLlmBearerToken'))
-    if (!llmDeployment.trim()) return String(t('edgErrLlmDeployment'))
-    if (enableSemanticDedup && !embeddingDeployment.trim())
-      return String(t('edgErrEmbeddingDeployment'))
+    const llm = sharedLlm.resolve(selectedLlmProfileId)
+    const isLocal = LOCAL_PROVIDERS.has(llm.provider)
+    if (!isLocal && llm.provider !== 'openai' && !llm.endpoint.trim()) return String(t('edgErrLlmEndpoint'))
+    const effectiveLlmAuthMode = (llm.provider === 'openai' || isLocal) ? 'apiKey' : llm.authMode
+    if (!isLocal && effectiveLlmAuthMode === 'apiKey' && !llm.apiKey.trim()) return String(t('edgErrLlmApiKey'))
+    if (!isLocal && effectiveLlmAuthMode === 'bearer' && !llm.bearerToken.trim()) return String(t('edgErrLlmBearerToken'))
+    if (!llm.deployment.trim()) return String(t('edgErrLlmDeployment'))
+    if (enableSemanticDedup) {
+      const embLlm = sharedLlm.resolve(selectedEmbeddingProfileId)
+      if (!embLlm.deployment.trim()) return String(t('edgErrEmbeddingProfile'))
+    }
     return null
   }
 
@@ -480,6 +452,8 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     const v = validate()
     setValidationError(v)
     if (v) return
+    const resolvedLlm = sharedLlm.resolve(selectedLlmProfileId)
+    const resolvedIsLocal = LOCAL_PROVIDERS.has(resolvedLlm.provider)
     const config: EvalDatasetGenerationConfig = {
       indexName: indexName.trim(),
       keyField: keyField.trim(),
@@ -491,22 +465,45 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
       language: edgLanguage,
       queryTypes: queryTypes.length > 0 ? queryTypes : ['factoid'],
       domainDescription: domainDescription.trim() || undefined,
-      llmProvider,
-      llmEndpoint: llmProvider === 'openai'
+      llmProvider: resolvedLlm.provider,
+      llmEndpoint: resolvedLlm.provider === 'openai'
         ? PROVIDER_DEFAULTS.openai.endpoint
-        : llmEndpoint.trim(),
-      llmAuth:
-        (llmProvider === 'openai' ? 'apiKey' : llmAuthMode) === 'bearer'
-          ? { mode: 'bearer', bearerToken: llmBearerToken.trim() }
-          : { mode: 'apiKey', apiKey: llmApiKey.trim() },
-      llmDeployment: llmDeployment.trim(),
-      llmApiVersion: llmProvider === 'azure-openai'
-        ? (llmApiVersion.trim() || PROVIDER_DEFAULTS['azure-openai'].apiVersion)
+        : resolvedIsLocal
+          ? (resolvedLlm.endpoint.trim() || PROVIDER_DEFAULTS[resolvedLlm.provider].endpoint)
+          : resolvedLlm.endpoint.trim(),
+      llmAuth: resolvedIsLocal
+        ? { mode: 'apiKey', apiKey: 'none' }
+        : (resolvedLlm.provider === 'openai' ? 'apiKey' : resolvedLlm.authMode) === 'bearer'
+          ? { mode: 'bearer', bearerToken: resolvedLlm.bearerToken.trim() }
+          : { mode: 'apiKey', apiKey: resolvedLlm.apiKey.trim() },
+      llmDeployment: resolvedLlm.deployment.trim(),
+      llmApiVersion: resolvedLlm.provider === 'azure-openai'
+        ? (resolvedLlm.apiVersion.trim() || PROVIDER_DEFAULTS['azure-openai'].apiVersion)
         : '',
       enableGroundingCheck,
       groundingTopK: Math.max(1, Math.min(50, Math.floor(groundingTopK || DEFAULT_GROUNDING_TOP_K))),
       enableSemanticDedup,
-      embeddingDeployment: embeddingDeployment.trim() || undefined,
+      ...(enableSemanticDedup ? (() => {
+        const embLlm = sharedLlm.resolve(selectedEmbeddingProfileId)
+        const embIsLocal = LOCAL_PROVIDERS.has(embLlm.provider)
+        return {
+          embeddingProvider: embLlm.provider,
+          embeddingEndpoint: embLlm.provider === 'openai'
+            ? PROVIDER_DEFAULTS.openai.endpoint
+            : embIsLocal
+              ? (embLlm.endpoint.trim() || PROVIDER_DEFAULTS[embLlm.provider].endpoint)
+              : embLlm.endpoint.trim(),
+          embeddingAuth: embIsLocal
+            ? { mode: 'apiKey' as const, apiKey: 'none' }
+            : (embLlm.provider === 'openai' ? 'apiKey' : embLlm.authMode) === 'bearer'
+              ? { mode: 'bearer' as const, bearerToken: embLlm.bearerToken.trim() }
+              : { mode: 'apiKey' as const, apiKey: embLlm.apiKey.trim() },
+          embeddingDeployment: embLlm.deployment.trim() || undefined,
+          embeddingApiVersion: embLlm.provider === 'azure-openai'
+            ? (embLlm.apiVersion.trim() || PROVIDER_DEFAULTS['azure-openai'].apiVersion)
+            : '',
+        }
+      })() : {}),
       semanticDedupThreshold: Math.max(0, Math.min(1, semanticThreshold)),
       // Phase 3: Ragas-style scenario generation
       enableRagasMode,
@@ -581,16 +578,6 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
     await start(config)
   }
 
-  async function onCopyCliCommand() {
-    const cmd = buildAadCliCommand()
-    try {
-      await navigator.clipboard.writeText(cmd)
-      setCliCopied(true)
-      window.setTimeout(() => setCliCopied(false), 1500)
-    } catch {
-      // ignore
-    }
-  }
 
   function onExport() {
     const jsonl = toJsonl(items)
@@ -680,26 +667,38 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
           <label className="field" data-guide-target="edg-index">
             <span className="field__label">{t('edgIndexNameLabel')}</span>
             <div className="edgIndexRow">
-              {availableIndexNames.length > 0 ? (
-                <select
-                  className="field__input"
-                  value={indexName}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setIndexName(e.target.value)}
+              <div className="indexSelectControl">
+                {availableIndexNames.length > 0 ? (
+                  <select
+                    className="field__input"
+                    value={indexName}
+                    onChange={(e: ChangeEvent<HTMLSelectElement>) => setIndexName(e.target.value)}
+                  >
+                    <option value="">--</option>
+                    {availableIndexNames.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="field__input"
+                    value={indexName}
+                    onChange={(e) => setIndexName(e.target.value)}
+                  />
+                )}
+                <button
+                  type="button"
+                  className="btn btn--icon indexSelectReloadBtn"
+                  onClick={() => void onReloadIndexNames()}
+                  disabled={!activeProfile || !apiVersion.trim() || isIndexNamesLoading}
+                  title={t('indexBuilderRefreshIndexListTitle')}
+                  aria-label={t('indexBuilderRefreshIndexListTitle')}
                 >
-                  <option value="">--</option>
-                  {availableIndexNames.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className="field__input"
-                  value={indexName}
-                  onChange={(e) => setIndexName(e.target.value)}
-                />
-              )}
+                  <i className={isIndexNamesLoading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'} aria-hidden="true" />
+                </button>
+              </div>
               <button
                 type="button"
                 className="btn btn--xs"
@@ -852,117 +851,16 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
       {/* LLM --------------------------------------------------------- */}
       <div className="section">
         <div className="section__title"><i className="bi bi-robot icon--mr6" />{t('edgLlmTitle')}</div>
-        <div className="formGrid">
-          <label className="field">
-            <span className="field__label">{t('edgLlmProviderLabel')}</span>
-            <select
-              className="field__input"
-              value={llmProvider}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-                const v = e.target.value as LlmProviderType
-                setLlmProvider(v)
-                // Auto-fill endpoint for OpenAI
-                if (v === 'openai' && !llmEndpoint.trim()) {
-                  setLlmEndpoint(PROVIDER_DEFAULTS.openai.endpoint)
-                }
-                // Reset auth mode if provider doesn't support bearer
-                if (v === 'openai' && llmAuthMode === 'bearer') {
-                  setLlmAuthMode('apiKey')
-                }
-              }}
-            >
-              {LLM_PROVIDER_OPTIONS.map((p) => (
-                <option key={p} value={p}>
-                  {LLM_PROVIDER_LABELS[p][language === 'ja' ? 'ja' : 'en']}
-                </option>
-              ))}
-            </select>
-          </label>
-          {llmProvider !== 'openai' && (
-            <label className="field">
-              <span className="field__label">{t('edgLlmEndpointLabel')}</span>
-              <input
-                className="field__input"
-                value={llmEndpoint}
-                onChange={(e) => setLlmEndpoint(e.target.value)}
-                placeholder="https://YOUR-RESOURCE.openai.azure.com"
-              />
-            </label>
-          )}
-          {llmProvider !== 'openai' && (
-            <label className="field">
-              <span className="field__label">{t('llmAuthModeLabel')}</span>
-              <select
-                className="field__input"
-                value={llmAuthMode}
-                onChange={(e: ChangeEvent<HTMLSelectElement>) =>
-                  setLlmAuthMode(e.target.value === 'bearer' ? 'bearer' : 'apiKey')
-                }
-              >
-                <option value="apiKey">apiKey</option>
-                <option value="bearer">bearer (Entra ID)</option>
-              </select>
-            </label>
-          )}
-          {(llmProvider === 'openai' || llmAuthMode === 'apiKey') ? (
-            <label className="field">
-              <span className="field__label">{t('edgLlmApiKeyLabel')}</span>
-              <input
-                type="password"
-                className="field__input"
-                value={llmApiKey}
-                onChange={(e) => setLlmApiKey(e.target.value)}
-              />
-            </label>
-          ) : (
-            <label className="field">
-              <span className="field__label">{t('llmBearerTokenLabel')}</span>
-              <input
-                type="password"
-                className="field__input"
-                value={llmBearerToken}
-                onChange={(e) => setLlmBearerToken(e.target.value)}
-                placeholder={String(t('llmBearerTokenPlaceholder'))}
-              />
-            </label>
-          )}
-          <label className="field">
-            <span className="field__label">{t('edgLlmDeploymentLabel')}</span>
-            <input
-              className="field__input"
-              value={llmDeployment}
-              onChange={(e) => setLlmDeployment(e.target.value)}
-              placeholder="gpt-5.4-mini"
-            />
-          </label>
-          {llmProvider === 'azure-openai' && (
-            <label className="field">
-              <span className="field__label">{t('edgLlmApiVersionLabel')}</span>
-              <input
-                className="field__input"
-                value={llmApiVersion}
-                onChange={(e) => setLlmApiVersion(e.target.value)}
-                placeholder={PROVIDER_DEFAULTS['azure-openai'].apiVersion}
-              />
-            </label>
-          )}
-        </div>
-        {llmAuthMode === 'bearer' && llmProvider !== 'openai' && (
-          <div className="field__hint" style={{ marginTop: 8 }}>
-            <div>{t('aadCliHelperDesc')}</div>
-            <div className="aadCliHelper">
-              <code className="aadCliHelper__code">{buildAadCliCommand()}</code>
-              <button
-                type="button"
-                className="btn btn--icon"
-                onClick={() => void onCopyCliCommand()}
-                title={String(t('aadCliCopy'))}
-              >
-                <i className={cliCopied ? 'bi bi-check2' : 'bi bi-clipboard'}></i>
-              </button>
-            </div>
-          </div>
-        )}
+        <LlmProfileSelector
+          sharedLlm={sharedLlm}
+          selectedProfileId={selectedLlmProfileId}
+          onSelect={setSelectedLlmProfileId}
+          t={t}
+          language={language}
+          disabled={isRunning}
+          onOpenSettings={onOpenLlmSettings}
+          modelType="chat"
+        />
       </div>
 
       {/* Quality filters (Phase 2) ----------------------------------- */}
@@ -1014,16 +912,18 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
             </span>
             <div className="field__hint">{t('edgSemanticDedupHint')}</div>
           </label>
-          <label className="field" data-guide-target="edg-embedding-deployment">
-            <span className="field__label">{t('edgEmbeddingDeploymentLabel')}</span>
-            <input
-              className="field__input"
-              value={embeddingDeployment}
+          <div className="field" data-guide-target="edg-embedding-deployment">
+            <LlmProfileSelector
+              sharedLlm={sharedLlm}
+              selectedProfileId={selectedEmbeddingProfileId}
+              onSelect={setSelectedEmbeddingProfileId}
+              t={t}
+              language={language}
               disabled={!enableSemanticDedup}
-              onChange={(e) => setEmbeddingDeployment(e.target.value)}
-              placeholder={DEFAULT_EMBEDDING_DEPLOYMENT}
+              onOpenSettings={onOpenLlmSettings}
+              modelType="embeddings"
             />
-          </label>
+          </div>
           <label className="field">
             <span className="field__label">
               {t('edgSemanticThresholdLabel')} ({semanticThreshold.toFixed(2)})
@@ -1413,7 +1313,7 @@ export function EvalDatasetGenerator(props: EvalDatasetGeneratorProps) {
             <div className="field__hint">{t('edgJudgeLlmHint')}</div>
           </label>
           {judgeLlmDeployment.trim() &&
-            judgeLlmDeployment.trim() === llmDeployment.trim() && (
+            judgeLlmDeployment.trim() === sharedLlm.resolve(selectedLlmProfileId).deployment.trim() && (
               <div className="notice notice--warning" style={{ gridColumn: '1 / -1' }} role="status" aria-live="polite">{t('edgJudgeSameModelWarning')}</div>
             )}
         </div>

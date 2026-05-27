@@ -1,4 +1,4 @@
-import { useMemo, type Dispatch, type ReactElement, type RefObject, type SetStateAction } from 'react'
+import { lazy, Suspense, useCallback, useMemo, useState, type Dispatch, type ReactElement, type RefObject, type SetStateAction } from 'react'
 import type {
   CenterTab,
   KnowledgeSourceInfo,
@@ -7,35 +7,56 @@ import type {
 } from '../types'
 import type { JsonValue } from '../lib/aiSearchRest'
 import type { TranslationKey, Language } from '../lib/translations'
+import { buildFacetFilterExpression, type FacetFieldInfo } from '../utils/facetFilter'
 import {
   AppHeader,
   BuilderTabPane,
   FilterBuilderModal,
-  IndexBuilder,
   IndexInspectorModal,
   JwtDecoderModal,
   KnowledgeBaseBuilder,
   KnowledgeSourceBuilder,
   LeftPane,
   RightJsonViewerPane,
-  SkillPipelineBuilder,
-  SkillPipelineRightPane,
-  SkillCodeEditor,
-  SearchParameterAutoTuning,
-  EvalDatasetGenerator,
-  SearchPipelineVisualizer,
   SynonymMapBuilder,
   TextToVectorModal,
+  LlmSettingsModal,
   VectorOptimizerBuilder,
   FeaturePortal,
   FeatureGuideDrawer,
 } from './index'
+
+// ---------------------------------------------------------------------------
+// Lazy-loaded heavy components (code-split into separate chunks)
+// ---------------------------------------------------------------------------
+const SkillPipelineBuilder = lazy(() => import('./builders/SkillPipelineBuilder').then(m => ({ default: m.SkillPipelineBuilder })))
+const SkillPipelineRightPane = lazy(() => import('./builders/SkillPipelineRightPane').then(m => ({ default: m.SkillPipelineRightPane })))
+const SkillCodeEditor = lazy(() => import('./builders/SkillCodeEditor').then(m => ({ default: m.SkillCodeEditor })))
+const IndexBuilder = lazy(() => import('./builders/IndexBuilder').then(m => ({ default: m.IndexBuilder })))
+const IndexingPipelineBuilder = lazy(() => import('./builders/IndexingPipelineBuilder').then(m => ({ default: m.IndexingPipelineBuilder })))
+const EvalDatasetGenerator = lazy(() => import('./builders/EvalDatasetGenerator').then(m => ({ default: m.EvalDatasetGenerator })))
+const SearchParameterAutoTuning = lazy(() => import('./builders/SearchParameterAutoTuning').then(m => ({ default: m.SearchParameterAutoTuning })))
+const SearchPipelineVisualizer = lazy(() => import('./viewers/SearchPipelineVisualizer').then(m => ({ default: m.SearchPipelineVisualizer })))
+const IndexVisualizer = lazy(() => import('./viewers/IndexVisualizer').then(m => ({ default: m.IndexVisualizer })))
 import { extractQueryString } from '../utils'
 import { QueryPerformanceTester } from './viewers/QueryPerformanceTester'
 import { useTheme, useSettings, useModalState, useUiState, useBuilderState, useExperiment } from '../contexts'
 import { useGuide } from '../contexts/GuideContext'
 
 import type { JwtDecoderResult } from './modals/JwtDecoderModal'
+
+import type { SharedLlmConfig } from '../hooks/useSharedLlmConfig'
+
+/** Lightweight fallback shown while a lazy-loaded chunk is loading. */
+function LazyFallback() {
+  return (
+    <div className="pane__centerContent" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
+      <div className="spinner-border spinner-border-sm text-secondary" role="status">
+        <span className="visually-hidden">Loading…</span>
+      </div>
+    </div>
+  )
+}
 
 type TFunction = (key: TranslationKey) => string
 
@@ -58,18 +79,6 @@ export function AppLayout(props: {
   textToVector: {
     showTextToVectorTool: boolean
     setShowTextToVectorTool: (v: boolean) => void
-    textToVectorProvider: import('../lib/llmProvider').LlmProviderType
-    setTextToVectorProvider: (v: import('../lib/llmProvider').LlmProviderType) => void
-    textToVectorEndpoint: string
-    setTextToVectorEndpoint: (v: string) => void
-    textToVectorApiKey: string
-    setTextToVectorApiKey: (v: string) => void
-    textToVectorAuthMode: 'apiKey' | 'bearer'
-    setTextToVectorAuthMode: (v: 'apiKey' | 'bearer') => void
-    textToVectorBearerToken: string
-    setTextToVectorBearerToken: (v: string) => void
-    textToVectorModel: string
-    setTextToVectorModel: (v: string) => void
     textToVectorDimensions: number | null
     setTextToVectorDimensions: (v: number | null) => void
     textToVectorInput: string
@@ -78,7 +87,11 @@ export function AppLayout(props: {
     onGenerateVector: () => Promise<void>
     textToVectorResult: number[] | null
     onCopyVector: () => Promise<void>
+    selectedLlmProfileId: string
+    setSelectedLlmProfileId: (v: string) => void
   }
+
+  sharedLlm: SharedLlmConfig
 
   onPasteVectorToBuilder: () => void
 
@@ -109,8 +122,10 @@ export function AppLayout(props: {
   indexFilterText: string
   setIndexFilterText: Dispatch<SetStateAction<string>>
   filteredIndexNameOptions: string[]
+  isIndexNamesLoading: boolean
+  onReloadIndexNames: () => void | Promise<void>
   openIndexInspector: (name?: string) => void
-  onOpenIndexBuilderTab: () => void
+  onOpenIndexBuilderTab: (indexName?: string) => void
   indexDropdownToggleRef: RefObject<HTMLButtonElement | null>
   indexDropdownMenuRef: RefObject<HTMLDivElement | null>
   indexFilterInputRef: RefObject<HTMLInputElement | null>
@@ -122,8 +137,11 @@ export function AppLayout(props: {
   availableKnowledgeSources: KnowledgeSourceInfo[]
 
   isLoadingRequestBuilderSchema: boolean
+  requestBuilderFacetFieldInfos: FacetFieldInfo[]
   requestBuilderIndexFieldNames: string[]
+  requestBuilderSearchableFieldNames: string[]
   requestBuilderVectorFieldNames: string[]
+  requestBuilderSuggesterNames: string[]
   requestBuilderKeyFieldName: string | null
 
   analyzeDropdownFilters: {
@@ -222,6 +240,8 @@ export function AppLayout(props: {
     setIsSynonymMapBuilderOpen,
     isIndexBuilderOpen,
     setIsIndexBuilderOpen,
+    isIndexingPipelineBuilderOpen,
+    setIsIndexingPipelineBuilderOpen,
     isSkillPipelineBuilderOpen,
     setIsSkillPipelineBuilderOpen,
     isVectorOptimizerOpen,
@@ -231,6 +251,8 @@ export function AppLayout(props: {
     setSkillEditorLinkedNodeId,
     isEvalDatasetGeneratorOpen,
     setIsEvalDatasetGeneratorOpen,
+    isIndexVisualizerOpen,
+    setIsIndexVisualizerOpen,
   } = useModalState()
   const {
     uiError,
@@ -253,6 +275,10 @@ export function AppLayout(props: {
     setAgenticForm,
     analyzeForm,
     setAnalyzeForm,
+    autocompleteForm,
+    setAutocompleteForm,
+    suggestForm,
+    setSuggestForm,
     requestJson,
     setRequestJson,
     runNote,
@@ -313,6 +339,8 @@ export function AppLayout(props: {
     indexFilterText,
     setIndexFilterText,
     filteredIndexNameOptions,
+    isIndexNamesLoading,
+    onReloadIndexNames,
     openIndexInspector,
     onOpenIndexBuilderTab,
     indexDropdownToggleRef,
@@ -324,7 +352,10 @@ export function AppLayout(props: {
     knowledgeBaseNameOptions,
     availableKnowledgeSources,
     isLoadingRequestBuilderSchema,
+    requestBuilderFacetFieldInfos,
+    requestBuilderSearchableFieldNames,
     requestBuilderVectorFieldNames,
+    requestBuilderSuggesterNames,
     analyzeDropdownFilters,
     csvToList,
     toggleCsvSelection,
@@ -350,6 +381,18 @@ export function AppLayout(props: {
     setIsFilterBuilderOpen,
     availableIndexNames,
   } = props
+
+  const handleFacetFilterSelect = useCallback((fieldName: string, bucket: Record<string, unknown>) => {
+    const nextExpression = buildFacetFilterExpression(fieldName, bucket, requestBuilderFacetFieldInfos)
+    if (!nextExpression) return
+
+    setSearchForm((prev) => {
+      const currentFilter = prev.filter.trim()
+      const nextFilter = currentFilter ? `(${currentFilter}) and (${nextExpression})` : nextExpression
+      return { ...prev, filter: nextFilter }
+    })
+    setCenterTab('builder')
+  }, [requestBuilderFacetFieldInfos, setCenterTab, setSearchForm])
 
   const {
     analyzerFilterText,
@@ -390,6 +433,8 @@ export function AppLayout(props: {
     reloadIndexInspector,
   } = indexInspector
 
+  const [isLlmSettingsOpen, setIsLlmSettingsOpen] = useState(false)
+
   const { launchCompanion } = useGuide()
 
   const handlePortalAction = (action: string) => {
@@ -413,6 +458,10 @@ export function AppLayout(props: {
       case 'openIndexBuilder':
         setIsIndexBuilderOpen(true)
         setCenterTab('index-builder')
+        break
+      case 'openIndexingPipelineBuilder':
+        setIsIndexingPipelineBuilderOpen(true)
+        setCenterTab('indexing-pipeline-builder')
         break
       case 'openSynonymMapBuilder':
         setIsSynonymMapBuilderOpen(true)
@@ -457,6 +506,10 @@ export function AppLayout(props: {
       case 'openSearchPipelineVisualizer':
         setIsSearchPipelineVisualizerOpen(true)
         setCenterTab('search-pipeline-visualizer')
+        break
+      case 'openIndexVisualizer':
+        setIsIndexVisualizerOpen(true)
+        setCenterTab('index-visualizer')
         break
       case 'openTextToVector':
         textToVector.setShowTextToVectorTool(true)
@@ -506,6 +559,10 @@ export function AppLayout(props: {
           setIsIndexBuilderOpen(true)
           setCenterTab('index-builder')
         }}
+        onOpenIndexingPipelineBuilder={() => {
+          setIsIndexingPipelineBuilderOpen(true)
+          setCenterTab('indexing-pipeline-builder')
+        }}
         onOpenKnowledgeBaseBuilder={() => {
           setIsKnowledgeBaseBuilderOpen(true)
           setCenterTab('knowledge-base-builder')
@@ -531,6 +588,11 @@ export function AppLayout(props: {
           setIsSearchPipelineVisualizerOpen(true)
           setCenterTab('search-pipeline-visualizer')
         }}
+        onOpenIndexVisualizer={() => {
+          setIsIndexVisualizerOpen(true)
+          setCenterTab('index-visualizer')
+        }}
+        onOpenLlmSettings={() => setIsLlmSettingsOpen(true)}
       />
 
       <div className="app__grid" style={{ gridTemplateColumns }}>
@@ -712,6 +774,33 @@ export function AppLayout(props: {
               </div>
             )}
 
+            {isIndexVisualizerOpen && (
+              <div className="tabWrapper">
+                <button
+                  type="button"
+                  className={'tab ' + (centerTab === 'index-visualizer' ? 'tab--active' : '')}
+                  onClick={() => setCenterTab('index-visualizer')}
+                >
+                  <span className="tab__label">📊 {t('indexVisualizer')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="tab__closeBtn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setIsIndexVisualizerOpen(false)
+                    if (centerTab === 'index-visualizer') {
+                      setCenterTab('builder')
+                    }
+                  }}
+                  aria-label="Close tab"
+                  title="Close tab"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
             {isVectorOptimizerOpen && (
               <div className="tabWrapper">
                 <button
@@ -850,6 +939,36 @@ export function AppLayout(props: {
               </div>
             )}
 
+            {isIndexingPipelineBuilderOpen && (
+              <div className="tabWrapper">
+                <button
+                  type="button"
+                  className={'tab ' + (centerTab === 'indexing-pipeline-builder' ? 'tab--active' : '')}
+                  onClick={() => setCenterTab('indexing-pipeline-builder')}
+                >
+                  <span className="tab__label">
+                    <i className="bi bi-diagram-3 icon--mr6"></i>
+                    {t('indexingPipelineBuilder')}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="tab__closeBtn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setIsIndexingPipelineBuilderOpen(false)
+                    if (centerTab === 'indexing-pipeline-builder') {
+                      setCenterTab('builder')
+                    }
+                  }}
+                  aria-label="Close tab"
+                  title="Close tab"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
             {isSkillPipelineBuilderOpen && (
               <div className="tabWrapper">
                 <button
@@ -968,6 +1087,8 @@ export function AppLayout(props: {
                 indexFilterText={indexFilterText}
                 setIndexFilterText={setIndexFilterText}
                 filteredIndexNameOptions={filteredIndexNameOptions}
+                isIndexNamesLoading={isIndexNamesLoading}
+                onReloadIndexNames={onReloadIndexNames}
                 openIndexInspector={openIndexInspector}
                 onOpenIndexBuilderTab={onOpenIndexBuilderTab}
                 indexDropdownToggleRef={indexDropdownToggleRef}
@@ -986,8 +1107,14 @@ export function AppLayout(props: {
                 setAgenticForm={setAgenticForm}
                 analyzeForm={analyzeForm}
                 setAnalyzeForm={setAnalyzeForm}
+                autocompleteForm={autocompleteForm}
+                setAutocompleteForm={setAutocompleteForm}
+                suggestForm={suggestForm}
+                setSuggestForm={setSuggestForm}
                 isLoadingRequestBuilderSchema={isLoadingRequestBuilderSchema}
+                requestBuilderSearchableFieldNames={requestBuilderSearchableFieldNames}
                 requestBuilderVectorFieldNames={requestBuilderVectorFieldNames}
+                requestBuilderSuggesterNames={requestBuilderSuggesterNames}
                 setIsFilterBuilderOpen={setIsFilterBuilderOpen}
                 analyzerFilterText={analyzerFilterText}
                 setAnalyzerFilterText={setAnalyzerFilterText}
@@ -1040,10 +1167,6 @@ export function AppLayout(props: {
                 <VectorOptimizerBuilder
                   t={t}
                   format={format}
-                  defaultTextToVectorEndpoint={textToVector.textToVectorEndpoint}
-                  defaultTextToVectorApiKey={textToVector.textToVectorApiKey}
-                  defaultTextToVectorAuthMode={textToVector.textToVectorAuthMode}
-                  defaultTextToVectorBearerToken={textToVector.textToVectorBearerToken}
                 />
               </div>
             </div>
@@ -1051,12 +1174,15 @@ export function AppLayout(props: {
 
           {isAutoTuningOpen && (
             <div className="tabPane" hidden={centerTab !== 'auto-tuning'}>
+              <Suspense fallback={<LazyFallback />}>
               <SearchParameterAutoTuning
                 t={t}
                 language={language}
                 activeProfile={activeProfile}
                 indexName={indexName}
                 availableIndexNames={availableIndexNames}
+                isIndexNamesLoading={isIndexNamesLoading}
+                onReloadIndexNames={onReloadIndexNames}
                 setIndexName={setIndexName}
                 apiVersion={effectiveApiVersion}
                 isPreviewApiVersion={isPreviewApiVersion}
@@ -1074,11 +1200,13 @@ export function AppLayout(props: {
                   setCenterTab('eval-dataset-generator')
                 }}
               />
+              </Suspense>
             </div>
           )}
 
           {isEvalDatasetGeneratorOpen && (
             <div className="tabPane" hidden={centerTab !== 'eval-dataset-generator'}>
+              <Suspense fallback={<LazyFallback />}>
               <EvalDatasetGenerator
                 t={t}
                 language={language}
@@ -1086,15 +1214,16 @@ export function AppLayout(props: {
                 apiVersion={effectiveApiVersion}
                 indexName={indexName}
                 availableIndexNames={availableIndexNames}
+                isIndexNamesLoading={isIndexNamesLoading}
+                onReloadIndexNames={onReloadIndexNames}
                 setIndexName={setIndexName}
                 indexFieldNames={props.requestBuilderIndexFieldNames}
                 defaultIdFieldName={props.requestBuilderKeyFieldName}
-                defaultLlmEndpoint={textToVector.textToVectorEndpoint}
-                defaultLlmApiKey={textToVector.textToVectorApiKey}
-                defaultLlmAuthMode={textToVector.textToVectorAuthMode}
-                defaultLlmBearerToken={textToVector.textToVectorBearerToken}
+                sharedLlm={props.sharedLlm}
                 openIndexInspector={openIndexInspector}
+                onOpenLlmSettings={() => setIsLlmSettingsOpen(true)}
               />
+              </Suspense>
             </div>
           )}
 
@@ -1123,6 +1252,7 @@ export function AppLayout(props: {
 
           {isIndexBuilderOpen && (
             <div className="tabPane" hidden={centerTab !== 'index-builder'}>
+              <Suspense fallback={<LazyFallback />}>
               <IndexBuilder
                 profile={activeProfile}
                 apiVersion={effectiveApiVersion}
@@ -1130,13 +1260,34 @@ export function AppLayout(props: {
                 language={language}
                 theme={theme}
                 onClose={() => setCenterTab('builder')}
+                onOpenSynonymMapBuilder={() => {
+                  setIsSynonymMapBuilderOpen(true)
+                  setCenterTab('synonym-map-builder')
+                }}
                 copyToClipboard={copyToClipboard}
               />
+              </Suspense>
+            </div>
+          )}
+
+          {isIndexingPipelineBuilderOpen && (
+            <div className="tabPane" hidden={centerTab !== 'indexing-pipeline-builder'}>
+              <Suspense fallback={<LazyFallback />}>
+              <IndexingPipelineBuilder
+                profile={activeProfile}
+                apiVersion={effectiveApiVersion}
+                language={language}
+                theme={theme}
+                onOpenIndexBuilder={onOpenIndexBuilderTab}
+                copyToClipboard={copyToClipboard}
+              />
+              </Suspense>
             </div>
           )}
 
           {isSkillPipelineBuilderOpen && (
             <div className="tabPane" hidden={centerTab !== 'skill-pipeline-builder'}>
+              <Suspense fallback={<LazyFallback />}>
               <SkillPipelineBuilder
                 t={t}
                 language={language}
@@ -1150,11 +1301,13 @@ export function AppLayout(props: {
                   setCenterTab('skill-editor')
                 }}
               />
+              </Suspense>
             </div>
           )}
 
           {isSkillEditorOpen && (
             <div className="tabPane" hidden={centerTab !== 'skill-editor'}>
+              <Suspense fallback={<LazyFallback />}>
               <SkillCodeEditor
                 language={language}
                 theme={theme}
@@ -1163,11 +1316,13 @@ export function AppLayout(props: {
                   setCenterTab('skill-pipeline-builder')
                 }}
               />
+              </Suspense>
             </div>
           )}
 
           {isSearchPipelineVisualizerOpen && (
             <div className="tabPane" hidden={centerTab !== 'search-pipeline-visualizer'}>
+              <Suspense fallback={<LazyFallback />}>
               <SearchPipelineVisualizer
                 profile={activeProfile}
                 apiVersion={effectiveApiVersion}
@@ -1175,6 +1330,26 @@ export function AppLayout(props: {
                 language={language}
                 settings={settings}
               />
+              </Suspense>
+            </div>
+          )}
+
+          {isIndexVisualizerOpen && (
+            <div className="tabPane" hidden={centerTab !== 'index-visualizer'}>
+              <Suspense fallback={<LazyFallback />}>
+              <IndexVisualizer
+                profile={activeProfile}
+                apiVersion={effectiveApiVersion}
+                indexName={indexName}
+                language={language}
+                availableIndexNames={availableIndexNames}
+                isIndexNamesLoading={isIndexNamesLoading}
+                onReloadIndexNames={onReloadIndexNames}
+                sharedLlm={props.sharedLlm}
+                onOpenLlmSettings={() => setIsLlmSettingsOpen(true)}
+                openIndexInspector={openIndexInspector}
+              />
+              </Suspense>
             </div>
           )}
 
@@ -1205,9 +1380,11 @@ export function AppLayout(props: {
             centerTab !== 'knowledge-base-builder' &&
             centerTab !== 'synonym-map-builder' &&
             centerTab !== 'index-builder' &&
+            centerTab !== 'indexing-pipeline-builder' &&
             centerTab !== 'skill-pipeline-builder' &&
             centerTab !== 'skill-editor' &&
             centerTab !== 'search-pipeline-visualizer' &&
+            centerTab !== 'index-visualizer' &&
             centerTab !== 'eval-dataset-generator' && (
               <div className="pane__centerContent">
                 <div className="resultGrid" style={{ gridTemplateColumns: `repeat(${resultViews.length}, minmax(0, 1fr))` }}>
@@ -1256,6 +1433,7 @@ export function AppLayout(props: {
 
         {!isRightPaneCollapsed && (
           centerTab === 'skill-pipeline-builder' ? (
+            <Suspense fallback={<LazyFallback />}>
             <SkillPipelineRightPane
               t={t}
               language={language}
@@ -1265,6 +1443,7 @@ export function AppLayout(props: {
               apiVersion={effectiveApiVersion}
               onCollapse={() => setIsRightPaneCollapsed(true)}
             />
+            </Suspense>
           ) : (
             <RightJsonViewerPane
               activeResultView={activeResultView}
@@ -1273,6 +1452,7 @@ export function AppLayout(props: {
               jsonViewerRequestData={jsonViewerRequestData}
               jsonViewerResponseData={jsonViewerResponseData}
               jsonViewerFacets={jsonViewerFacets}
+              onFacetFilterSelect={handleFacetFilterSelect}
               onCollapse={() => setIsRightPaneCollapsed(true)}
               t={t}
             />
@@ -1286,18 +1466,9 @@ export function AppLayout(props: {
         t={t}
         format={format}
         language={language}
-        textToVectorProvider={textToVector.textToVectorProvider}
-        setTextToVectorProvider={textToVector.setTextToVectorProvider}
-        textToVectorEndpoint={textToVector.textToVectorEndpoint}
-        setTextToVectorEndpoint={textToVector.setTextToVectorEndpoint}
-        textToVectorApiKey={textToVector.textToVectorApiKey}
-        setTextToVectorApiKey={textToVector.setTextToVectorApiKey}
-        textToVectorAuthMode={textToVector.textToVectorAuthMode}
-        setTextToVectorAuthMode={textToVector.setTextToVectorAuthMode}
-        textToVectorBearerToken={textToVector.textToVectorBearerToken}
-        setTextToVectorBearerToken={textToVector.setTextToVectorBearerToken}
-        textToVectorModel={textToVector.textToVectorModel}
-        setTextToVectorModel={textToVector.setTextToVectorModel}
+        sharedLlm={props.sharedLlm}
+        selectedLlmProfileId={textToVector.selectedLlmProfileId}
+        setSelectedLlmProfileId={textToVector.setSelectedLlmProfileId}
         textToVectorDimensions={textToVector.textToVectorDimensions}
         setTextToVectorDimensions={textToVector.setTextToVectorDimensions}
         textToVectorInput={textToVector.textToVectorInput}
@@ -1307,6 +1478,7 @@ export function AppLayout(props: {
         textToVectorResult={textToVector.textToVectorResult}
         onCopyVector={textToVector.onCopyVector}
         onPasteVectorToBuilder={onPasteVectorToBuilder}
+        onOpenLlmSettings={() => setIsLlmSettingsOpen(true)}
       />
 
       <JwtDecoderModal
@@ -1315,6 +1487,14 @@ export function AppLayout(props: {
         jwtDecoderResult={jwtDecoder.jwtDecoderResult}
         formatJwtEpochSeconds={jwtDecoder.formatJwtEpochSeconds}
         t={t}
+      />
+
+      <LlmSettingsModal
+        open={isLlmSettingsOpen}
+        onClose={() => setIsLlmSettingsOpen(false)}
+        t={t}
+        language={language}
+        sharedLlm={props.sharedLlm}
       />
 
       <IndexInspectorModal

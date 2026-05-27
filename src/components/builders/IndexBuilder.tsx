@@ -5,17 +5,21 @@
  * JSON editor and basic stats display.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { ExpandableCodeMirror } from '../viewers/ExpandableCodeMirror'
 import { githubLight, githubDark } from '@uiw/codemirror-theme-github'
 import { json } from '@codemirror/lang-json'
 import { EditorView } from '@codemirror/view'
 import type { ConnectionProfile, SearchApiVersion } from '../../lib/model'
 import type { ThemePreference } from '../../types/app'
-import { deleteIndex, getIndexDefinition, getIndexStatistics, listIndexes, type JsonValue } from '../../lib/aiSearchRest'
+import { deleteIndex, getIndexDefinition, getIndexStatistics, listIndexes, listSynonymMaps, type JsonValue } from '../../lib/aiSearchRest'
 import { translations, type Language } from '../../lib/translations'
 import { useIndexPublishFlow } from '../../hooks/useIndexPublishFlow'
 import { PublishDiffModal } from './PublishDiffModal'
+import { IndexCloneAssistant } from './IndexCloneAssistant'
+import { IndexAliasManager } from './IndexAliasManager'
+import { IndexSchemaConfigurationEditorPanel, IndexSchemaOverview, type ConfigEditorTab } from './IndexSchemaOverview'
+import { applyIndexSchemaTemplate, type IndexSchemaTemplateKind } from './indexSchemaTemplates'
 
 type IndexBuilderProps = {
   profile: ConnectionProfile | null
@@ -24,6 +28,7 @@ type IndexBuilderProps = {
   language: Language
   theme: ThemePreference
   onClose: () => void
+  onOpenSynonymMapBuilder: () => void
   copyToClipboard: (text: string) => Promise<void>
 }
 
@@ -33,6 +38,61 @@ type IndexStats = {
   documentCount?: number
   storageSize?: number
   vectorIndexSize?: number
+}
+
+type IndexBuilderRightTab = 'schema' | 'config' | 'json' | 'clone' | 'aliases'
+
+const indexBuilderRightTabs: Array<{ id: IndexBuilderRightTab; labelKey: keyof typeof translations.ja; icon: string }> = [
+  { id: 'schema', labelKey: 'indexBuilderSchemaWorkbench', icon: 'bi-stars' },
+  { id: 'config', labelKey: 'indexBuilderConfigEditors', icon: 'bi-ui-checks-grid' },
+  { id: 'json', labelKey: 'indexBuilderJsonEditor', icon: 'bi-code-slash' },
+  { id: 'clone', labelKey: 'indexCloneAssistant', icon: 'bi-intersect' },
+  { id: 'aliases', labelKey: 'indexBuilderAliases', icon: 'bi-signpost-split' },
+]
+
+const indexBuilderRightTabGuideTargets: Record<IndexBuilderRightTab, string> = {
+  schema: 'index-builder-schema',
+  config: 'index-builder-config',
+  json: 'index-builder-editor',
+  clone: 'index-builder-clone',
+  aliases: 'index-builder-aliases',
+}
+
+const indexTemplateLabelKeys: Record<IndexSchemaTemplateKind, keyof typeof translations.ja> = {
+  semantic: 'indexBuilderFeatureSemantic',
+  suggester: 'indexBuilderFeatureSuggesters',
+  scoringProfile: 'indexBuilderFeatureScoringProfiles',
+  cors: 'indexBuilderFeatureCors',
+  vectorSearch: 'indexBuilderFeatureVectorSearch',
+}
+
+const INDEX_BUILDER_SPLIT_STORAGE_KEY = 'ragops.indexBuilder.listPanePercent'
+const INDEX_BUILDER_SPLIT_DEFAULT_PERCENT = 26
+const INDEX_BUILDER_SPLIT_MIN_PERCENT = 16
+const INDEX_BUILDER_SPLIT_MAX_PERCENT = 42
+
+function clampIndexBuilderSplitPercent(value: number): number {
+  if (!Number.isFinite(value)) return INDEX_BUILDER_SPLIT_DEFAULT_PERCENT
+  return Math.min(INDEX_BUILDER_SPLIT_MAX_PERCENT, Math.max(INDEX_BUILDER_SPLIT_MIN_PERCENT, value))
+}
+
+function readIndexBuilderSplitPercent(): number {
+  try {
+    if (typeof window === 'undefined') return INDEX_BUILDER_SPLIT_DEFAULT_PERCENT
+    const raw = window.localStorage.getItem(INDEX_BUILDER_SPLIT_STORAGE_KEY)
+    return raw === null ? INDEX_BUILDER_SPLIT_DEFAULT_PERCENT : clampIndexBuilderSplitPercent(Number(raw))
+  } catch {
+    return INDEX_BUILDER_SPLIT_DEFAULT_PERCENT
+  }
+}
+
+function writeIndexBuilderSplitPercent(value: number): void {
+  try {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(INDEX_BUILDER_SPLIT_STORAGE_KEY, String(clampIndexBuilderSplitPercent(value)))
+  } catch {
+    // Storage can fail in restricted browser modes.
+  }
 }
 
 function formatBytes(n: number | null | undefined): string {
@@ -53,7 +113,7 @@ function formatCount(n: number | null | undefined, locale: string): string {
   }
 }
 
-export function IndexBuilder({ profile, apiVersion, activeIndexName, language, theme, copyToClipboard }: IndexBuilderProps) {
+export function IndexBuilder({ profile, apiVersion, activeIndexName, language, theme, onOpenSynonymMapBuilder, copyToClipboard }: IndexBuilderProps) {
   const t = (key: keyof typeof translations.ja): string => String(translations[language][key] ?? '')
   const format = (key: keyof typeof translations.ja, params: Record<string, string | number>): string => {
     let text: string = t(key)
@@ -72,6 +132,7 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
   const [definition, setDefinition] = useState<JsonValue | null>(null)
   const [editedJson, setEditedJson] = useState('')
   const [baselineJson, setBaselineJson] = useState('')
+  const [synonymMapNames, setSynonymMapNames] = useState<string[]>([])
 
   const [saving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -82,13 +143,51 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
 
   const [message, setMessage] = useState<UiMessage | null>(null)
   const [filterText, setFilterText] = useState('')
+  const [rightTab, setRightTab] = useState<IndexBuilderRightTab>('schema')
+  const [activeConfigEditorTab, setActiveConfigEditorTab] = useState<ConfigEditorTab>('semantic')
+  const [indexListPaneWidthPercent, setIndexListPaneWidthPercent] = useState(readIndexBuilderSplitPercent)
+  const [isIndexBuilderSplitterDragging, setIsIndexBuilderSplitterDragging] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const splitContainerRef = useRef<HTMLDivElement | null>(null)
 
   // ── Index Publish Flow (diff before save) ────────────────────────────
   const indexPublish = useIndexPublishFlow({ profile, apiVersion, language, t })
 
   const canQuery = !!profile && !!apiVersion && apiVersion.trim().length > 0
+
+  const openConfigEditorTab = useCallback((tab: ConfigEditorTab) => {
+    setActiveConfigEditorTab(tab)
+    setRightTab('config')
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!profile) {
+      setSynonymMapNames([])
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void (async () => {
+      const result = await listSynonymMaps({ profile, language })
+      if (cancelled) return
+      if (!result.ok) {
+        setSynonymMapNames([])
+        return
+      }
+      const response = result.response as { value?: Array<{ name?: unknown }> } | null
+      const names = Array.isArray(response?.value)
+        ? response.value.map((item) => (typeof item.name === 'string' ? item.name : '')).filter(Boolean)
+        : []
+      setSynonymMapNames(Array.from(new Set(names)))
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [profile, language])
 
   const isDirty = useMemo(() => {
     return editedJson.trim().length > 0 && editedJson !== baselineJson
@@ -99,6 +198,42 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
     if (!name) return false
     return indexNames.includes(name)
   }, [selectedName, indexNames])
+
+  const indexBuilderGridStyle = useMemo(() => ({
+    '--index-builder-list-pane': `${indexListPaneWidthPercent}%`,
+  }) as CSSProperties, [indexListPaneWidthPercent])
+
+  const startIndexBuilderSplitterDrag = useCallback((clientX: number) => {
+    const container = splitContainerRef.current
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    if (rect.width <= 0) return
+
+    const updateWidth = (x: number) => {
+      const next = ((x - rect.left) / rect.width) * 100
+      setIndexListPaneWidthPercent(clampIndexBuilderSplitPercent(next))
+    }
+
+    setIsIndexBuilderSplitterDragging(true)
+    updateWidth(clientX)
+
+    const handlePointerMove = (event: PointerEvent) => {
+      event.preventDefault()
+      updateWidth(event.clientX)
+    }
+    const handlePointerUp = () => {
+      setIsIndexBuilderSplitterDragging(false)
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove, { passive: false })
+    window.addEventListener('pointerup', handlePointerUp)
+  }, [])
+
+  useEffect(() => {
+    writeIndexBuilderSplitPercent(indexListPaneWidthPercent)
+  }, [indexListPaneWidthPercent])
 
   const confirmDiscardIfDirty = (): boolean => {
     if (!isDirty) return true
@@ -291,6 +426,7 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
       name: 'my-index',
       fields: [{ name: 'id', type: 'Edm.String', key: true }],
     })
+    setRightTab('json')
   }
 
   const onImportJsonClick = () => {
@@ -317,6 +453,7 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
       setDefinition(parsed as JsonValue)
       setSelectedName('')
       setEditorJson(parsed)
+      setRightTab('json')
       setMessage({ type: 'success', text: t('indexBuilderImported') })
     } catch (err) {
       setMessage({
@@ -390,6 +527,47 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
     }
   }
 
+  const onApplySchemaTemplate = (kind: IndexSchemaTemplateKind) => {
+    const parsed = parseEditedIndex()
+    if (!parsed) return
+    if (!parsed.body || typeof parsed.body !== 'object' || Array.isArray(parsed.body)) {
+      setMessage({ type: 'error', text: t('indexBuilderJsonMustBeObject') })
+      return
+    }
+
+    const next = applyIndexSchemaTemplate(parsed.body as Record<string, unknown>, kind)
+    const text = JSON.stringify(next, null, 2)
+    setDefinition(next as JsonValue)
+    setEditedJson(text)
+    setMessage({
+      type: 'success',
+      text: format('indexBuilderTemplateApplied', { feature: t(indexTemplateLabelKeys[kind]) }),
+    })
+  }
+
+  const onChangeSchemaIndex = (nextIndex: Record<string, unknown>) => {
+    const text = JSON.stringify(nextIndex, null, 2)
+    setDefinition(nextIndex as JsonValue)
+    setEditedJson(text)
+  }
+
+  const onApplyCloneJson = (cloneDefinition: JsonValue, sourceIndexName: string, targetIndexName: string) => {
+    const text = JSON.stringify(cloneDefinition ?? {}, null, 2)
+    setDefinition(cloneDefinition)
+    setSelectedName('')
+    setEditedJson(text)
+    setBaselineJson('')
+    setRightTab('json')
+    setMessage({ type: 'success', text: format('indexClonePrepared', { source: sourceIndexName, target: targetIndexName }) })
+  }
+
+  const onCloneCompleted = async (targetIndexName: string) => {
+    await loadIndexes()
+    setSelectedName(targetIndexName)
+    await loadDefinition(targetIndexName)
+    await loadStats(targetIndexName)
+  }
+
   useEffect(() => {
     setIndexNames([])
     setSelectedName('')
@@ -402,6 +580,12 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
     void loadIndexes()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile, apiVersion])
+
+  useEffect(() => {
+    const preferred = (activeIndexName ?? '').trim()
+    if (!preferred) return
+    setSelectedName(preferred)
+  }, [activeIndexName])
 
   useEffect(() => {
     const name = selectedName.trim()
@@ -428,20 +612,8 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
 
         <div className="section__hint">{t('indexBuilderJsonEditHint')}</div>
 
-        {!canQuery && (
-          <div className="notice notice--error builder__notice">
-            {t('indexBuilderMissingProfileOrApiVersion')}
-          </div>
-        )}
-
-        {message && (
-          <div className={`notice notice--${message.type} builder__notice`}>
-            {message.text}
-          </div>
-        )}
-
-        <div className="builder__grid">
-          <div>
+        <div ref={splitContainerRef} className="builder__grid builder__grid--resizable" style={indexBuilderGridStyle}>
+          <div className="builder__listPane">
             <div className="builder__sidebarTitle">{format('indexBuilderIndexes', { count: indexNames.length })}</div>
             <div className="form form--compact">
               <label className="field field--full">
@@ -494,12 +666,62 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
             </div>
           </div>
 
-          <div>
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuemin={INDEX_BUILDER_SPLIT_MIN_PERCENT}
+            aria-valuemax={INDEX_BUILDER_SPLIT_MAX_PERCENT}
+            aria-valuenow={Math.round(indexListPaneWidthPercent)}
+            tabIndex={0}
+            className={'indexBuilderSplitter' + (isIndexBuilderSplitterDragging ? ' indexBuilderSplitter--active' : '')}
+            title={language === 'ja' ? 'インデックス一覧と右ペインの幅をドラッグで調整' : 'Drag to resize the index list and right pane'}
+            onPointerDown={(event) => {
+              event.preventDefault()
+              startIndexBuilderSplitterDrag(event.clientX)
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+              event.preventDefault()
+              setIndexListPaneWidthPercent((current) => {
+                const delta = event.key === 'ArrowLeft' ? -2 : 2
+                return clampIndexBuilderSplitPercent(current + delta)
+              })
+            }}
+          >
+            <span className="indexBuilderSplitter__bar" />
+          </div>
+
+          <div className="builder__mainPane">
             <div className="builder__editorTitle">
               {selectedName.trim()
                 ? format('indexBuilderDefinitionWithName', { name: selectedName })
                 : t('indexBuilderDefinition')}
             </div>
+
+            {!canQuery && (
+              <div className="notice notice--error builder__notice">
+                {t('indexBuilderMissingProfileOrApiVersion')}
+              </div>
+            )}
+
+            {message && (
+              <div className={`notice notice--${message.type} builder__notice`}>
+                {message.text}
+              </div>
+            )}
+
+            {indexPublish.publishError && (
+              <div className="notice notice--error builder__notice">
+                {indexPublish.publishError}
+                <button type="button" className="btn btn--sm" style={{ marginLeft: 8 }} onClick={indexPublish.clearMessages}>✕</button>
+              </div>
+            )}
+            {indexPublish.publishOkMessage && (
+              <div className="notice notice--success builder__notice">
+                {indexPublish.publishOkMessage}
+                <button type="button" className="btn btn--sm" style={{ marginLeft: 8 }} onClick={indexPublish.clearMessages}>✕</button>
+              </div>
+            )}
 
             {selectedName.trim() && isExistingSelectedIndex && (
               <div className="section__hint">
@@ -591,48 +813,111 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
               </div>
             </div>
 
-            <div className="section" style={{ marginTop: 12 }}>
-              {loadingDef && <div className="empty">{t('loading')}…</div>}
-              {!loadingDef && definition === null && (
-                <div className="empty">{t('indexBuilderSelectIndexHint')}</div>
-              )}
-              {!loadingDef && definition !== null && (
-                <div className="builder__jsonViewBox" data-guide-target="index-builder-editor">
-                  <div className="synonym-editor">
-                    <ExpandableCodeMirror
-                      t={t}
-                      modalTitle={t('indexBuilder')}
-                      value={editedJson}
-                      height="calc(100vh - 360px)"
-                      theme={codeMirrorTheme}
-                      basicSetup={{
-                        lineNumbers: true,
-                        foldGutter: true,
-                        highlightActiveLine: true,
-                      }}
-                      extensions={[json(), EditorView.lineWrapping]}
-                      onChange={(value) => setEditedJson(value)}
-                    />
+            <div className="indexBuilderSubTabs" role="tablist" aria-label={t('indexBuilder')}>
+              {indexBuilderRightTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={rightTab === tab.id}
+                  className={'btn btn--tab ' + (rightTab === tab.id ? 'btn--active' : '')}
+                  onClick={() => setRightTab(tab.id)}
+                  data-guide-target={indexBuilderRightTabGuideTargets[tab.id]}
+                >
+                  <i className={`bi ${tab.icon} icon--mr6`}></i>
+                  {t(tab.labelKey)}
+                </button>
+              ))}
+            </div>
+
+            {rightTab === 'schema' ? (
+              <div className="indexBuilderSubtabPanel" role="tabpanel">
+                <IndexSchemaOverview
+                  editedJson={editedJson}
+                  baselineJson={baselineJson}
+                  isExistingIndex={isExistingSelectedIndex}
+                  language={language}
+                  onApplyTemplate={onApplySchemaTemplate}
+                  onOpenConfigEditorTab={openConfigEditorTab}
+                  onOpenSynonymMapBuilder={onOpenSynonymMapBuilder}
+                  synonymMapNames={synonymMapNames}
+                  onChangeIndex={onChangeSchemaIndex}
+                />
+              </div>
+            ) : null}
+
+            {rightTab === 'config' ? (
+              <div className="indexBuilderSubtabPanel" role="tabpanel">
+                <IndexSchemaConfigurationEditorPanel
+                  editedJson={editedJson}
+                  baselineJson={baselineJson}
+                  isExistingIndex={isExistingSelectedIndex}
+                  language={language}
+                  activeTab={activeConfigEditorTab}
+                  onActiveTabChange={setActiveConfigEditorTab}
+                  onChangeIndex={onChangeSchemaIndex}
+                />
+              </div>
+            ) : null}
+
+            {rightTab === 'json' ? (
+              <div className="indexBuilderSubtabPanel indexBuilderJsonSection" role="tabpanel">
+                {loadingDef && <div className="empty">{t('loading')}…</div>}
+                {!loadingDef && definition === null && (
+                  <div className="empty">{t('indexBuilderSelectIndexHint')}</div>
+                )}
+                {!loadingDef && definition !== null && (
+                  <div className="builder__jsonViewBox">
+                    <div className="synonym-editor">
+                      <ExpandableCodeMirror
+                        t={t}
+                        modalTitle={t('indexBuilder')}
+                        value={editedJson}
+                        height="calc(100vh - 360px)"
+                        theme={codeMirrorTheme}
+                        basicSetup={{
+                          lineNumbers: true,
+                          foldGutter: true,
+                          highlightActiveLine: true,
+                        }}
+                        extensions={[json(), EditorView.lineWrapping]}
+                        onChange={(value) => setEditedJson(value)}
+                      />
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+            ) : null}
+
+            <div className="indexBuilderSubtabPanel" role="tabpanel" hidden={rightTab !== 'clone'}>
+              <IndexCloneAssistant
+                profile={profile}
+                apiVersion={apiVersion}
+                language={language}
+                indexNames={indexNames}
+                selectedIndexName={selectedName}
+                editedJson={editedJson}
+                isIndexNamesLoading={loadingList}
+                onReloadIndexNames={loadIndexes}
+                onApplyCloneJson={onApplyCloneJson}
+                onCloneCompleted={onCloneCompleted}
+              />
+            </div>
+
+            <div className="indexBuilderSubtabPanel" role="tabpanel" hidden={rightTab !== 'aliases'}>
+              <IndexAliasManager
+                profile={profile}
+                apiVersion={apiVersion}
+                language={language}
+                indexNames={indexNames}
+                selectedIndexName={selectedName}
+                isIndexNamesLoading={loadingList}
+                onReloadIndexNames={loadIndexes}
+              />
             </div>
           </div>
         </div>
 
-        {/* ── Publish error from the diff flow ──────────────────── */}
-        {indexPublish.publishError && (
-          <div className="notice notice--error builder__notice" style={{ marginTop: 8 }}>
-            {indexPublish.publishError}
-            <button type="button" className="btn btn--sm" style={{ marginLeft: 8 }} onClick={indexPublish.clearMessages}>✕</button>
-          </div>
-        )}
-        {indexPublish.publishOkMessage && (
-          <div className="notice notice--success builder__notice" style={{ marginTop: 8 }}>
-            {indexPublish.publishOkMessage}
-            <button type="button" className="btn btn--sm" style={{ marginLeft: 8 }} onClick={indexPublish.clearMessages}>✕</button>
-          </div>
-        )}
       </div>
 
       {/* ── Index Diff Modal ───────────────────────────────────── */}

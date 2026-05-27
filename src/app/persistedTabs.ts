@@ -15,10 +15,12 @@ export type PersistedTabs = {
   isKnowledgeBaseBuilderOpen?: boolean
   isSynonymMapBuilderOpen?: boolean
   isIndexBuilderOpen?: boolean
+  isIndexingPipelineBuilderOpen?: boolean
   isSkillPipelineBuilderOpen?: boolean
   isVectorOptimizerOpen?: boolean
   isSkillEditorOpen?: boolean
   isEvalDatasetGeneratorOpen?: boolean
+  isIndexVisualizerOpen?: boolean
 }
 
 export function normalizeCenterTab(raw: unknown, ids: string[]): CenterTab {
@@ -28,9 +30,7 @@ export function normalizeCenterTab(raw: unknown, ids: string[]): CenterTab {
   // Direct valid tabs
   if (value === 'builder' || value === 'latest' || value === 'portal') return value
   
-  // Tool tabs are treated as global UI state (open/close) rather than
-  // per-experiment navigation. Normalizing to 'builder' prevents switching
-  // experiments from unexpectedly jumping back to a tool tab.
+  // Tool tabs are valid active tabs and should survive browser refreshes.
   if (
     value === 'qps-tester' ||
     value === 'auto-tuning' ||
@@ -40,11 +40,13 @@ export function normalizeCenterTab(raw: unknown, ids: string[]): CenterTab {
     value === 'knowledge-base-builder' ||
     value === 'synonym-map-builder' ||
     value === 'index-builder' ||
+    value === 'indexing-pipeline-builder' ||
     value === 'skill-pipeline-builder' ||
     value === 'skill-editor' ||
-    value === 'eval-dataset-generator'
+    value === 'eval-dataset-generator' ||
+    value === 'index-visualizer'
   ) {
-    return 'builder'
+    return value
   }
   
   // Run tabs - validate run still exists
@@ -87,10 +89,12 @@ export function loadPersistedTabs(experimentId: string): PersistedTabs | null {
       isKnowledgeBaseBuilderOpen: parsed.isKnowledgeBaseBuilderOpen ?? false,
       isSynonymMapBuilderOpen: parsed.isSynonymMapBuilderOpen ?? false,
       isIndexBuilderOpen: parsed.isIndexBuilderOpen ?? false,
+      isIndexingPipelineBuilderOpen: parsed.isIndexingPipelineBuilderOpen ?? false,
       isSkillPipelineBuilderOpen: parsed.isSkillPipelineBuilderOpen ?? false,
       isVectorOptimizerOpen: parsed.isVectorOptimizerOpen ?? false,
       isSkillEditorOpen: parsed.isSkillEditorOpen ?? false,
       isEvalDatasetGeneratorOpen: parsed.isEvalDatasetGeneratorOpen ?? false,
+      isIndexVisualizerOpen: parsed.isIndexVisualizerOpen ?? false,
     }
   } catch {
     return null

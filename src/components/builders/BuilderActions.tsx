@@ -25,11 +25,23 @@ export type BuilderActionsProps = {
 export function BuilderActions(props: BuilderActionsProps) {
   const { t, builderMode, labMode, isExecuting, onExecute, onExecuteAllModes, onClearAll } = props
 
+  const executeLabel = (() => {
+    if (isExecuting) {
+      if (labMode === 'analyze') return t('analyzing')
+      if (labMode === 'autocomplete' || labMode === 'suggest') return t('typeaheadRealtimeTesting')
+      return t('searching')
+    }
+    if (labMode === 'analyze') return t('analyze')
+    if (labMode === 'autocomplete') return t('autocomplete')
+    if (labMode === 'suggest') return t('suggest')
+    return t('execute')
+  })()
+
   return (
     <div className="actions">
       <button type="button" className="btn btn--search" onClick={onExecute} disabled={isExecuting} data-guide-target="execute-button">
         <i className="bi bi-search icon--mr6"></i>
-        {isExecuting ? (labMode === 'analyze' ? t('analyzing') : t('searching')) : labMode === 'analyze' ? t('analyze') : t('execute')}
+        {executeLabel}
       </button>
       {builderMode === 'form' && labMode === 'semantic-vector' && (
         <button type="button" className="btn btn--multi-mode" onClick={onExecuteAllModes} disabled={isExecuting}>

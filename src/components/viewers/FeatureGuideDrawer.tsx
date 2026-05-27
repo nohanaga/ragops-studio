@@ -13,6 +13,7 @@ import { useEffect, useRef } from 'react'
 import type { Language } from '../../lib/translations'
 import { useGuide } from '../../contexts/GuideContext'
 import type { PortalCard } from '../../app/featurePortalCards'
+import { focusGuideTargetElement } from './featureGuideFocus'
 
 export type FeatureGuideDrawerProps = {
   language: Language
@@ -57,6 +58,7 @@ export function FeatureGuideDrawer({ language, onLaunch }: FeatureGuideDrawerPro
         } catch {
           /* ignore */
         }
+        focusGuideTargetElement(element)
       } else if (attempt < 20) {
         rafId = window.setTimeout(() => tryLocate(attempt + 1), 100) as unknown as number
       }

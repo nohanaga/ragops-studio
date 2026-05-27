@@ -1,8 +1,8 @@
 import type { Dispatch, SetStateAction } from 'react'
 import { useEffect } from 'react'
-import type { AgenticFormState, AnalyzeFormState, BuilderMode, LabMode, SearchFormState } from '../types'
+import type { AgenticFormState, AnalyzeFormState, AutocompleteFormState, BuilderMode, LabMode, SearchFormState, SuggestFormState } from '../types'
 import type { Language } from '../lib/translations'
-import { buildAgenticBodyFromForm, buildAnalyzeBodyFromForm, buildSearchBodyFromForm } from '../utils/appRequestBodies'
+import { buildAgenticBodyFromForm, buildAnalyzeBodyFromForm, buildAutocompleteBodyFromForm, buildSearchBodyFromForm, buildSuggestBodyFromForm } from '../utils/appRequestBodies'
 
 export function useRequestJsonSync(params: {
   builderMode: BuilderMode
@@ -10,6 +10,8 @@ export function useRequestJsonSync(params: {
   searchForm: SearchFormState
   agenticForm: AgenticFormState
   analyzeForm: AnalyzeFormState
+  autocompleteForm: AutocompleteFormState
+  suggestForm: SuggestFormState
   language: Language
   isPreviewApiVersion: boolean
 
@@ -23,6 +25,8 @@ export function useRequestJsonSync(params: {
     searchForm,
     agenticForm,
     analyzeForm,
+    autocompleteForm,
+    suggestForm,
     language,
     isPreviewApiVersion,
     requestJson,
@@ -40,6 +44,12 @@ export function useRequestJsonSync(params: {
       } else if (labMode === 'analyze') {
         const body = buildAnalyzeBodyFromForm(analyzeForm)
         setRequestJson(JSON.stringify(body ?? {}, null, 2))
+      } else if (labMode === 'autocomplete') {
+        const body = buildAutocompleteBodyFromForm(autocompleteForm)
+        setRequestJson(JSON.stringify(body ?? {}, null, 2))
+      } else if (labMode === 'suggest') {
+        const body = buildSuggestBodyFromForm(suggestForm)
+        setRequestJson(JSON.stringify(body ?? {}, null, 2))
       } else {
         const body = buildSearchBodyFromForm(labMode, searchForm, language, isPreviewApiVersion)
         setRequestJson(JSON.stringify(body ?? {}, null, 2))
@@ -50,6 +60,7 @@ export function useRequestJsonSync(params: {
   }, [
     agenticForm,
     analyzeForm,
+    autocompleteForm,
     builderMode,
     isPreviewApiVersion,
     labMode,
@@ -57,6 +68,7 @@ export function useRequestJsonSync(params: {
     searchForm,
     setRequestJson,
     setUiError,
+    suggestForm,
   ])
 
   // Ensure a minimal starter JSON is present when empty.
@@ -91,6 +103,53 @@ export function useRequestJsonSync(params: {
             captions: 'extractive',
             answers: 'extractive|count-3',
             vectorQueries: [],
+          },
+          null,
+          2,
+        ),
+      )
+      return
+    }
+
+    if (labMode === 'analyze') {
+      setRequestJson(
+        JSON.stringify(
+          {
+            text: '...',
+            analyzer: 'standard.lucene',
+          },
+          null,
+          2,
+        ),
+      )
+      return
+    }
+
+    if (labMode === 'autocomplete') {
+      setRequestJson(
+        JSON.stringify(
+          {
+            search: '...',
+            suggesterName: 'sg',
+            autocompleteMode: 'oneTermWithContext',
+            top: 5,
+          },
+          null,
+          2,
+        ),
+      )
+      return
+    }
+
+    if (labMode === 'suggest') {
+      setRequestJson(
+        JSON.stringify(
+          {
+            search: '...',
+            suggesterName: 'sg',
+            top: 5,
+            highlightPreTag: '<em>',
+            highlightPostTag: '</em>',
           },
           null,
           2,

@@ -10,10 +10,10 @@ import { createContext, useContext, useState, useMemo, useCallback, useEffect, t
 import type { Node, Edge } from '@xyflow/react'
 import type { AppSettings, ConnectionProfile, Run } from '../lib/model'
 import type { JsonValue } from '../lib/aiSearchRest'
-import type { ThemePreference, LabMode, BuilderMode, SearchFormState, AgenticFormState, AnalyzeFormState, LatestResponse, UiLogEntry } from '../types'
+import type { ThemePreference, LabMode, BuilderMode, SearchFormState, AgenticFormState, AnalyzeFormState, AutocompleteFormState, SuggestFormState, LatestResponse, UiLogEntry } from '../types'
 import type { Language } from '../lib/translations'
 import { getInitialThemePreference, getBrowserLanguage } from '../utils'
-import { DEFAULT_SEARCH_FORM } from '../app/defaults'
+import { DEFAULT_AUTOCOMPLETE_FORM, DEFAULT_SEARCH_FORM, DEFAULT_SUGGEST_FORM } from '../app/defaults'
 import { RIGHT_PANE_COLLAPSED_KEY } from '../app/constants'
 import { translations } from '../lib/translations'
 import { deleteSkillPipeline, getSkillPipeline, listSkillPipelines, updateSkillEditorDrafts as persistDraftsToSkillset, upsertSkillPipeline, type PersistedSkillPipelineItem } from '../app/persistedSkillPipeline'
@@ -348,6 +348,8 @@ type ModalStateContextValue = {
   setIsSynonymMapBuilderOpen: Dispatch<SetStateAction<boolean>>
   isIndexBuilderOpen: boolean
   setIsIndexBuilderOpen: Dispatch<SetStateAction<boolean>>
+  isIndexingPipelineBuilderOpen: boolean
+  setIsIndexingPipelineBuilderOpen: Dispatch<SetStateAction<boolean>>
   isSkillPipelineBuilderOpen: boolean
   setIsSkillPipelineBuilderOpen: Dispatch<SetStateAction<boolean>>
   isVectorOptimizerOpen: boolean
@@ -360,6 +362,8 @@ type ModalStateContextValue = {
   setSkillEditorLinkedNodeId: Dispatch<SetStateAction<string | null>>
   isEvalDatasetGeneratorOpen: boolean
   setIsEvalDatasetGeneratorOpen: Dispatch<SetStateAction<boolean>>
+  isIndexVisualizerOpen: boolean
+  setIsIndexVisualizerOpen: Dispatch<SetStateAction<boolean>>
   /** Phase 3: handoff payload from EDAG to AutoTuning ("Send to AutoTuning"). */
   pendingAutoTuningJsonl: { fileName: string; text: string } | null
   setPendingAutoTuningJsonl: Dispatch<
@@ -377,12 +381,14 @@ export function ModalStateProvider(props: { children: ReactNode }) {
   const [isKnowledgeBaseBuilderOpen, setIsKnowledgeBaseBuilderOpen] = useState(false)
   const [isSynonymMapBuilderOpen, setIsSynonymMapBuilderOpen] = useState(false)
   const [isIndexBuilderOpen, setIsIndexBuilderOpen] = useState(false)
+  const [isIndexingPipelineBuilderOpen, setIsIndexingPipelineBuilderOpen] = useState(false)
   const [isSkillPipelineBuilderOpen, setIsSkillPipelineBuilderOpen] = useState(false)
   const [isVectorOptimizerOpen, setIsVectorOptimizerOpen] = useState(false)
   const [isFilterBuilderOpen, setIsFilterBuilderOpen] = useState(false)
   const [isSkillEditorOpen, setIsSkillEditorOpen] = useState(false)
   const [skillEditorLinkedNodeId, setSkillEditorLinkedNodeId] = useState<string | null>(null)
   const [isEvalDatasetGeneratorOpen, setIsEvalDatasetGeneratorOpen] = useState(false)
+  const [isIndexVisualizerOpen, setIsIndexVisualizerOpen] = useState(false)
   const [pendingAutoTuningJsonl, setPendingAutoTuningJsonl] = useState<
     { fileName: string; text: string } | null
   >(null)
@@ -403,6 +409,8 @@ export function ModalStateProvider(props: { children: ReactNode }) {
       setIsSynonymMapBuilderOpen,
       isIndexBuilderOpen,
       setIsIndexBuilderOpen,
+      isIndexingPipelineBuilderOpen,
+      setIsIndexingPipelineBuilderOpen,
       isSkillPipelineBuilderOpen,
       setIsSkillPipelineBuilderOpen,
       isVectorOptimizerOpen,
@@ -415,6 +423,8 @@ export function ModalStateProvider(props: { children: ReactNode }) {
       setSkillEditorLinkedNodeId,
       isEvalDatasetGeneratorOpen,
       setIsEvalDatasetGeneratorOpen,
+      isIndexVisualizerOpen,
+      setIsIndexVisualizerOpen,
       pendingAutoTuningJsonl,
       setPendingAutoTuningJsonl,
     }),
@@ -426,12 +436,14 @@ export function ModalStateProvider(props: { children: ReactNode }) {
       isKnowledgeBaseBuilderOpen,
       isSynonymMapBuilderOpen,
       isIndexBuilderOpen,
+      isIndexingPipelineBuilderOpen,
       isSkillPipelineBuilderOpen,
       isVectorOptimizerOpen,
       isFilterBuilderOpen,
       isSkillEditorOpen,
       skillEditorLinkedNodeId,
       isEvalDatasetGeneratorOpen,
+      isIndexVisualizerOpen,
       pendingAutoTuningJsonl,
     ]
   )
@@ -462,6 +474,10 @@ type BuilderStateContextValue = {
   setAgenticForm: Dispatch<SetStateAction<AgenticFormState>>
   analyzeForm: AnalyzeFormState
   setAnalyzeForm: Dispatch<SetStateAction<AnalyzeFormState>>
+  autocompleteForm: AutocompleteFormState
+  setAutocompleteForm: Dispatch<SetStateAction<AutocompleteFormState>>
+  suggestForm: SuggestFormState
+  setSuggestForm: Dispatch<SetStateAction<SuggestFormState>>
   requestJson: string
   setRequestJson: Dispatch<SetStateAction<string>>
   runNote: string
@@ -495,6 +511,8 @@ export function BuilderStateProvider(props: { children: ReactNode; language: Lan
     charFilters: '',
     tokenFilters: '',
   })
+  const [autocompleteForm, setAutocompleteForm] = useState<AutocompleteFormState>(() => ({ ...DEFAULT_AUTOCOMPLETE_FORM }))
+  const [suggestForm, setSuggestForm] = useState<SuggestFormState>(() => ({ ...DEFAULT_SUGGEST_FORM }))
   const [requestJson, setRequestJson] = useState('')
   const [runNote, setRunNote] = useState('')
   const [indexName, setIndexName] = useState('')
@@ -512,6 +530,10 @@ export function BuilderStateProvider(props: { children: ReactNode; language: Lan
       setAgenticForm,
       analyzeForm,
       setAnalyzeForm,
+      autocompleteForm,
+      setAutocompleteForm,
+      suggestForm,
+      setSuggestForm,
       requestJson,
       setRequestJson,
       runNote,
@@ -521,7 +543,7 @@ export function BuilderStateProvider(props: { children: ReactNode; language: Lan
       knowledgeBaseName,
       setKnowledgeBaseName,
     }),
-    [labMode, builderMode, searchForm, agenticForm, analyzeForm, requestJson, runNote, indexName, knowledgeBaseName]
+    [labMode, builderMode, searchForm, agenticForm, analyzeForm, autocompleteForm, suggestForm, requestJson, runNote, indexName, knowledgeBaseName]
   )
 
   return <BuilderStateContext.Provider value={value}>{props.children}</BuilderStateContext.Provider>

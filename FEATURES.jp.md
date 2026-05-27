@@ -30,6 +30,7 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 - **スコアリング**: `scoringProfile`, `scoringParameters`
 - **高度なオプション**: `minimumCoverage`, `scoringStatistics`, `sessionId`
 - **フォーム/JSONモード切替**: GUIフォームまたは生JSONでリクエスト編集
+- **検索結果ドキュメント操作**: Results タブから返却されたインデックスドキュメントを編集または削除
 
 ![](./docs/images/screenshot2_jp.png)
 
@@ -79,11 +80,27 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 #### Index Builder（インデックスビルダー）
 - **インデックス一覧**: 接続中のサービスの全インデックスを表示
 - **インデックス作成/更新**: JSON エディターでスキーマを編集して作成・更新
+- **Schema Workbench**: Field Matrix で `key`, `searchable`, `filterable`, `sortable`, `facetable`, `retrievable`、Lexical settings、Synonym maps、ベクトル dimensions / profile を編集
+- **インデックスレベル設定エディター**: Semantic、Scoring Profiles、Suggesters、Analyzers、Normalizers、Vector profiles をフォームで編集し、JSON に同期
+- **差分確認付き公開**: 既存インデックスを更新する前に、セマンティック差分と正規化 JSON 差分を確認
+- **Clone Assistant**: 既存インデックスから置き換え用の定義を作成し、破壊的なスキーマ変更が必要な再構築を支援
 - **インデックス削除**: 既存インデックスの削除
 - **統計情報取得**: `documentCount`, `storageSize`, `vectorIndexSize` の表示
+- **Alias管理**: インデックスAliasの作成・更新・削除・参照先切り替えにより、安全なインデックス入れ替えを支援
 - **JSON インポート/エクスポート**: ファイルからのインポート、クリップボードへのエクスポート
 
 ![](./docs/images/screenshot6_jp.png)
+
+
+#### Indexing Pipeline Builder（インデックス取り込みビルダー）
+- **パイプラインハブ**: 既存インデクサーを読み込み、関連するデータソースとターゲットインデックスを 1 つのワークスペースで確認
+- **ノード別インスペクター**: Pipeline、Source、Target index、Indexer、Run tracker、Raw JSON を文脈を保ったまま切り替え
+- **ローカルドラフトライブラリ**: パイプラインドラフトの新規作成、保存、複製、読み込み、削除に対応し、保存前にデータソースのシークレットをマスキング
+- **データソース設計**: ソース種別、接続、認証、スコープを設定し、Azure portal の Storage Account URL 貼り付け、接続文字列、System-assigned Managed Identity、User-assigned Managed Identity を選択可能
+- **インデクサー設定**: アイデンティティ、スケジュール、フィールドマッピング、出力フィールドマッピング、ソース固有パラメーターを、ターゲット field 候補と検証 notice 付きで編集
+- **Raw JSON と Checks**: data source / index / indexer の最終 payload を確認・直接編集し、公開前に検証 issue を確認
+- **Publish & Run pipeline**: 既存リソースとの差分を確認してから、データソース公開 → インデックス作成または更新 → インデクサー公開 → インデクサー実行 → ステータス更新を追跡
+- **ターゲット検証**: 取り込み後のドキュメント件数、サンプルドキュメント、キー フィールド、マッピング済みフィールドを確認
 
 
 #### Knowledge Source Builder（ナレッジソースビルダー）
@@ -235,6 +252,17 @@ RAGOps Studio を離れることなく、Azure AI Search の Custom Skill をブ
 - **結果保存**: 実験ランとしてテスト結果を保存
 
 ![](./docs/images/screenshot10_jp.png)
+
+#### Index Cluster Visualizer（インデックスクラスタ可視化）
+- **EFLC ベースのインデックス探索**: 既存のベクトル field をスキャンし、Embedding-First Lightweight Clustering で似た文書グループを発見
+- **Adaptive Sampling**: チャンク型、独立型、不明のインデックス構造を検出し、特定ソース文書への偏りを抑えるサンプリング戦略を選択
+- **クラスタリングと 2D 射影**: K-Means++、任意の Macro → Micro 階層クラスタリング、PCA、UMAP、t-SNE、PCA → UMAP による 2D 射影を実行
+- **クラスタ散布図とドキュメント閲覧**: 散布図でクラスタをホバーまたは選択し、クラスタ内の所属ドキュメントを確認
+- **クラスタ関係グラフ**: セントロイド類似度グラフ、ブリッジ文書、共通ファセット/キーワード、エッジ信頼度を確認し、マクログラフからマイクロクラスタグラフへドリルダウン
+- **EFLC v1/v2 要約方式**: 軽量な v1 を維持しつつ、v2 では Role-aware evidence、複数ファセット命名、兄弟クラスタとの差分となる inclusion / exclusion criteria、ETA トポロジー診断、HSA による bottom-up マクロ要約を利用
+- **メタインデックス生成**: クラスタ要約、ファセット、条件、セントロイド情報、Trace、token usage を Azure AI Search のメタインデックスに保存
+- **Global → Local 2 段階検索**: 先にメタインデックスを検索し、macro / micro / facet / question node を経由して候補を絞り込み、元インデックスで Local 検索を実行。Trace と Stats も確認可能
+- **可視化データと Meta JSON の永続化**: `.ragvis.json` は座標やグラフ構造、`.ragmeta.json` は LLM 要約、Trace、token usage、再利用可能な Meta 状態として保存
 
 
 ### Eval Dataset Generator（評価データセットジェネレーター）

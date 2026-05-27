@@ -645,6 +645,30 @@ export default defineConfig({
             return 'bootstrap'
           }
 
+          // CodeMirror family (lazy-loaded with SkillPipelineBuilder / SkillCodeEditor / IndexBuilder)
+          if (
+            id.includes('/@codemirror/') ||
+            id.includes('/@uiw/') ||
+            id.includes('/@lezer/')
+          ) {
+            return 'codemirror'
+          }
+
+          // React Flow + Dagre (SkillPipelineBuilder only)
+          if (id.includes('/@xyflow/') || id.includes('/dagre/')) {
+            return 'xyflow'
+          }
+
+          // Diff library (PublishDiffModal only)
+          if (id.includes('/node_modules/diff/')) {
+            return 'diff-vendor'
+          }
+
+          // DOMPurify (ResultViewPanel, HTML preview)
+          if (id.includes('/dompurify/')) {
+            return 'dompurify'
+          }
+
           // Let Rollup decide for everything else.
           return undefined
         },

@@ -15,9 +15,11 @@ export function useCenterTabSync(params: {
   setIsKnowledgeBaseBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsSynonymMapBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsIndexBuilderOpen: Dispatch<SetStateAction<boolean>>
+  setIsIndexingPipelineBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsSkillPipelineBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsVectorOptimizerOpen: Dispatch<SetStateAction<boolean>>
   setIsEvalDatasetGeneratorOpen: Dispatch<SetStateAction<boolean>>
+  setIsIndexVisualizerOpen: Dispatch<SetStateAction<boolean>>
 }) {
   const {
     centerTab,
@@ -31,9 +33,11 @@ export function useCenterTabSync(params: {
     setIsKnowledgeBaseBuilderOpen,
     setIsSynonymMapBuilderOpen,
     setIsIndexBuilderOpen,
+    setIsIndexingPipelineBuilderOpen,
     setIsSkillPipelineBuilderOpen,
     setIsVectorOptimizerOpen,
     setIsEvalDatasetGeneratorOpen,
+    setIsIndexVisualizerOpen,
   } = params
 
   // Keep centerTab pointing to something valid.
@@ -82,6 +86,9 @@ export function useCenterTabSync(params: {
       case 'index-builder':
         setIsIndexBuilderOpen(true)
         break
+      case 'indexing-pipeline-builder':
+        setIsIndexingPipelineBuilderOpen(true)
+        break
       case 'skill-pipeline-builder':
         setIsSkillPipelineBuilderOpen(true)
         break
@@ -91,11 +98,16 @@ export function useCenterTabSync(params: {
       case 'eval-dataset-generator':
         setIsEvalDatasetGeneratorOpen(true)
         break
+      case 'index-visualizer':
+        setIsIndexVisualizerOpen(true)
+        break
     }
   }, [
     centerTab,
     setIsAutoTuningOpen,
     setIsIndexBuilderOpen,
+    setIsIndexingPipelineBuilderOpen,
+    setIsIndexVisualizerOpen,
     setIsSkillPipelineBuilderOpen,
     setIsKnowledgeBaseBuilderOpen,
     setIsKnowledgeSourceBuilderOpen,

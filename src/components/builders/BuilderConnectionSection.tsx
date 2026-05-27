@@ -54,6 +54,7 @@ export function BuilderConnectionSection(props: BuilderConnectionSectionProps) {
               value={activeProfile?.apiVersion ?? ''}
               onChange={(e) => patchActiveProfile({ apiVersion: e.target.value })}
             >
+              <option value="2026-04-01">2026-04-01</option>
               <option value="2025-11-01-preview">2025-11-01-preview</option>
               <option value="2025-09-01">2025-09-01</option>
               <option value="2025-05-01-preview">2025-05-01-preview</option>

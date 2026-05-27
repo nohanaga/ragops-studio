@@ -316,7 +316,28 @@ Vector Optimizer は、ベクトル設定候補の**理論的サイズ（バイ�
 
 https://qiita.com/nohanaga/items/dcc933fc185b0e82df58#%E3%83%99%E3%82%AF%E3%83%88%E3%83%AB%E6%A4%9C%E7%B4%A2%E6%9C%80%E9%81%A9%E5%8C%96%E6%88%A6%E7%95%A5%E3%81%AB%E9%96%A2%E3%81%99%E3%82%8B-ga
 
-## 5. Builder ツール — 統合管理環境
+## 5. Index Cluster Visualizer — インデックスの構造を理解する
+
+Index Cluster Visualizer は、大規模なベクトルインデックスを単なる文書一覧ではなく、意味的なまとまりとして理解するためのツールです。既存のベクトル field をスキャンし、類似文書をクラスタ化し、2D に射影したうえで、そのクラスタを検索で再利用できる資産に変換します。
+
+**EFLC（Embedding-First Lightweight Clustering）**
+- Adaptive Sampling により、チャンク型、独立型、不明のインデックス構造を検出し、同一ソース文書のチャンクに偏らないサンプリングを実行
+- K-Means++、任意の Macro → Micro 階層クラスタリング、PCA / UMAP / t-SNE / PCA → UMAP による 2D 射影
+- 散布図上でのクラスタハイライト、ドキュメントドリルダウン、クラスタ内メンバー閲覧
+
+**クラスタグラフとメタインデックス**
+- セントロイド類似度、ブリッジ文書、共通ファセット/キーワード、エッジ信頼度に基づくクラスタ関係グラフ
+- 階層クラスタリング時は、マクログラフからマイクロクラスタグラフへドリルダウン
+- 軽量な EFLC v1 要約に加え、EFLC v2 では Role-aware evidence、複数ファセット、兄弟クラスタとの差分となる inclusion / exclusion criteria、ETA トポロジー診断、HSA によるマクロ要約を利用
+- クラスタ要約、ファセット、条件、セントロイド情報、Trace、token usage を Azure AI Search のメタインデックスに保存
+
+**Global → Local 2 段階検索**
+- まずメタインデックスを検索し、関連する macro / micro / facet / question node を特定
+- 絞り込まれた候補集合を使って、元インデックスに対して Local 検索を実行
+- Trace と Stats で候補削減、Global/Local の処理時間、ルーティング判断を確認
+- `.ragvis.json` は可視化構造、`.ragmeta.json` は LLM 要約、Trace、token usage、再利用可能な Meta 状態を保存
+
+## 6. Builder ツール — 統合管理環境
 
 ### Index Builder
 ![image.png](./images/screenshot6_jp.png)
@@ -324,10 +345,27 @@ https://qiita.com/nohanaga/items/dcc933fc185b0e82df58#%E3%83%99%E3%82%AF%E3%83%8
 **完全なインデックス管理**
 - 接続サービスのすべてのインデックスをリスト表示
 - JSON エディタでスキーマを直接編集（構文ハイライト、エラー検出）
+- Field Matrix を備えた Schema Workbench により、field ごとの属性、Lexical settings、Synonym maps、ベクトル dimensions / profile を編集
+- Semantic、Scoring Profiles、Suggesters、Analyzers、Normalizers、Vector profiles のインデックスレベル設定エディター
 - すべての Vector Search 設定をサポート（HNSW、Quantization、MRL）
 - 統計情報（`documentCount`、`storageSize`、`vectorIndexSize`）をリアルタイム表示
+- 既存インデックス更新前の差分確認付き公開
+- スキーマ変更に再構築が必要な場合に、置き換え用インデックス定義を作成する Clone Assistant
+- アプリケーションが参照する Alias の参照先を切り替える、安全なインデックス入れ替え
 - CRUD 操作: GUI からの作成、更新、削除
 - Import/Export: JSON ファイルからのインポート、クリップボードへのエクスポート
+
+### Indexing Pipeline Builder
+
+Indexing Pipeline Builder は、data source → indexer → target index を 1 つの運用単位として扱います。各 Azure AI Search リソースを個別に編集するのではなく、依存関係、JSON payload、公開前の差分、実行状態を同じワークスペースで管理できます。
+
+- Resource Hub で既存インデクサーを選択し、参照先のデータソースとターゲットインデックスをまとめて読み込み
+- Pipeline、Source、Target index、Indexer、Run tracker、Raw JSON のノード別インスペクター
+- New / Save / Clone / Load / Delete を明示的に操作するローカルドラフトライブラリと、ブラウザ保存前のシークレットマスキング
+- 接続文字列、System-assigned Managed Identity、User-assigned Managed Identity、Storage Account URL 正規化に対応したデータソース設計
+- ターゲット field 候補、検証 notice、ソース固有パラメーター、schedule、disabled、skillset 参照を扱うインデクサーマッピング編集
+- Publish & Run pipeline では、まずリソース差分を確認し、データソース、インデックス、インデクサーを公開してから実行とステータス更新を追跡
+- 取り込み後に index stats、サンプルドキュメント、キー field、マッピング済み field を確認するターゲット検証
 
 ### Knowledge Base & Knowledge Source Builder
 

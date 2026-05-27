@@ -6,6 +6,33 @@
 
 import type { LlmProviderType } from './llmProvider'
 
+/**
+ * Named LLM model configuration profile.
+ *
+ * Users can define multiple profiles (e.g. "GPT-4o", "GPT-4.1-mini") and
+ * select one per feature.  Stored in AppSettings.llmProfiles.
+ */
+/** Model category. `'chat'` for Chat Completions, `'embeddings'` for Embeddings. */
+export type LlmModelType = 'chat' | 'embeddings'
+
+export interface LlmModelProfile {
+  /** Unique ID (UUID). */
+  id: string
+  /** User-facing display name. */
+  name: string
+  provider: LlmProviderType
+  endpoint: string
+  authMode: 'apiKey' | 'bearer'
+  apiKey: string
+  bearerToken: string
+  deployment: string
+  apiVersion: string
+  /** Max input tokens override. When undefined/0, auto-detected from model name. */
+  maxInputTokens?: number
+  /** Model category. Defaults to `'chat'` when undefined (backward compat). */
+  modelType?: LlmModelType
+}
+
 export type AuthType = 'apiKey' | 'bearer';
 
 export type RunStatus = 'success' | 'error' | 'canceled';
@@ -20,6 +47,8 @@ export type RunType =
   | 'auto_tuning'
   | 'agentic_retrieve'
   | 'analyze'
+  | 'autocomplete'
+  | 'suggest'
   | 'kb_create'
   | 'kb_update'
   | 'kb_delete'
@@ -32,6 +61,7 @@ export type RunType =
 export type IsoDateTime = string;
 
 export type SearchApiVersion =
+  | '2026-04-01'
   | '2025-11-01-preview'
   | '2025-09-01'
   | '2025-05-01-preview'
@@ -122,20 +152,21 @@ export interface AppSettings {
   version: 1;
   activeProfileId: string;
   profiles: Record<string, ConnectionProfile>;
+  /** Named LLM model profiles (replaces flat llmProvider/openAi* fields). */
+  llmProfiles?: LlmModelProfile[];
+  /** ID of the default LLM profile used when a feature has no explicit selection. */
+  defaultLlmProfileId?: string;
+  /** @deprecated — migrated into llmProfiles[0] on first load */
   llmProvider?: LlmProviderType;
-  openAiEndpoint?: string;
-  openAiApiKey?: string;
-  openAiAuthMode?: 'apiKey' | 'bearer';
-  openAiBearerToken?: string;
+  /** @deprecated */ openAiEndpoint?: string;
+  /** @deprecated */ openAiApiKey?: string;
+  /** @deprecated */ openAiAuthMode?: 'apiKey' | 'bearer';
+  /** @deprecated */ openAiBearerToken?: string;
+  /** @deprecated */ llmDeployment?: string;
+  /** @deprecated */ llmApiVersion?: string;
   language?: 'ja' | 'en';
   displayTitleFields?: string;
   displayTextFields?: string;
-  /**
-   * JSON-serialized snapshot of the Eval Dataset Generator (EDAG) form
-   * (see {@link ../app/persistedEvalDatasetForm.ts}). Stored as a string to
-   * avoid coupling AppSettings to the EDAG-specific shape, and to keep the
-   * type stable across schema additions.
-   */
   evalDatasetFormJson?: string;
 }
 

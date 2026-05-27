@@ -10,11 +10,11 @@ describe('app/persistedTabs', () => {
     expect(normalizeCenterTab('latest', [])).toBe('latest')
   })
 
-  it('normalizeCenterTab maps tool tabs to builder', () => {
-    expect(normalizeCenterTab('index-builder', [])).toBe('builder')
-    expect(normalizeCenterTab('synonym-map-builder', [])).toBe('builder')
-    expect(normalizeCenterTab('knowledge-base-builder', [])).toBe('builder')
-    expect(normalizeCenterTab('qps-tester', [])).toBe('builder')
+  it('normalizeCenterTab keeps tool tabs active', () => {
+    expect(normalizeCenterTab('index-builder', [])).toBe('index-builder')
+    expect(normalizeCenterTab('synonym-map-builder', [])).toBe('synonym-map-builder')
+    expect(normalizeCenterTab('knowledge-base-builder', [])).toBe('knowledge-base-builder')
+    expect(normalizeCenterTab('qps-tester', [])).toBe('qps-tester')
   })
 
   it('normalizeCenterTab validates run tabs against selected ids', () => {
@@ -23,7 +23,7 @@ describe('app/persistedTabs', () => {
     expect(normalizeCenterTab('run:missing', [])).toBe('builder')
   })
 
-  it('loadPersistedTabs normalizes stored tool centerTab', () => {
+  it('loadPersistedTabs restores stored tool centerTab', () => {
     localStorage.setItem(
       'tabs:exp1',
       JSON.stringify({
@@ -35,6 +35,6 @@ describe('app/persistedTabs', () => {
 
     const restored = loadPersistedTabs('exp1')
     expect(restored).not.toBeNull()
-    expect(restored!.centerTab).toBe('builder')
+    expect(restored!.centerTab).toBe('index-builder')
   })
 })

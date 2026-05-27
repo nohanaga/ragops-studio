@@ -10,13 +10,14 @@ import type React from 'react'
 import type { AppSettings, ConnectionProfile } from '../../lib/model'
 import type { Language } from '../../lib/translations'
 import { translations } from '../../lib/translations'
-import type { AgenticFormState, AnalyzeFormState, BuilderMode, KnowledgeSourceInfo, LabMode, SearchFormState, UiLogEntry } from '../../types'
+import type { AgenticFormState, AnalyzeFormState, AutocompleteFormState, BuilderMode, KnowledgeSourceInfo, LabMode, SearchFormState, SuggestFormState, UiLogEntry } from '../../types'
 import { AgenticBuilderForm } from './AgenticBuilderForm'
 import { AnalyzeBuilderForm } from './AnalyzeBuilderForm'
 import { BuilderActions } from './BuilderActions'
 import { BuilderConnectionSection } from './BuilderConnectionSection'
 import { BuilderErrorNotice } from './BuilderErrorNotice'
 import { ClassicSearchBuilderForm } from './ClassicSearchBuilderForm'
+import { TypeaheadBuilderForm } from './TypeaheadBuilderForm'
 import { RequestJsonEditor } from '../viewers/RequestJsonEditor'
 
 type TranslationKey = keyof typeof translations.ja
@@ -47,6 +48,8 @@ export type BuilderTabPaneProps = {
   indexFilterText: string
   setIndexFilterText: React.Dispatch<React.SetStateAction<string>>
   filteredIndexNameOptions: string[]
+  isIndexNamesLoading: boolean
+  onReloadIndexNames: () => void | Promise<void>
   openIndexInspector: (name?: string) => void
   onOpenIndexBuilderTab: () => void
 
@@ -71,10 +74,16 @@ export type BuilderTabPaneProps = {
   setAgenticForm: React.Dispatch<React.SetStateAction<AgenticFormState>>
   analyzeForm: AnalyzeFormState
   setAnalyzeForm: React.Dispatch<React.SetStateAction<AnalyzeFormState>>
+  autocompleteForm: AutocompleteFormState
+  setAutocompleteForm: React.Dispatch<React.SetStateAction<AutocompleteFormState>>
+  suggestForm: SuggestFormState
+  setSuggestForm: React.Dispatch<React.SetStateAction<SuggestFormState>>
 
   // Request Builder schema helpers
   isLoadingRequestBuilderSchema: boolean
+  requestBuilderSearchableFieldNames: string[]
   requestBuilderVectorFieldNames: string[]
+  requestBuilderSuggesterNames: string[]
 
   // Filter Builder modal opener
   setIsFilterBuilderOpen: React.Dispatch<React.SetStateAction<boolean>>
@@ -154,6 +163,8 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
     indexFilterText,
     setIndexFilterText,
     filteredIndexNameOptions,
+    isIndexNamesLoading,
+    onReloadIndexNames,
     openIndexInspector,
     onOpenIndexBuilderTab,
     indexDropdownToggleRef,
@@ -174,8 +185,14 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
     setAgenticForm,
     analyzeForm,
     setAnalyzeForm,
+    autocompleteForm,
+    setAutocompleteForm,
+    suggestForm,
+    setSuggestForm,
     isLoadingRequestBuilderSchema,
+    requestBuilderSearchableFieldNames,
     requestBuilderVectorFieldNames,
+    requestBuilderSuggesterNames,
     setIsFilterBuilderOpen,
     analyzerFilterText,
     setAnalyzerFilterText,
@@ -218,6 +235,19 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
     onExecuteAllModes,
     onClearAll,
   } = props
+
+  const renderIndexNamesReloadButton = () => (
+    <button
+      type="button"
+      className="btn btn--icon indexSelectReloadBtn"
+      onClick={() => void onReloadIndexNames()}
+      disabled={!activeProfile || !effectiveApiVersion.trim() || isIndexNamesLoading}
+      title={t('indexBuilderRefreshIndexListTitle')}
+      aria-label={t('indexBuilderRefreshIndexListTitle')}
+    >
+      <i className={isIndexNamesLoading ? 'bi bi-arrow-repeat spin' : 'bi bi-arrow-clockwise'} aria-hidden="true" />
+    </button>
+  )
 
   return (
     <>
@@ -263,6 +293,20 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
           >
             Analyze
           </button>
+          <button
+            type="button"
+            className={'btn btn--tab ' + (labMode === 'autocomplete' ? 'btn--active' : '')}
+            onClick={() => setLabMode('autocomplete')}
+          >
+            {t('autocomplete')}
+          </button>
+          <button
+            type="button"
+            className={'btn btn--tab ' + (labMode === 'suggest' ? 'btn--active' : '')}
+            onClick={() => setLabMode('suggest')}
+          >
+            {t('suggest')}
+          </button>
         </div>
 
         <div className="form form--compact">
@@ -270,50 +314,53 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
             <label className="field" data-guide-target="index-dropdown">
               <span className="field__label">{t('indexName')}</span>
               <div className="list-editor__inputRow">
-                <div className="dropdown analyzer-bs">
-                  <button
-                    ref={indexDropdownToggleRef}
-                    type="button"
-                    className="field__input"
-                    data-bs-toggle="dropdown"
-                    data-bs-auto-close="outside"
-                    data-bs-display="static"
-                    aria-haspopup="true"
-                  >
-                    <span className="dropdown-toggle__label">{indexName || '(none)'}</span>
-                    <span className="dropdown-toggle__caret" aria-hidden="true" />
-                  </button>
-                  <div ref={indexDropdownMenuRef} className="dropdown-menu dropdown-menu--left">
-                    <div className="dropdown-menu__pad">
-                      <input
-                        ref={indexFilterInputRef}
-                        type="text"
-                        className="field__input"
-                        placeholder="Filter…"
-                        value={indexFilterText}
-                        onChange={(e) => setIndexFilterText(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Escape') {
+                <div className="indexSelectControl">
+                  <div className="dropdown analyzer-bs">
+                    <button
+                      ref={indexDropdownToggleRef}
+                      type="button"
+                      className="field__input"
+                      data-bs-toggle="dropdown"
+                      data-bs-auto-close="outside"
+                      data-bs-display="static"
+                      aria-haspopup="true"
+                    >
+                      <span className="dropdown-toggle__label">{indexName || '(none)'}</span>
+                      <span className="dropdown-toggle__caret" aria-hidden="true" />
+                    </button>
+                    <div ref={indexDropdownMenuRef} className="dropdown-menu dropdown-menu--left">
+                      <div className="dropdown-menu__pad">
+                        <input
+                          ref={indexFilterInputRef}
+                          type="text"
+                          className="field__input"
+                          placeholder="Filter…"
+                          value={indexFilterText}
+                          onChange={(e) => setIndexFilterText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') {
+                              hideClosestBootstrapDropdown(e.currentTarget)
+                            }
+                          }}
+                        />
+                      </div>
+                      {filteredIndexNameOptions.map((name) => (
+                        <button
+                          key={name}
+                          type="button"
+                          className={`dropdown-item ${name === indexName ? 'active' : ''}`}
+                          onClick={(e) => {
+                            setIndexName(name)
+                            setIndexFilterText('')
                             hideClosestBootstrapDropdown(e.currentTarget)
-                          }
-                        }}
-                      />
+                          }}
+                        >
+                          {name}
+                        </button>
+                      ))}
                     </div>
-                    {filteredIndexNameOptions.map((name) => (
-                      <button
-                        key={name}
-                        type="button"
-                        className={`dropdown-item ${name === indexName ? 'active' : ''}`}
-                        onClick={(e) => {
-                          setIndexName(name)
-                          setIndexFilterText('')
-                          hideClosestBootstrapDropdown(e.currentTarget)
-                        }}
-                      >
-                        {name}
-                      </button>
-                    ))}
                   </div>
+                  {renderIndexNamesReloadButton()}
                 </div>
 
                 <div className="actions">
@@ -371,50 +418,53 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
             <label className="field">
               <span className="field__label">{t('indexName')}</span>
               <div className="list-editor__inputRow">
-                <div className="dropdown analyzer-bs">
-                  <button
-                    ref={indexDropdownToggleRef}
-                    type="button"
-                    className="field__input"
-                    data-bs-toggle="dropdown"
-                    data-bs-auto-close="outside"
-                    data-bs-display="static"
-                    aria-haspopup="true"
-                  >
-                    <span className="dropdown-toggle__label">{indexName || '(none)'}</span>
-                    <span className="dropdown-toggle__caret" aria-hidden="true" />
-                  </button>
-                  <div ref={indexDropdownMenuRef} className="dropdown-menu dropdown-menu--left">
-                    <div className="dropdown-menu__pad">
-                      <input
-                        ref={indexFilterInputRef}
-                        type="text"
-                        className="field__input"
-                        placeholder="Filter…"
-                        value={indexFilterText}
-                        onChange={(e) => setIndexFilterText(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Escape') {
+                <div className="indexSelectControl">
+                  <div className="dropdown analyzer-bs">
+                    <button
+                      ref={indexDropdownToggleRef}
+                      type="button"
+                      className="field__input"
+                      data-bs-toggle="dropdown"
+                      data-bs-auto-close="outside"
+                      data-bs-display="static"
+                      aria-haspopup="true"
+                    >
+                      <span className="dropdown-toggle__label">{indexName || '(none)'}</span>
+                      <span className="dropdown-toggle__caret" aria-hidden="true" />
+                    </button>
+                    <div ref={indexDropdownMenuRef} className="dropdown-menu dropdown-menu--left">
+                      <div className="dropdown-menu__pad">
+                        <input
+                          ref={indexFilterInputRef}
+                          type="text"
+                          className="field__input"
+                          placeholder="Filter…"
+                          value={indexFilterText}
+                          onChange={(e) => setIndexFilterText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') {
+                              hideClosestBootstrapDropdown(e.currentTarget)
+                            }
+                          }}
+                        />
+                      </div>
+                      {filteredIndexNameOptions.map((name) => (
+                        <button
+                          key={name}
+                          type="button"
+                          className={`dropdown-item ${name === indexName ? 'active' : ''}`}
+                          onClick={(e) => {
+                            setIndexName(name)
+                            setIndexFilterText('')
                             hideClosestBootstrapDropdown(e.currentTarget)
-                          }
-                        }}
-                      />
+                          }}
+                        >
+                          {name}
+                        </button>
+                      ))}
                     </div>
-                    {filteredIndexNameOptions.map((name) => (
-                      <button
-                        key={name}
-                        type="button"
-                        className={`dropdown-item ${name === indexName ? 'active' : ''}`}
-                        onClick={(e) => {
-                          setIndexName(name)
-                          setIndexFilterText('')
-                          hideClosestBootstrapDropdown(e.currentTarget)
-                        }}
-                      >
-                        {name}
-                      </button>
-                    ))}
                   </div>
+                  {renderIndexNamesReloadButton()}
                 </div>
 
                 <div className="actions">
@@ -461,13 +511,13 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
           </button>
         </div>
 
-        {labMode !== 'agentic' && labMode !== 'analyze' && (
+        {(labMode === 'query' || labMode === 'semantic-vector') && (
           <div className="requestBuilderActiveSummary">
             {t('requestBuilderActiveSummary')}: <span className="mono">{buildRequestBuilderActiveSummary()}</span>
           </div>
         )}
 
-        {builderMode === 'form' && labMode !== 'agentic' && labMode !== 'analyze' && (
+        {builderMode === 'form' && (labMode === 'query' || labMode === 'semantic-vector') && (
         <ClassicSearchBuilderForm
           t={t}
           language={language}
@@ -481,6 +531,36 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
           requestBuilderVectorFieldNames={requestBuilderVectorFieldNames}
           setIsFilterBuilderOpen={setIsFilterBuilderOpen}
           onExecute={onExecute}
+        />
+        )}
+
+        {builderMode === 'form' && labMode === 'autocomplete' && (
+        <TypeaheadBuilderForm
+          t={t}
+          language={language}
+          mode="autocomplete"
+          activeProfile={activeProfile}
+          indexName={indexName}
+          apiVersion={effectiveApiVersion}
+          form={autocompleteForm}
+          setForm={setAutocompleteForm}
+          suggesterNameOptions={requestBuilderSuggesterNames}
+          searchableFieldNames={requestBuilderSearchableFieldNames}
+        />
+        )}
+
+        {builderMode === 'form' && labMode === 'suggest' && (
+        <TypeaheadBuilderForm
+          t={t}
+          language={language}
+          mode="suggest"
+          activeProfile={activeProfile}
+          indexName={indexName}
+          apiVersion={effectiveApiVersion}
+          form={suggestForm}
+          setForm={setSuggestForm}
+          suggesterNameOptions={requestBuilderSuggesterNames}
+          searchableFieldNames={requestBuilderSearchableFieldNames}
         />
         )}
 

@@ -14,9 +14,11 @@ function isToolTab(tab: CenterTab): boolean {
     tab === 'knowledge-base-builder' ||
     tab === 'synonym-map-builder' ||
     tab === 'index-builder' ||
+    tab === 'indexing-pipeline-builder' ||
     tab === 'skill-pipeline-builder' ||
     tab === 'skill-editor' ||
-    tab === 'eval-dataset-generator'
+    tab === 'eval-dataset-generator' ||
+    tab === 'index-visualizer'
   )
 }
 
@@ -36,10 +38,12 @@ export function useExperimentTabRestore(params: {
   setIsKnowledgeBaseBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsSynonymMapBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsIndexBuilderOpen: Dispatch<SetStateAction<boolean>>
+  setIsIndexingPipelineBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsSkillPipelineBuilderOpen: Dispatch<SetStateAction<boolean>>
   setIsVectorOptimizerOpen: Dispatch<SetStateAction<boolean>>
   setIsSkillEditorOpen: Dispatch<SetStateAction<boolean>>
   setIsEvalDatasetGeneratorOpen: Dispatch<SetStateAction<boolean>>
+  setIsIndexVisualizerOpen: Dispatch<SetStateAction<boolean>>
 }) {
   const {
     selectedExperimentId,
@@ -55,10 +59,12 @@ export function useExperimentTabRestore(params: {
     setIsKnowledgeBaseBuilderOpen,
     setIsSynonymMapBuilderOpen,
     setIsIndexBuilderOpen,
+    setIsIndexingPipelineBuilderOpen,
     setIsSkillPipelineBuilderOpen,
     setIsVectorOptimizerOpen,
     setIsSkillEditorOpen,
     setIsEvalDatasetGeneratorOpen,
+    setIsIndexVisualizerOpen,
   } = params
 
   // Restore tool open flags only once on initial mount/boot.
@@ -105,9 +111,9 @@ export function useExperimentTabRestore(params: {
         setSelectedRunIds(restored.selectedRunIds)
       }
 
-      // Restore per-experiment center tab unless the user is currently on a tool tab
-      // or on the portal tab (which takes priority on initial boot).
-      if (shouldApplyPersistedRunTabs && !isToolTab(centerTabRef.current) && centerTabRef.current !== 'portal') {
+      // Restore the active tab on initial boot so browser refreshes keep the same view.
+      // When switching experiments, preserve global tool/portal navigation instead.
+      if (shouldApplyPersistedRunTabs && !isToolTab(centerTabRef.current)) {
         setCenterTab(restored.centerTab)
       }
 
@@ -121,10 +127,12 @@ export function useExperimentTabRestore(params: {
         setIsKnowledgeBaseBuilderOpen(restored.isKnowledgeBaseBuilderOpen ?? false)
         setIsSynonymMapBuilderOpen(restored.isSynonymMapBuilderOpen ?? false)
         setIsIndexBuilderOpen(restored.isIndexBuilderOpen ?? false)
+        setIsIndexingPipelineBuilderOpen(restored.isIndexingPipelineBuilderOpen ?? false)
         setIsSkillPipelineBuilderOpen(restored.isSkillPipelineBuilderOpen ?? false)
         setIsVectorOptimizerOpen(restored.isVectorOptimizerOpen ?? false)
         setIsSkillEditorOpen(restored.isSkillEditorOpen ?? false)
         setIsEvalDatasetGeneratorOpen(restored.isEvalDatasetGeneratorOpen ?? false)
+        setIsIndexVisualizerOpen(restored.isIndexVisualizerOpen ?? false)
       }
     } else {
       setSelectedRunIds([])
@@ -138,6 +146,7 @@ export function useExperimentTabRestore(params: {
     setCenterTab,
     setIsAutoTuningOpen,
     setIsIndexBuilderOpen,
+    setIsIndexingPipelineBuilderOpen,
     setIsSkillPipelineBuilderOpen,
     setIsKnowledgeBaseBuilderOpen,
     setIsKnowledgeSourceBuilderOpen,
@@ -147,6 +156,7 @@ export function useExperimentTabRestore(params: {
     setIsVectorOptimizerOpen,
     setIsSkillEditorOpen,
     setIsEvalDatasetGeneratorOpen,
+    setIsIndexVisualizerOpen,
     setSelectedRun,
     setSelectedRunIds,
   ])

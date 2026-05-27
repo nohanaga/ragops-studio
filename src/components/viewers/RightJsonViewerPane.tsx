@@ -14,7 +14,11 @@ import { translations } from '../../lib/translations'
 
 type TranslationKey = keyof typeof translations.ja
 
-function FacetsViewer(props: { facets: Record<string, unknown[]> }) {
+function FacetsViewer(props: {
+  facets: Record<string, unknown[]>
+  onFacetFilterSelect?: (fieldName: string, bucket: Record<string, unknown>) => void
+  t: (key: TranslationKey) => string
+}) {
   const renderValue = (v: unknown, depth = 0): React.ReactNode => {
     if (v === null) return <span style={{ color: '#808080' }}>null</span>
     if (v === undefined) return <span style={{ color: '#808080' }}>undefined</span>
@@ -59,7 +63,7 @@ function FacetsViewer(props: { facets: Record<string, unknown[]> }) {
     return <span>{String(v)}</span>
   }
 
-  const renderFacetItem = (bucket: unknown): React.ReactNode => {
+  const renderFacetItem = (fieldName: string, bucket: unknown): React.ReactNode => {
     if (!isRecord(bucket)) return null
 
     const count = typeof bucket.count === 'number' ? bucket.count : null
@@ -83,13 +87,29 @@ function FacetsViewer(props: { facets: Record<string, unknown[]> }) {
 
     return (
       <div style={{ marginBottom: '4px' }}>
-        <span style={{ color: '#ce9178' }}>&quot;{label}&quot;</span>
+        {label ? (
+          <button
+            type="button"
+            className="jsonViewer__facetValue"
+            onClick={() => props.onFacetFilterSelect?.(fieldName, bucket)}
+            disabled={!props.onFacetFilterSelect}
+            title={props.t('applyFacetToFilter')}
+          >
+            &quot;{label}&quot;
+          </button>
+        ) : (
+          <span style={{ color: '#ce9178' }}>&quot;{label}&quot;</span>
+        )}
         {count !== null && <span style={{ color: '#808080' }}> ({count})</span>}
 
         {/* Nested facets */}
         {isRecord(bucket['@search.facets']) && (
           <div style={{ paddingLeft: '20px', marginTop: '4px' }}>
-            <FacetsViewer facets={bucket['@search.facets'] as Record<string, unknown[]>} />
+            <FacetsViewer
+              facets={bucket['@search.facets'] as Record<string, unknown[]>}
+              onFacetFilterSelect={props.onFacetFilterSelect}
+              t={props.t}
+            />
           </div>
         )}
 
@@ -119,7 +139,7 @@ function FacetsViewer(props: { facets: Record<string, unknown[]> }) {
               <span style={{ color: '#9cdcfe' }}>&quot;{name}&quot;</span>: [
               <div style={{ paddingLeft: '20px' }}>
                 {items.map((item, idx) => (
-                  <div key={idx}>{renderFacetItem(item)}</div>
+                  <div key={idx}>{renderFacetItem(name, item)}</div>
                 ))}
               </div>
               ],
@@ -139,6 +159,7 @@ export function RightJsonViewerPane(props: {
   jsonViewerRequestData: JsonValue
   jsonViewerResponseData: JsonValue
   jsonViewerFacets: Record<string, unknown[]> | null
+  onFacetFilterSelect?: (fieldName: string, bucket: Record<string, unknown>) => void
   onCollapse: () => void
   t: (key: TranslationKey) => string
 }) {
@@ -244,7 +265,11 @@ export function RightJsonViewerPane(props: {
         <div className="mono jsonViewer__body">
           {props.jsonViewerMode === 'facets' ? (
             props.jsonViewerFacets ? (
-              <FacetsViewer facets={props.jsonViewerFacets} />
+              <FacetsViewer
+                facets={props.jsonViewerFacets}
+                onFacetFilterSelect={props.onFacetFilterSelect}
+                t={props.t}
+              />
             ) : (
               <div className="empty">(no @search.facets)</div>
             )

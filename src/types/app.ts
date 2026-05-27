@@ -8,7 +8,7 @@
 import type { Run, RunType } from '../lib/model'
 import type { JsonValue } from '../lib/aiSearchRest'
 
-export type LabMode = 'query' | 'semantic-vector' | 'agentic' | 'analyze'
+export type LabMode = 'query' | 'semantic-vector' | 'agentic' | 'analyze' | 'autocomplete' | 'suggest'
 export type ThemePreference = 'system' | 'dark' | 'light' | 'midnight' | 'forest' | 'solarized'
 export type CenterTab =
   | 'portal'
@@ -23,9 +23,11 @@ export type CenterTab =
   | 'knowledge-base-builder'
   | 'synonym-map-builder'
   | 'index-builder'
+  | 'indexing-pipeline-builder'
   | 'skill-pipeline-builder'
   | 'skill-editor'
   | 'eval-dataset-generator'
+  | 'index-visualizer'
 
 export type ResultView = {
   id: 'latest' | `run:${string}`
@@ -33,6 +35,8 @@ export type ResultView = {
   response: LatestResponse | null
   runType: RunType | null
   runId?: string
+  indexName?: string
+  apiVersion?: string
 }
 
 export type UiLogEntry = {
@@ -158,6 +162,33 @@ export type AnalyzeFormState = {
   normalizerName: string
   charFilters: string
   tokenFilters: string
+}
+
+export type AutocompleteFormState = {
+  search: string
+  suggesterName: string
+  autocompleteMode: 'oneTerm' | 'twoTerms' | 'oneTermWithContext'
+  searchFields: string
+  filter: string
+  top: number
+  minimumCoverage: number | ''
+  useFuzzyMatching: boolean
+  liveTest: boolean
+}
+
+export type SuggestFormState = {
+  search: string
+  suggesterName: string
+  searchFields: string
+  select: string
+  filter: string
+  orderby: string
+  top: number
+  minimumCoverage: number | ''
+  useFuzzyMatching: boolean
+  highlightPreTag: string
+  highlightPostTag: string
+  liveTest: boolean
 }
 
 export type KnowledgeSource = {

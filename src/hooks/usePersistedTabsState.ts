@@ -17,10 +17,12 @@ export function usePersistedTabsState(params: {
   isKnowledgeBaseBuilderOpen: boolean
   isSynonymMapBuilderOpen: boolean
   isIndexBuilderOpen: boolean
+  isIndexingPipelineBuilderOpen: boolean
   isSkillPipelineBuilderOpen: boolean
   isVectorOptimizerOpen: boolean
   isSkillEditorOpen: boolean
   isEvalDatasetGeneratorOpen: boolean
+  isIndexVisualizerOpen: boolean
 }) {
   const {
     selectedExperimentId,
@@ -34,10 +36,12 @@ export function usePersistedTabsState(params: {
     isKnowledgeBaseBuilderOpen,
     isSynonymMapBuilderOpen,
     isIndexBuilderOpen,
+    isIndexingPipelineBuilderOpen,
     isSkillPipelineBuilderOpen,
     isVectorOptimizerOpen,
     isSkillEditorOpen,
     isEvalDatasetGeneratorOpen,
+    isIndexVisualizerOpen,
   } = params
 
   /**
@@ -78,10 +82,12 @@ export function usePersistedTabsState(params: {
       isKnowledgeBaseBuilderOpen: isKnowledgeBaseBuilderOpen || normalizedCenterTab === 'knowledge-base-builder',
       isSynonymMapBuilderOpen: isSynonymMapBuilderOpen || normalizedCenterTab === 'synonym-map-builder',
       isIndexBuilderOpen: isIndexBuilderOpen || normalizedCenterTab === 'index-builder',
+      isIndexingPipelineBuilderOpen: isIndexingPipelineBuilderOpen || normalizedCenterTab === 'indexing-pipeline-builder',
       isSkillPipelineBuilderOpen: isSkillPipelineBuilderOpen || normalizedCenterTab === 'skill-pipeline-builder',
       isVectorOptimizerOpen: isVectorOptimizerOpen || normalizedCenterTab === 'vector-optimizer',
       isSkillEditorOpen: isSkillEditorOpen || normalizedCenterTab === 'skill-editor',
       isEvalDatasetGeneratorOpen: isEvalDatasetGeneratorOpen || normalizedCenterTab === 'eval-dataset-generator',
+      isIndexVisualizerOpen: isIndexVisualizerOpen || normalizedCenterTab === 'index-visualizer',
     }
 
     const payload: PersistedTabs = {
@@ -113,9 +119,11 @@ export function usePersistedTabsState(params: {
     isKnowledgeBaseBuilderOpen,
     isSynonymMapBuilderOpen,
     isIndexBuilderOpen,
+    isIndexingPipelineBuilderOpen,
     isSkillPipelineBuilderOpen,
     isVectorOptimizerOpen,
     isSkillEditorOpen,
     isEvalDatasetGeneratorOpen,
+    isIndexVisualizerOpen,
   ])
 }

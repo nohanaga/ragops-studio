@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import type { AgenticFormState, AnalyzeFormState, BuilderMode, LabMode, SearchFormState } from '../types'
+import type { AgenticFormState, AnalyzeFormState, AutocompleteFormState, BuilderMode, LabMode, SearchFormState, SuggestFormState } from '../types'
 
 type PersistedBuilderState = {
   labMode?: LabMode
@@ -7,6 +7,8 @@ type PersistedBuilderState = {
   searchForm?: SearchFormState
   agenticForm?: AgenticFormState
   analyzeForm?: AnalyzeFormState
+  autocompleteForm?: AutocompleteFormState
+  suggestForm?: SuggestFormState
   requestJson?: string
   runNote?: string
   indexName?: string
@@ -26,6 +28,8 @@ function isLabMode(v: unknown): v is LabMode {
     v === 'query' ||
     v === 'semantic-vector' ||
     v === 'analyze' ||
+    v === 'autocomplete' ||
+    v === 'suggest' ||
     v === 'agentic'
   )
 }
@@ -50,6 +54,8 @@ export function loadPersistedBuilderState(experimentId: string): PersistedBuilde
     if (parsed.searchForm && typeof parsed.searchForm === 'object') next.searchForm = parsed.searchForm
     if (parsed.agenticForm && typeof parsed.agenticForm === 'object') next.agenticForm = parsed.agenticForm
     if (parsed.analyzeForm && typeof parsed.analyzeForm === 'object') next.analyzeForm = parsed.analyzeForm
+    if (parsed.autocompleteForm && typeof parsed.autocompleteForm === 'object') next.autocompleteForm = parsed.autocompleteForm
+    if (parsed.suggestForm && typeof parsed.suggestForm === 'object') next.suggestForm = parsed.suggestForm
 
     return next
   } catch {
@@ -75,6 +81,12 @@ export function usePersistedBuilderState(params: {
   analyzeForm: AnalyzeFormState
   setAnalyzeForm: (v: AnalyzeFormState) => void
 
+  autocompleteForm: AutocompleteFormState
+  setAutocompleteForm: (v: AutocompleteFormState) => void
+
+  suggestForm: SuggestFormState
+  setSuggestForm: (v: SuggestFormState) => void
+
   requestJson: string
   setRequestJson: (v: string) => void
 
@@ -99,6 +111,10 @@ export function usePersistedBuilderState(params: {
     setAgenticForm,
     analyzeForm,
     setAnalyzeForm,
+    autocompleteForm,
+    setAutocompleteForm,
+    suggestForm,
+    setSuggestForm,
     requestJson,
     setRequestJson,
     runNote,
@@ -158,6 +174,8 @@ export function usePersistedBuilderState(params: {
     if (restored.searchForm) setSearchForm(restored.searchForm)
     if (restored.agenticForm) setAgenticForm(restored.agenticForm)
     if (restored.analyzeForm) setAnalyzeForm(restored.analyzeForm)
+    if (restored.autocompleteForm) setAutocompleteForm(restored.autocompleteForm)
+    if (restored.suggestForm) setSuggestForm(restored.suggestForm)
 
     if (typeof restored.requestJson === 'string') setRequestJson(restored.requestJson)
   if (typeof restored.runNote === 'string') setRunNote(restored.runNote)
@@ -168,6 +186,7 @@ export function usePersistedBuilderState(params: {
     selectedExperimentId,
     setAgenticForm,
     setAnalyzeForm,
+    setAutocompleteForm,
     setBuilderMode,
     setIndexName,
     setKnowledgeBaseName,
@@ -175,6 +194,7 @@ export function usePersistedBuilderState(params: {
     setRunNote,
     setRequestJson,
     setSearchForm,
+    setSuggestForm,
   ])
 
   useEffect(() => {
@@ -188,6 +208,8 @@ export function usePersistedBuilderState(params: {
       searchForm,
       agenticForm,
       analyzeForm,
+      autocompleteForm,
+      suggestForm,
       requestJson,
       runNote,
       indexName,
@@ -206,6 +228,8 @@ export function usePersistedBuilderState(params: {
     searchForm,
     agenticForm,
     analyzeForm,
+    autocompleteForm,
+    suggestForm,
     requestJson,
     runNote,
     indexName,

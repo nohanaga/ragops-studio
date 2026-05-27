@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   parseStorageConnectionString,
+  normalizeStorageResourceIdInput,
   mapProjectionToSearchResult,
 } from './azureBlobStorage'
 
@@ -47,6 +48,28 @@ describe('parseStorageConnectionString', () => {
     const result = parseStorageConnectionString(cs)
     expect(result).not.toBeNull()
     expect(result!.accountKey).toBe('abc+def/ghi==')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// normalizeStorageResourceIdInput
+// ---------------------------------------------------------------------------
+
+describe('normalizeStorageResourceIdInput', () => {
+  it('extracts a storage account resource ID from an Azure portal URL', () => {
+    const portalUrl = 'https://ms.portal.azure.com/#@fdpo.onmicrosoft.com/resource/subscriptions/57004694-ab6a-4083-82f5-ec89057b6749/resourceGroups/search-semantic2/providers/Microsoft.Storage/storageAccounts/strsemantic1/overview'
+
+    expect(normalizeStorageResourceIdInput(portalUrl)).toBe('/subscriptions/57004694-ab6a-4083-82f5-ec89057b6749/resourceGroups/search-semantic2/providers/Microsoft.Storage/storageAccounts/strsemantic1')
+  })
+
+  it('preserves a plain storage account resource ID', () => {
+    const resourceId = '/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/account'
+
+    expect(normalizeStorageResourceIdInput(resourceId)).toBe(resourceId)
+  })
+
+  it('removes a ResourceId prefix and semicolon', () => {
+    expect(normalizeStorageResourceIdInput('ResourceId=/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/account;')).toBe('/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/account')
   })
 })
 

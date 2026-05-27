@@ -25,12 +25,15 @@ export type AppHeaderProps = {
   onOpenTokenAnalyzer: () => void
   onOpenQpsTester: () => void
   onOpenIndexBuilder: () => void
+  onOpenIndexingPipelineBuilder: () => void
   onOpenKnowledgeBaseBuilder: () => void
   onOpenKnowledgeSourceBuilder: () => void
   onOpenSynonymMapBuilder: () => void
   onOpenSkillPipelineBuilder: () => void
   onOpenSkillEditor: () => void
   onOpenSearchPipelineVisualizer: () => void
+  onOpenIndexVisualizer: () => void
+  onOpenLlmSettings: () => void
 }
 
 export function AppHeader({
@@ -46,12 +49,15 @@ export function AppHeader({
   onOpenTokenAnalyzer,
   onOpenQpsTester,
   onOpenIndexBuilder,
+  onOpenIndexingPipelineBuilder,
   onOpenKnowledgeBaseBuilder,
   onOpenKnowledgeSourceBuilder,
   onOpenSynonymMapBuilder,
   onOpenSkillPipelineBuilder,
   onOpenSkillEditor,
   onOpenSearchPipelineVisualizer,
+  onOpenIndexVisualizer,
+  onOpenLlmSettings,
 }: AppHeaderProps) {
   return (
     <header className="app__header">
@@ -101,6 +107,12 @@ export function AppHeader({
             <button type="button" className="dropdown-item" onClick={onOpenIndexBuilder}>
               🔖 Index Builder
             </button>
+            <button type="button" className="dropdown-item" onClick={onOpenIndexingPipelineBuilder}>
+              <span className="dropdown-item__label">
+                <i className="bi bi-diagram-3"></i>
+                <span>{t('indexingPipelineBuilder')}</span>
+              </span>
+            </button>
             <button type="button" className="dropdown-item" onClick={onOpenKnowledgeBaseBuilder}>
               🧠 Knowledge Base Builder
             </button>
@@ -125,6 +137,13 @@ export function AppHeader({
               onClick={onOpenSearchPipelineVisualizer}
             >
               🧬 {t('searchPipelineVisualizer')}
+            </button>
+            <button
+              type="button"
+              className="dropdown-item"
+              onClick={onOpenIndexVisualizer}
+            >
+              📊 {t('indexVisualizer')}
             </button>
           </div>
         </div>
@@ -165,6 +184,15 @@ export function AppHeader({
             <option value="solarized">{t('themeSolarized')}</option>
           </select>
         </label>
+        <button
+          type="button"
+          className="btn btn--icon"
+          onClick={onOpenLlmSettings}
+          title={String(t('llmSettingsTitle'))}
+          aria-label={String(t('llmSettingsTitle'))}
+        >
+          <i className="bi bi-gear" />
+        </button>
         <div className="dropdown dropdown--ml12">
           <button
             type="button"
