@@ -111,9 +111,9 @@ export function useExperimentTabRestore(params: {
         setSelectedRunIds(restored.selectedRunIds)
       }
 
-      // Restore per-experiment center tab unless the user is currently on a tool tab
-      // or on the portal tab (which takes priority on initial boot).
-      if (shouldApplyPersistedRunTabs && !isToolTab(centerTabRef.current) && centerTabRef.current !== 'portal') {
+      // Restore the active tab on initial boot so browser refreshes keep the same view.
+      // When switching experiments, preserve global tool/portal navigation instead.
+      if (shouldApplyPersistedRunTabs && !isToolTab(centerTabRef.current)) {
         setCenterTab(restored.centerTab)
       }
 

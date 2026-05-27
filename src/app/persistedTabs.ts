@@ -30,9 +30,7 @@ export function normalizeCenterTab(raw: unknown, ids: string[]): CenterTab {
   // Direct valid tabs
   if (value === 'builder' || value === 'latest' || value === 'portal') return value
   
-  // Tool tabs are treated as global UI state (open/close) rather than
-  // per-experiment navigation. Normalizing to 'builder' prevents switching
-  // experiments from unexpectedly jumping back to a tool tab.
+  // Tool tabs are valid active tabs and should survive browser refreshes.
   if (
     value === 'qps-tester' ||
     value === 'auto-tuning' ||
