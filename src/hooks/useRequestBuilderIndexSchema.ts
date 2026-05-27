@@ -122,10 +122,19 @@ export function useRequestBuilderIndexSchema(args: {
   const requestBuilderIndexFieldNames = useMemo(() => requestBuilderIndexFields.map((f) => f.name), [requestBuilderIndexFields])
 
   const requestBuilderSearchableFieldNames = useMemo(() => {
-    return requestBuilderIndexFields
-      .filter((f) => f.searchable || f.type === 'Edm.String' || f.type === 'Collection(Edm.String)')
-      .map((f) => f.name)
-  }, [requestBuilderIndexFields])
+    if (!requestBuilderIndexSchema || !isJsonObject(requestBuilderIndexSchema)) return []
+    const fields = requestBuilderIndexSchema.fields
+    if (!Array.isArray(fields)) return []
+    return fields
+      .filter((f): f is JsonObject => isJsonObject(f))
+      .filter((f) => {
+        const type = typeof f.type === 'string' ? f.type : ''
+        const isText = type === 'Edm.String' || type === 'Collection(Edm.String)'
+        return isText && f.searchable === true
+      })
+      .map((f) => (typeof f.name === 'string' ? f.name : ''))
+      .filter((name) => name.trim().length > 0)
+  }, [requestBuilderIndexSchema])
 
   const requestBuilderVectorFieldNames = useMemo(() => {
     return requestBuilderIndexFields
