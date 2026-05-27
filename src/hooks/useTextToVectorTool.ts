@@ -30,7 +30,7 @@ export function useTextToVectorTool(args: { t: Translator; sharedLlm: SharedLlmC
     }
     const llm = sharedLlm.resolve(selectedLlmProfileId)
     if (!llm.deployment.trim()) {
-      alert(String(t('textToVectorAlertEnterEndpoint')))
+      alert(String(t('textToVectorAlertEnterDeployment')))
       return
     }
     const effectiveEndpoint = llm.effectiveEndpoint
