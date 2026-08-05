@@ -6,10 +6,14 @@ export function parseRelevanceGrades(value: unknown): RelevanceGrades | undefine
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
 
   const entries = Object.entries(value)
-  if (
-    entries.length === 0 ||
-    entries.some(([, grade]) => typeof grade !== 'number' || !Number.isFinite(grade) || grade < 0)
-  ) return undefined
+  if (entries.length === 0) return undefined
+
+  let hasPositive = false
+  for (const [, grade] of entries) {
+    if (typeof grade !== 'number' || !Number.isFinite(grade) || grade < 0) return undefined
+    if (grade > 0) hasPositive = true
+  }
+  if (!hasPositive) return undefined
 
   return new Map(entries as Array<[string, number]>)
 }
