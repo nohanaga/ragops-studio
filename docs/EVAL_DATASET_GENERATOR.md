@@ -450,13 +450,30 @@ Inspired by contrastive learning from [DPR (Dense Passage Retrieval)](https://ar
 
 Automatically assigns **graded relevance scores** to each document. This stage uses **local computation only** — no LLM calls.
 
+For Azure AI Foundry Document Retrieval Evaluator compatibility, the JSONL includes `retrieval_ground_truth`. This field is the Foundry-required array of `document_id` / `query_relevance_label` entries. The legacy `relevance_grades` map is still emitted for RAGOps / TREC-style tooling.
+
 | Document | Score | Description |
 |---|---|---|
-| `source_doc_id` (Primary Anchor) | 3 | Highest relevance |
+| `source_doc_id` (Primary Anchor) | `query_relevance_label: 4` / `relevance_grades: 3` | Highest relevance |
 | Remaining `expected_ids` (Secondary) | 2 | Secondary relevance |
 | `hard_negative_ids` | 0 | Not relevant |
 
-These scores are directly compatible with **NDCG (Normalized Discounted Cumulative Gain)** and **XDCG** formats, and can be fed directly into Azure AI Foundry's Document Retrieval Evaluator or TREC-style evaluators.
+```json
+{
+  "query": "How to configure vector search",
+  "expected_ids": ["doc-020"],
+  "retrieval_ground_truth": [
+    { "document_id": "doc-020", "query_relevance_label": 4 },
+    { "document_id": "doc-055", "query_relevance_label": 0 }
+  ],
+  "relevance_grades": {
+    "doc-020": 3,
+    "doc-055": 0
+  }
+}
+```
+
+In Foundry's Document Retrieval Evaluator, map `retrieval_ground_truth` from the dataset and provide actual search results as `retrieved_documents` during evaluation.
 
 ### Domain Schema Injection (RAGEval)
 

@@ -449,13 +449,30 @@ hard: "セマンティックランカーを無効化した場合、ハイブリ�
 
 各ドキュメントに**段階的な関連度スコア**を自動付与します。このステージは LLM を使わず、**ローカル計算のみ**で実行されます。
 
+Azure AI Foundry の Document Retrieval Evaluator 互換出力として、JSONL には `retrieval_ground_truth` を出力します。このフィールドは Foundry が要求する `document_id` / `query_relevance_label` の配列です。従来の RAGOps / TREC 系ツール向けには `relevance_grades` map も併せて出力します。
+
 | ドキュメント | スコア | 説明 |
 |---|---|---|
-| `source_doc_id`（Primary Anchor） | 3 | 最も関連度が高い |
+| `source_doc_id`（Primary Anchor） | `query_relevance_label: 4` / `relevance_grades: 3` | 最も関連度が高い |
 | 残りの `expected_ids`（Secondary） | 2 | 副次的に関連 |
 | `hard_negative_ids` | 0 | 関連性なし |
 
-このスコアは **NDCG（Normalized Discounted Cumulative Gain）** および **XDCG** で直接利用可能な形式であり、Azure AI Foundry の Document Retrieval Evaluator や TREC 系の評価器にそのまま入力できます。
+```json
+{
+  "query": "ベクトル検索の設定方法",
+  "expected_ids": ["doc-020"],
+  "retrieval_ground_truth": [
+    { "document_id": "doc-020", "query_relevance_label": 4 },
+    { "document_id": "doc-055", "query_relevance_label": 0 }
+  ],
+  "relevance_grades": {
+    "doc-020": 3,
+    "doc-055": 0
+  }
+}
+```
+
+Foundry の Document Retrieval Evaluator では、`retrieval_ground_truth` を dataset 側から data mapping し、実際の検索結果は `retrieved_documents` として評価実行側から渡します。
 
 ### Domain Schema 注入（RAGEval）
 

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { callAzureOpenAIChat, parseGeneratedQueries, dedupBySurface, markSurfaceDuplicates, toJsonl, parseHardenedQuery, computeRelevanceGrades, parseRaftAnswer, toRaftJsonl, parseHydeHypothesis } from './evalDatasetGenerator'
+import { callAzureOpenAIChat, parseGeneratedQueries, dedupBySurface, markSurfaceDuplicates, toJsonl, parseHardenedQuery, computeFoundryRetrievalGroundTruth, computeRelevanceGrades, parseRaftAnswer, toRaftJsonl, parseHydeHypothesis } from './evalDatasetGenerator'
 import { LlmAuthError } from './llmAuth'
 import type { GeneratedQAItem } from '../types'
 
@@ -294,6 +294,32 @@ describe('computeRelevanceGrades (Phase 6)', () => {
   })
 })
 
+describe('computeFoundryRetrievalGroundTruth (Phase 6)', () => {
+  it('emits Foundry document_id/query_relevance_label entries', () => {
+    const item: GeneratedQAItem = {
+      query: 'Q?',
+      expected_ids: ['a', 'b'],
+      source_doc_id: 'a',
+      hard_negative_ids: ['x'],
+    }
+    expect(computeFoundryRetrievalGroundTruth(item)).toEqual([
+      { document_id: 'a', query_relevance_label: 4 },
+      { document_id: 'b', query_relevance_label: 2 },
+      { document_id: 'x', query_relevance_label: 0 },
+    ])
+  })
+  it('does not overwrite a positive label with a hard negative collision', () => {
+    const item: GeneratedQAItem = {
+      query: 'Q?',
+      expected_ids: ['a'],
+      hard_negative_ids: ['a'],
+    }
+    expect(computeFoundryRetrievalGroundTruth(item)).toEqual([
+      { document_id: 'a', query_relevance_label: 4 },
+    ])
+  })
+})
+
 describe('callAzureOpenAIChat (auth failures)', () => {
   const baseParams = {
     endpoint: 'https://example.openai.azure.com',
@@ -363,6 +389,22 @@ describe('toJsonl emits relevance_grades', () => {
     ]
     const obj = JSON.parse(toJsonl(items))
     expect(obj.relevance_grades).toEqual({ a: 3, x: 0 })
+    expect(obj.retrieval_ground_truth).toEqual([
+      { document_id: 'a', query_relevance_label: 4 },
+      { document_id: 'x', query_relevance_label: 0 },
+    ])
+  })
+  it('preserves explicit Foundry retrieval_ground_truth', () => {
+    const items: GeneratedQAItem[] = [
+      {
+        query: 'Q?',
+        expected_ids: ['a'],
+        relevance_grades: { a: 3 },
+        retrieval_ground_truth: [{ document_id: 'a', query_relevance_label: 4 }],
+      },
+    ]
+    const obj = JSON.parse(toJsonl(items))
+    expect(obj.retrieval_ground_truth).toEqual([{ document_id: 'a', query_relevance_label: 4 }])
   })
   it('omits relevance_grades when empty', () => {
     const items: GeneratedQAItem[] = [
@@ -370,6 +412,7 @@ describe('toJsonl emits relevance_grades', () => {
     ]
     const obj = JSON.parse(toJsonl(items))
     expect('relevance_grades' in obj).toBe(false)
+    expect('retrieval_ground_truth' in obj).toBe(false)
   })
 })
 
