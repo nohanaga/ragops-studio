@@ -1001,6 +1001,8 @@ export const translations = {
     atDatasetErrorTitle: 'Dataset error',
     atQueryFieldLabel: 'Query field',
     atAnswerFieldLabel: 'Answer field',
+    atRelevanceGradesFieldLabel: 'NDCG relevance grades field (optional)',
+    atRelevanceGradesBinaryFallback: '(none: use binary NDCG)',
     atResultDocIdFieldLabel: 'Result docId field (used for scoring)',
     atSelectPlaceholder: '(select)',
     atOptimizationTitle: 'Optimization',
@@ -1014,7 +1016,10 @@ export const translations = {
       '例: 正解が全部で 10 件あって、上位 {k} 件で 3 件拾えたら 3/10。',
     atObjectiveFormulaNdcg:
       'nDCG@k: 正解を「上の方で拾えたほど高得点」になる指標です（上位ほど重みが大きい）。\n' +
-      'このツールは正解/不正解の2値で計算し、0〜1 に正規化します。',
+      '関連度フィールドが未選択のため、正解/不正解の2値で計算し、0〜1 に正規化します。',
+    atObjectiveFormulaNdcgGraded:
+      'nDCG@k: 選択した関連度フィールドを使い、関連度の高い文書ほど上位にある場合に高得点になります。\n' +
+      'gain = 2^relevance - 1、順位割引 = 1/log2(rank + 1) で計算し、0〜1 に正規化します。行に有効な関連度がない場合は2値 NDCG にフォールバックします。',
     atObjectiveFormulaMrr:
       'MRR@k: 最初に正解が出た順位で決まります。\n' +
       '例: 1位なら 1、2位なら 1/2、3位なら 1/3。上位 {k} 件に正解が無ければ 0。',
@@ -3070,6 +3075,8 @@ export const translations = {
     atDatasetErrorTitle: 'Dataset error',
     atQueryFieldLabel: 'Query field',
     atAnswerFieldLabel: 'Answer field',
+    atRelevanceGradesFieldLabel: 'NDCG relevance grades field (optional)',
+    atRelevanceGradesBinaryFallback: '(none: use binary NDCG)',
     atResultDocIdFieldLabel: 'Result docId field (used for scoring)',
     atSelectPlaceholder: '(select)',
     atOptimizationTitle: 'Optimization',
@@ -3083,7 +3090,10 @@ export const translations = {
       'Example: 10 total correct, 3 found in top {k} → 3/10.',
     atObjectiveFormulaNdcg:
       'nDCG@k: higher when correct answers appear earlier (top-ranked items matter more).\n' +
-      'This tool uses binary relevance (correct/incorrect) and normalizes to 0–1.',
+      'No relevance grades field is selected, so this uses binary relevance (correct/incorrect) and normalizes to 0–1.',
+    atObjectiveFormulaNdcgGraded:
+      'nDCG@k: uses the selected relevance grades so that ranking highly relevant documents earlier earns a higher score.\n' +
+      'It uses gain = 2^relevance - 1 and rank discount = 1/log2(rank + 1), normalized to 0–1. Rows without valid grades fall back to binary NDCG.',
     atObjectiveFormulaMrr:
       'MRR@k: based on the rank of the first correct hit.\n' +
       'Example: rank 1 → 1, rank 2 → 1/2, rank 3 → 1/3. No hit in top {k} → 0.',

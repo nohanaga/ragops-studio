@@ -26,10 +26,11 @@ import {
   type PersistedEvalDatasetItem,
 } from '../../app/persistedEvalDatasets'
 import { toJsonl } from '../../lib/evalDatasetGenerator'
+import { parseRelevanceGrades, scoreIrObjective, type IrObjective } from '../../lib/irMetrics'
 
 type TranslationKey = keyof typeof translations.ja
 
-type Objective = 'precision@k' | 'recall@k' | 'ndcg' | 'mrr'
+type Objective = IrObjective
 
 type JsonlRow = Record<string, unknown>
 
@@ -71,6 +72,7 @@ type FieldStats = {
   key: string
   hasString: boolean
   hasStringArray: boolean
+  hasRelevanceGrades: boolean
 }
 
 type TraceColDef = {
@@ -115,10 +117,11 @@ function inferFieldStats(rows: JsonlRow[]): FieldStats[] {
   const map = new Map<string, FieldStats>()
   for (const row of rows) {
     for (const key of Object.keys(row)) {
-      const current = map.get(key) ?? { key, hasString: false, hasStringArray: false }
+      const current = map.get(key) ?? { key, hasString: false, hasStringArray: false, hasRelevanceGrades: false }
       const v = row[key]
       if (typeof v === 'string') current.hasString = true
       if (Array.isArray(v) && v.every((x) => typeof x === 'string')) current.hasStringArray = true
+      if (parseRelevanceGrades(v)) current.hasRelevanceGrades = true
       map.set(key, current)
     }
   }
@@ -169,62 +172,6 @@ function buildRange(min: number, max: number, step: number): number[] {
     out.push(rounded)
   }
   return out
-}
-
-function precisionAtK(returned: string[], relevant: Set<string>, k: number): number {
-  const top = returned.slice(0, k)
-  if (top.length === 0) return 0
-  let hit = 0
-  for (const id of top) if (relevant.has(id)) hit++
-  return hit / k
-}
-
-function recallAtK(returned: string[], relevant: Set<string>, k: number): number {
-  const top = returned.slice(0, k)
-  if (relevant.size === 0) return 0
-  let hit = 0
-  for (const id of top) if (relevant.has(id)) hit++
-  return hit / relevant.size
-}
-
-function mrrAtK(returned: string[], relevant: Set<string>, k: number): number {
-  const top = returned.slice(0, k)
-  for (let i = 0; i < top.length; i++) {
-    if (relevant.has(top[i])) return 1 / (i + 1)
-  }
-  return 0
-}
-
-function ndcgAtK(returned: string[], relevant: Set<string>, k: number): number {
-  const top = returned.slice(0, k)
-  const log2 = (x: number) => Math.log(x) / Math.log(2)
-  let dcg = 0
-  for (let i = 0; i < top.length; i++) {
-    const rel = relevant.has(top[i]) ? 1 : 0
-    if (rel === 0) continue
-    dcg += rel / log2(i + 2)
-  }
-
-  const idealLen = Math.min(k, relevant.size)
-  if (idealLen === 0) return 0
-  let idcg = 0
-  for (let i = 0; i < idealLen; i++) {
-    idcg += 1 / log2(i + 2)
-  }
-  return idcg === 0 ? 0 : dcg / idcg
-}
-
-function scoreObjective(objective: Objective, returned: string[], relevant: Set<string>, k: number): number {
-  switch (objective) {
-    case 'precision@k':
-      return precisionAtK(returned, relevant, k)
-    case 'recall@k':
-      return recallAtK(returned, relevant, k)
-    case 'ndcg':
-      return ndcgAtK(returned, relevant, k)
-    case 'mrr':
-      return mrrAtK(returned, relevant, k)
-  }
 }
 
 function buildQueryTypePatches(tokens: string[]): Array<Partial<SearchFormState>> {
@@ -349,9 +296,14 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
     () => fieldStats.filter((s) => s.hasStringArray || s.hasString).map((s) => s.key),
     [fieldStats],
   )
+  const relevanceGradesFields = useMemo(
+    () => fieldStats.filter((s) => s.hasRelevanceGrades).map((s) => s.key),
+    [fieldStats],
+  )
 
   const [queryField, setQueryField] = useState<string>('')
   const [answerField, setAnswerField] = useState<string>('')
+  const [relevanceGradesField, setRelevanceGradesField] = useState<string>('')
   const [resultIdField, setResultIdField] = useState<string>('')
 
   const [objective, setObjective] = useState<Objective>('recall@k')
@@ -464,6 +416,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
     datasetRowsCount?: number
     queryField?: string
     answerField?: string
+    relevanceGradesField?: string
     resultIdField?: string
     objective?: Objective
     k?: number
@@ -533,6 +486,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
 
         if (typeof parsed.queryField === 'string') setQueryField(parsed.queryField)
         if (typeof parsed.answerField === 'string') setAnswerField(parsed.answerField)
+        if (typeof parsed.relevanceGradesField === 'string') setRelevanceGradesField(parsed.relevanceGradesField)
         if (typeof parsed.resultIdField === 'string') setResultIdField(parsed.resultIdField)
         if (parsed.objective === 'precision@k' || parsed.objective === 'recall@k' || parsed.objective === 'ndcg' || parsed.objective === 'mrr') {
           setObjective(parsed.objective)
@@ -773,6 +727,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
     const keys = inferFieldStats(parsed.rows)
     const stringKeys = keys.filter((s) => s.hasString).map((s) => s.key)
     const answerKeys = keys.filter((s) => s.hasStringArray || s.hasString).map((s) => s.key)
+    const relevanceGradeKeys = keys.filter((s) => s.hasRelevanceGrades).map((s) => s.key)
 
     const q = (parsed.rows[0]?.query && typeof parsed.rows[0].query === 'string') ? 'query' : (stringKeys[0] ?? '')
     // Prefer expected_ids (common eval convention), then positive_passages, then first available
@@ -785,6 +740,9 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
 
     setQueryField(q)
     setAnswerField(a)
+    setRelevanceGradesField(
+      relevanceGradeKeys.includes('relevance_grades') ? 'relevance_grades' : (relevanceGradeKeys[0] ?? ''),
+    )
     setResultIdField((prev) => prev || effectiveDefaultIdField)
   }
 
@@ -1025,7 +983,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
       const firstQueryRaw = firstRow ? firstRow[queryField] : null
       const firstQuery = typeof firstQueryRaw === 'string' ? firstQueryRaw : ''
 
-      const base: SearchFormState = { ...searchForm, queryType: 'simple' }
+      const base: SearchFormState = { ...searchForm, queryType: 'simple', facets: '' }
       const representativeForm: SearchFormState = {
         ...base,
         top: Math.max(base.top ?? 0, evalK),
@@ -1112,10 +1070,13 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
             continue
           }
           const relevant = new Set(relevantList)
+          const relevanceGrades = relevanceGradesField
+            ? parseRelevanceGrades(row[relevanceGradesField])
+            : undefined
 
           // Decouple AutoTuning from Request Builder defaults: use a stable base.
           // queryType defaults to 'simple' unless explicitly overridden by the optimization patch.
-          const base: SearchFormState = { ...searchForm, queryType: 'simple' }
+          const base: SearchFormState = { ...searchForm, queryType: 'simple', facets: '' }
           const top = Math.max(base.top ?? 0, evalK)
 
           const form: SearchFormState = {
@@ -1220,7 +1181,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
             })
             .filter((x): x is string => typeof x === 'string')
 
-          const rowScore = scoreObjective(objective, returnedIds, relevant, evalK)
+          const rowScore = scoreIrObjective(objective, returnedIds, relevant, evalK, relevanceGrades)
           total += rowScore
           count++
 
@@ -1287,7 +1248,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
 
         // Update run params to show the best configuration (for the representative query) when available.
         if (bestParams) {
-          const base: SearchFormState = { ...searchForm, queryType: 'simple' }
+          const base: SearchFormState = { ...searchForm, queryType: 'simple', facets: '' }
           const top = Math.max(base.top ?? 0, evalK)
           const form: SearchFormState = {
             ...base,
@@ -1320,6 +1281,7 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
           datasetRowsCount: rows.length,
           queryField,
           answerField,
+          relevanceGradesField,
           resultIdField,
           objective,
           k: evalK,
@@ -1417,11 +1379,14 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
       case 'recall@k':
         return format('atObjectiveFormulaRecall', { k: evalK })
       case 'ndcg':
-        return format('atObjectiveFormulaNdcg', { k: evalK })
+        return format(
+          relevanceGradesField ? 'atObjectiveFormulaNdcgGraded' : 'atObjectiveFormulaNdcg',
+          { k: evalK },
+        )
       case 'mrr':
         return format('atObjectiveFormulaMrr', { k: evalK })
     }
-  }, [evalK, format, objective])
+  }, [evalK, format, objective, relevanceGradesField])
 
   /** Build dynamic trace columns based on available data in the expanded row. */
   const buildTraceColumns = useCallback(
@@ -1678,6 +1643,20 @@ export function SearchParameterAutoTuning(props: SearchParameterAutoTuningProps)
             <select className="field__input" value={answerField} onChange={(e) => setAnswerField(e.target.value)}>
               <option value="">{t('atSelectPlaceholder')}</option>
               {answerFields.map((k) => (
+                <option key={k} value={k}>{k}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span className="field__label">{t('atRelevanceGradesFieldLabel')}</span>
+            <select
+              className="field__input"
+              value={relevanceGradesField}
+              onChange={(e) => setRelevanceGradesField(e.target.value)}
+            >
+              <option value="">{t('atRelevanceGradesBinaryFallback')}</option>
+              {relevanceGradesFields.map((k) => (
                 <option key={k} value={k}>{k}</option>
               ))}
             </select>
