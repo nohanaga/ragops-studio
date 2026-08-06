@@ -74,6 +74,7 @@ export type SearchApiVersion =
   | (string & {});
 
 export interface ConnectionProfile {
+  name?: string;
   endpoint: string;
   apiVersion: SearchApiVersion;
   authType: AuthType;

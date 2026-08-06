@@ -9,6 +9,7 @@ import type { ChangeEvent } from 'react'
 import type { Language } from '../lib/translations'
 import { translations } from '../lib/translations'
 import type { ThemePreference } from '../types'
+import type { ConnectionProfile } from '../lib/model'
 
 type TranslationKey = keyof typeof translations.ja
 
@@ -34,6 +35,9 @@ export type AppHeaderProps = {
   onOpenSearchPipelineVisualizer: () => void
   onOpenIndexVisualizer: () => void
   onOpenLlmSettings: () => void
+  connectionProfiles: Record<string, ConnectionProfile>
+  activeConnectionProfileId: string
+  onConnectionProfileChange: (profileId: string) => void
 }
 
 export function AppHeader({
@@ -58,6 +62,9 @@ export function AppHeader({
   onOpenSearchPipelineVisualizer,
   onOpenIndexVisualizer,
   onOpenLlmSettings,
+  connectionProfiles,
+  activeConnectionProfileId,
+  onConnectionProfileChange,
 }: AppHeaderProps) {
   return (
     <header className="app__header">
@@ -68,6 +75,20 @@ export function AppHeader({
         <span className="app__subtitle">{t('appSubtitle')}</span>
       </div>
       <div className="app__headerRight">
+        <label className="theme" aria-label={t('searchConnectionProfile')}>
+          <span className="theme__label">{t('searchConnection')}</span>
+          <select
+            className="theme__select"
+            value={activeConnectionProfileId}
+            onChange={(event) => onConnectionProfileChange(event.target.value)}
+          >
+            {Object.entries(connectionProfiles).map(([profileId, profile]) => (
+              <option key={profileId} value={profileId}>
+                {profile.name || profileId}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="dropdown">
           <button
             type="button"
@@ -188,8 +209,9 @@ export function AppHeader({
           type="button"
           className="btn btn--icon"
           onClick={onOpenLlmSettings}
-          title={String(t('llmSettingsTitle'))}
-          aria-label={String(t('llmSettingsTitle'))}
+          data-guide-target="connection-settings"
+          title={String(t('appSettingsTitle'))}
+          aria-label={String(t('appSettingsTitle'))}
         >
           <i className="bi bi-gear" />
         </button>

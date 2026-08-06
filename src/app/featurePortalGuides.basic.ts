@@ -17,7 +17,7 @@ export const BASIC_GUIDES: Record<string, FeatureGuide> = {
     stepsJa: 'フルテキスト検索の使い方',
     stepsEn: 'How to use Full-Text Search',
     steps: [
-      { icon: 'plug', titleJa: '接続設定', titleEn: 'Configure Connection', descJa: '画面上部の接続セクションで Azure AI Search のエンドポイントと API キーを入力します。', descEn: 'Enter your Azure AI Search endpoint and API key in the connection section at the top.', targetSelector: '[data-guide-target="connection-section"]' },
+      { icon: 'plug', titleJa: '接続設定', titleEn: 'Configure Connection', descJa: '右上の接続・モデル設定で Azure AI Search の接続を登録し、使用するプロファイルを選択します。', descEn: 'Register Azure AI Search connections in Connection & Model Settings in the upper-right, then select the profile to use.', targetSelector: '[data-guide-target="connection-settings"]' },
       { icon: 'list-ul', titleJa: 'インデックス選択', titleEn: 'Select Index', descJa: 'ドロップダウンから検索対象のインデックスを選択します。', descEn: 'Choose the target index from the dropdown.', targetSelector: '[data-guide-target="index-dropdown"]' },
       { icon: 'pencil-square', titleJa: 'クエリ入力', titleEn: 'Enter Query', descJa: 'search フィールドに検索キーワードを入力します。queryType で simple / full を選択できます。', descEn: 'Type your search keywords in the search field. Choose simple or full queryType.', targetSelector: '[data-guide-target="search-query"]' },
       { icon: 'funnel', titleJa: 'フィルター設定 (任意)', titleEn: 'Set Filters (Optional)', descJa: 'filter, orderby, select などのパラメータでクエリを絞り込みます。', descEn: 'Refine your query with filter, orderby, select, and other parameters.', targetSelector: '[data-guide-target="query-type"]' },
