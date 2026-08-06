@@ -203,11 +203,40 @@ export function LlmSettingsModal({ open, onClose, t, language, sharedLlm, settin
                   </div>
                 </label>
               )}
-              <label className="field">
-                <span className="field__label">{t('querySourceAuth')}<InfoTooltip tooltipKey="xMsQuerySourceAuthorization" language={language} /></span>
-                <label className="agenticKsOption"><input className="agenticKsOption__checkbox" type="checkbox" checked={Boolean(activeProfile?.useQuerySourceAuthorization ?? activeProfile?.querySourceAuthorization?.trim())} onChange={(event) => patchActiveProfile({ useQuerySourceAuthorization: event.target.checked })} /><span>{t('useQuerySourceAuth')}</span></label>
-                <div className="list-editor__inputRow"><input className="field__input" type="password" value={activeProfile?.querySourceAuthorization ?? ''} onChange={(event) => patchActiveProfile({ querySourceAuthorization: event.target.value })} placeholder={t('placeholderOptional')} /><button type="button" className="btn btn--icon" onClick={() => openJwtDecoder(activeProfile?.querySourceAuthorization ?? '')} disabled={!activeProfile?.querySourceAuthorization?.trim()} title={t('jwtDecodeTitle')}><i className="bi bi-eye" /></button></div>
-              </label>
+              <div className="field">
+                <span className="field__label">
+                  {t('querySourceAuth')}
+                  <InfoTooltip tooltipKey="xMsQuerySourceAuthorization" language={language} />
+                  <span className="infoTooltip infoTooltip--danger" title={String(t('secretSecurityTooltip'))}>⚠️</span>
+                </span>
+                <label className="agenticKsOption">
+                  <input
+                    className="agenticKsOption__checkbox"
+                    type="checkbox"
+                    checked={Boolean(activeProfile?.useQuerySourceAuthorization ?? activeProfile?.querySourceAuthorization?.trim())}
+                    onChange={(event) => patchActiveProfile({ useQuerySourceAuthorization: event.target.checked })}
+                  />
+                  <span>{t('useQuerySourceAuth')}</span>
+                </label>
+                <div className="list-editor__inputRow">
+                  <input
+                    className="field__input"
+                    type="password"
+                    value={activeProfile?.querySourceAuthorization ?? ''}
+                    onChange={(event) => patchActiveProfile({ querySourceAuthorization: event.target.value })}
+                    placeholder={t('placeholderOptional')}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn--icon"
+                    onClick={() => openJwtDecoder(activeProfile?.querySourceAuthorization ?? '')}
+                    disabled={!activeProfile?.querySourceAuthorization?.trim()}
+                    title={t('jwtDecodeTitle')}
+                  >
+                    <i className="bi bi-eye" />
+                  </button>
+                </div>
+              </div>
               <label className="field"><span className="field__label">{t('displayTitleFields')}</span><input className="field__input" value={settings.displayTitleFields ?? 'title,name,id,key,documentId,chunkId,path,url,metadata_storage_name'} onChange={(event) => patchSettings({ displayTitleFields: event.target.value })} /></label>
               <label className="field"><span className="field__label">{t('displayTextFields')}</span><input className="field__input" value={settings.displayTextFields ?? 'text,content,description,chunk'} onChange={(event) => patchSettings({ displayTextFields: event.target.value })} /></label>
             </div>
