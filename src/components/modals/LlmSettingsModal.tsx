@@ -111,8 +111,8 @@ export function LlmSettingsModal({ open, onClose, t, language, sharedLlm, settin
   }
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-content modal-content--lg">
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content modal-content--lg" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>
             <i className="bi bi-gear"></i> {t('appSettingsTitle')}
