@@ -164,9 +164,44 @@ export function LlmSettingsModal({ open, onClose, t, language, sharedLlm, settin
                 </select>
               </label>
               {activeProfile?.authType === 'apiKey' ? (
-                <label className="field"><span className="field__label">{t('apiKey')}</span><input className="field__input" type="password" value={activeProfile.apiKey ?? ''} onChange={(event) => patchActiveProfile({ apiKey: event.target.value })} placeholder={t('placeholderSaved')} /></label>
+                <label className="field">
+                  <span className="field__label">
+                    {t('apiKey')}
+                    <span className="infoTooltip infoTooltip--danger" title={String(t('secretSecurityTooltip'))}>⚠️</span>
+                  </span>
+                  <input
+                    className="field__input"
+                    type="password"
+                    value={activeProfile.apiKey ?? ''}
+                    onChange={(event) => patchActiveProfile({ apiKey: event.target.value })}
+                    placeholder={t('placeholderSaved')}
+                  />
+                </label>
               ) : (
-                <label className="field"><span className="field__label">{t('bearerToken')}</span><div className="list-editor__inputRow"><input className="field__input" type="password" value={activeProfile?.bearerToken ?? ''} onChange={(event) => patchActiveProfile({ bearerToken: event.target.value })} placeholder="Bearer ..." /><button type="button" className="btn btn--icon" onClick={() => openJwtDecoder(activeProfile?.bearerToken ?? '')} disabled={!activeProfile?.bearerToken?.trim()} title={t('jwtDecodeTitle')}><i className="bi bi-eye" /></button></div></label>
+                <label className="field">
+                  <span className="field__label">
+                    {t('bearerToken')}
+                    <span className="infoTooltip infoTooltip--danger" title={String(t('secretSecurityTooltip'))}>⚠️</span>
+                  </span>
+                  <div className="list-editor__inputRow">
+                    <input
+                      className="field__input"
+                      type="password"
+                      value={activeProfile?.bearerToken ?? ''}
+                      onChange={(event) => patchActiveProfile({ bearerToken: event.target.value })}
+                      placeholder="Bearer ..."
+                    />
+                    <button
+                      type="button"
+                      className="btn btn--icon"
+                      onClick={() => openJwtDecoder(activeProfile?.bearerToken ?? '')}
+                      disabled={!activeProfile?.bearerToken?.trim()}
+                      title={t('jwtDecodeTitle')}
+                    >
+                      <i className="bi bi-eye" />
+                    </button>
+                  </div>
+                </label>
               )}
               <label className="field">
                 <span className="field__label">{t('querySourceAuth')}<InfoTooltip tooltipKey="xMsQuerySourceAuthorization" language={language} /></span>
