@@ -596,6 +596,15 @@ export const translations = {
     textToVectorAlertEnterBearerToken: 'Bearer トークンを入力してください',
 
     // LLM Settings Modal
+    appSettingsTitle: '接続・モデル設定',
+    searchConnection: 'Azure AI Search',
+    searchConnectionProfile: 'Search 接続プロファイル',
+    searchConnectionName: '接続名',
+    searchConnectionNamePlaceholder: '例: Production Search',
+    searchConnectionNewName: '新しい Search 接続',
+    searchConnectionAdd: '接続を追加',
+    searchConnectionDelete: '接続を削除',
+    searchConnectionDeleteConfirm: '現在の Search 接続を削除しますか？',
     llmSettingsTitle: 'LLM モデル設定',
     llmSettingsDesc: '各機能で使用する LLM モデルプロファイルを管理します。',
     llmProfileName: 'プロファイル名',
@@ -2670,6 +2679,15 @@ export const translations = {
     textToVectorAlertEnterBearerToken: 'Please enter the Bearer token',
 
     // LLM Settings Modal
+    appSettingsTitle: 'Connection & Model Settings',
+    searchConnection: 'Azure AI Search',
+    searchConnectionProfile: 'Search connection profile',
+    searchConnectionName: 'Connection name',
+    searchConnectionNamePlaceholder: 'e.g. Production Search',
+    searchConnectionNewName: 'New Search connection',
+    searchConnectionAdd: 'Add Connection',
+    searchConnectionDelete: 'Delete Connection',
+    searchConnectionDeleteConfirm: 'Delete the current Search connection?',
     llmSettingsTitle: 'LLM Model Settings',
     llmSettingsDesc: 'Manage LLM model profiles used by each feature.',
     llmProfileName: 'Profile name',

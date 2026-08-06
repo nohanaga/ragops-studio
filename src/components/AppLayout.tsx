@@ -593,6 +593,9 @@ export function AppLayout(props: {
           setCenterTab('index-visualizer')
         }}
         onOpenLlmSettings={() => setIsLlmSettingsOpen(true)}
+        connectionProfiles={settings?.profiles ?? {}}
+        activeConnectionProfileId={settings?.activeProfileId ?? ''}
+        onConnectionProfileChange={(profileId) => void patchSettings({ activeProfileId: profileId })}
       />
 
       <div className="app__grid" style={{ gridTemplateColumns }}>
@@ -1495,6 +1498,11 @@ export function AppLayout(props: {
         t={t}
         language={language}
         sharedLlm={props.sharedLlm}
+        settings={settings}
+        activeProfile={activeProfile}
+        patchActiveProfile={patchActiveProfile}
+        patchSettings={patchSettings}
+        openJwtDecoder={jwtDecoder.openJwtDecoder}
       />
 
       <IndexInspectorModal

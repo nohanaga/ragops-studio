@@ -14,7 +14,6 @@ import type { AgenticFormState, AnalyzeFormState, AutocompleteFormState, Builder
 import { AgenticBuilderForm } from './AgenticBuilderForm'
 import { AnalyzeBuilderForm } from './AnalyzeBuilderForm'
 import { BuilderActions } from './BuilderActions'
-import { BuilderConnectionSection } from './BuilderConnectionSection'
 import { BuilderErrorNotice } from './BuilderErrorNotice'
 import { ClassicSearchBuilderForm } from './ClassicSearchBuilderForm'
 import { TypeaheadBuilderForm } from './TypeaheadBuilderForm'
@@ -149,10 +148,6 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
     t,
     language,
     activeProfile,
-    patchActiveProfile,
-    openJwtDecoder,
-    settings,
-    patchSettings,
     labMode,
     setLabMode,
     builderMode,
@@ -251,16 +246,6 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
 
   return (
     <>
-      <BuilderConnectionSection
-        t={t}
-        language={language}
-        activeProfile={activeProfile}
-        patchActiveProfile={patchActiveProfile}
-        openJwtDecoder={openJwtDecoder}
-        settings={settings}
-        patchSettings={patchSettings}
-      />
-
       <div className="section">
         <div className="section__title">{t('requestBuilder')}</div>
 
