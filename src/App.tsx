@@ -9,12 +9,13 @@
  * Most domain logic lives in `src/lib/*` and `src/utils/*`.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import Dropdown from 'bootstrap/js/dist/dropdown'
 import {
   listIndexes,
   getIndexDefinition,
+  resolveSearchApiVersion,
 } from './lib/aiSearchRest'
 import { translations, type Language } from './lib/translations'
 import type {
@@ -172,6 +173,11 @@ function App() {
   const [isIndexNamesLoading, setIsIndexNamesLoading] = useState(false)
   const [indexNamesReloadToken, setIndexNamesReloadToken] = useState(0)
   const reloadIndexNames = useCallback(() => setIndexNamesReloadToken((value) => value + 1), [])
+  const selectedIndexNameRef = useRef(indexName)
+
+  useEffect(() => {
+    selectedIndexNameRef.current = indexName
+  }, [indexName])
 
   const analyzeDropdownFilters = useAnalyzeDropdownFilters()
 
@@ -202,7 +208,11 @@ function App() {
     setTokenFilterText,
   } = analyzeDropdownFilters
 
-  const effectiveApiVersion = labMode === 'agentic' ? '2025-11-01-preview' : (activeProfile?.apiVersion ?? '')
+  const effectiveApiVersion = activeProfile
+    ? labMode === 'agentic'
+      ? resolveSearchApiVersion(activeProfile.apiVersion, '2025-11-01-preview')
+      : activeProfile.apiVersion
+    : ''
   const isPreviewApiVersion = effectiveApiVersion.includes('preview')
 
   const {
@@ -307,6 +317,10 @@ function App() {
         // Keep stable order for UI.
         const uniq = Array.from(new Set(names)).sort((a, b) => a.localeCompare(b))
         setAvailableIndexNames(uniq)
+        const selectedIndexName = selectedIndexNameRef.current.trim()
+        if (selectedIndexName && !uniq.includes(selectedIndexName)) {
+          setIndexName('')
+        }
       } catch {
         if (cancelled) return
         setAvailableIndexNames([])
@@ -318,14 +332,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [activeProfile, effectiveApiVersion, indexNamesReloadToken, language])
-
-  const indexNameOptions = useMemo(() => {
-    const opts = new Set<string>()
-    for (const n of availableIndexNames) opts.add(n)
-    if (indexName.trim()) opts.add(indexName.trim())
-    return Array.from(opts).sort((a, b) => a.localeCompare(b))
-  }, [availableIndexNames, indexName])
+  }, [activeProfile, effectiveApiVersion, indexNamesReloadToken, language, setIndexName])
 
   // Focus filter input when indexName dropdown opens
   useEffect(() => {
@@ -343,10 +350,10 @@ function App() {
 
   // Filtered indexName options for dropdown
   const filteredIndexNameOptions = useMemo(() => {
-    if (!indexFilterText.trim()) return indexNameOptions
+    if (!indexFilterText.trim()) return availableIndexNames
     const lower = indexFilterText.toLowerCase()
-    return indexNameOptions.filter((name) => name.toLowerCase().includes(lower))
-  }, [indexNameOptions, indexFilterText])
+    return availableIndexNames.filter((name) => name.toLowerCase().includes(lower))
+  }, [availableIndexNames, indexFilterText])
 
   // Knowledge base list/source loading moved to useKnowledgeBaseData
 

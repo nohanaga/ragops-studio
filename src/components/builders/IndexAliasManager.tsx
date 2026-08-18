@@ -47,6 +47,11 @@ function parseAliases(response: JsonValue | null): IndexAlias[] {
     .sort((left, right) => left.name.localeCompare(right.name))
 }
 
+function isServerlessAliasEnumerationError(message: string): boolean {
+  const normalized = message.toLowerCase()
+  return normalized.includes('serverless services cannot enumerate resources without paging')
+}
+
 export function IndexAliasManager({ profile, apiVersion, language, indexNames, selectedIndexName, isIndexNamesLoading, onReloadIndexNames }: IndexAliasManagerProps) {
   const t = (key: keyof typeof translations.ja): string => String(translations[language][key] ?? '')
   const format = (key: keyof typeof translations.ja, params: Record<string, string | number>): string => {
@@ -64,8 +69,10 @@ export function IndexAliasManager({ profile, apiVersion, language, indexNames, s
   const [aliasName, setAliasName] = useState('')
   const [targetIndexName, setTargetIndexName] = useState(selectedIndexName.trim())
   const [message, setMessage] = useState<UiMessage | null>(null)
+  const [serverlessUnsupported, setServerlessUnsupported] = useState(false)
 
-  const canQuery = !!profile && !!apiVersion.trim()
+  const hasConnection = !!profile && !!apiVersion.trim()
+  const canQuery = hasConnection && !serverlessUnsupported
   const selectedIndex = selectedIndexName.trim()
 
   const aliasesForSelectedIndex = useMemo(() => {
@@ -84,10 +91,15 @@ export function IndexAliasManager({ profile, apiVersion, language, indexNames, s
 
     setLoadingAliases(true)
     setMessage(null)
+    setServerlessUnsupported(false)
     try {
       const result = await listAliases({ profile, apiVersion, language })
       if (!result.ok) {
         setAliases([])
+        if (isServerlessAliasEnumerationError(result.error.message)) {
+          setServerlessUnsupported(true)
+          return
+        }
         setMessage({ type: 'error', text: result.error.message })
         return
       }
@@ -105,9 +117,10 @@ export function IndexAliasManager({ profile, apiVersion, language, indexNames, s
     setAliasName('')
     setTargetIndexName(selectedIndexName.trim())
     setMessage(null)
-    if (!canQuery) return
+    setServerlessUnsupported(false)
+    if (!hasConnection) return
     void loadAliasList()
-  }, [canQuery, loadAliasList, selectedIndexName])
+  }, [hasConnection, loadAliasList, selectedIndexName])
 
   useEffect(() => {
     const selected = selectedIndexName.trim()
@@ -215,7 +228,13 @@ export function IndexAliasManager({ profile, apiVersion, language, indexNames, s
         </div>
       )}
 
-      {!canQuery && (
+      {serverlessUnsupported && (
+        <div className="notice notice--error builder__notice">
+          {t('indexBuilderAliasServerlessUnsupported')}
+        </div>
+      )}
+
+      {!hasConnection && (
         <div className="notice notice--error builder__notice">
           {t('indexBuilderMissingProfileOrApiVersion')}
         </div>
@@ -226,7 +245,7 @@ export function IndexAliasManager({ profile, apiVersion, language, indexNames, s
           type="button"
           className="btn"
           onClick={loadAliasList}
-          disabled={!canQuery || loadingAliases || savingAlias || !!deletingAliasName}
+          disabled={!hasConnection || loadingAliases || savingAlias || !!deletingAliasName}
           title={t('indexBuilderAliasesRefreshTitle')}
         >
           <i className="bi bi-arrow-clockwise icon--mr6"></i>

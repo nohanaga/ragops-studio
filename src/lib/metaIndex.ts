@@ -1292,7 +1292,7 @@ export async function summarizeClustersV2(input: {
     const topologyMetric = topology.clusterMetrics[clusterId]
 
     const systemPrompt = language === 'ja'
-      ? 'あなたは高カーディナリティな検索インデックスのクラスタ分析者です。与えられた role-aware evidence と兄弟クラスタとの差分を使い、クラスタを検索・探索に使える意味署名としてJSONで生成してください。証拠にない概念は追加しないでください。汎用的なラベルを避け、兄弟クラスタと区別できる表現にしてください。'
+      ? 'あなたは高カーディナリティな検索インデックスのクラスタ分析者です。与えられた role-aware evidence と兄弟クラスタとの差分を使い、クラスタを検索・探索に使える意味プロファイルとしてJSONで生成してください。証拠にない概念は追加しないでください。汎用的なラベルを避け、兄弟クラスタと区別できる表現にしてください。'
       : 'You are a cluster analyst for high-cardinality search indexes. Use the role-aware evidence documents and sibling contrasts to generate a search-ready semantic signature as JSON. Do not add concepts unsupported by evidence. Avoid generic labels and make this cluster distinguishable from siblings.'
     const userPrompt = language === 'ja'
       ? buildJapaneseV2Prompt({ evidenceBlocks, siblingContexts, evidenceStats, topologyMetric })
@@ -1500,7 +1500,7 @@ export async function summarizeClustersHierarchicalV2(input: {
     const fallback = aggregateMicroSignatures({ macroId, children, language })
     const siblingContexts = buildSiblingContexts({ clusterId: macroId, clusters, language })
     const systemPrompt = language === 'ja'
-      ? 'あなたは階層クラスタの意味署名を集約する分析者です。micro cluster の署名だけを根拠として、macro cluster の ClusterSemanticSignature を bottom-up に生成してください。新しい根拠文書や証拠にない概念は追加しないでください。兄弟 macro cluster と区別できるようにしてください。'
+      ? 'あなたは階層クラスタの意味プロファイルを集約する分析者です。micro cluster の意味プロファイルだけを根拠として、macro cluster の ClusterSemanticSignature を bottom-up に生成してください。新しい根拠文書や証拠にない概念は追加しないでください。兄弟 macro cluster と区別できるようにしてください。'
       : 'You aggregate hierarchical cluster semantic signatures. Generate the macro ClusterSemanticSignature bottom-up from micro cluster signatures only. Do not add unsupported concepts or new evidence documents. Make the macro distinguishable from sibling macro clusters.'
     const userPrompt = buildHierarchicalAggregationPrompt({
       macroId,

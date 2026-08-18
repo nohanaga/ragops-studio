@@ -592,7 +592,7 @@ ragops-studio/
 1. **API Key 認証**（推奨）
    - Endpoint: Azure AI Search サービスのエンドポイント URL（例: `https://your-service.search.windows.net`）
    - API Key: 管理者キーまたはクエリキー
-   - API Version: REST API バージョン（デフォルト: 2025-09-01、Agenticモードでは 2025-11-01-preview を自動使用）
+   - APIバージョン: データプレーンREST APIバージョン（新規接続の既定値: `2026-05-01-preview`。Agenticモードでは選択値を使用し、`2025-11-01-preview`未満の場合のみ最低版へ補正）
 
 2. **Bearer Token 認証**
    - Endpoint: Azure AI Search サービスのエンドポイント URL
@@ -608,6 +608,8 @@ ragops-studio/
 
 ### 開発環境のプロキシ
 開発時（`npm run dev`）は、CORS エラー回避のため Vite の開発プロキシを自動使用します。Azure AI Search エンドポイント（`*.search.windows.net` または `*.search.azure.com`）への接続は `/api-proxy` 経由で行われます。
+
+Serverless Developer（プレビュー）も通常のAzure AI Searchエンドポイントと認証方式で接続できます。Serverlessのインデクサー機能を使用する場合は、接続設定で`2026-05-01-preview`以降を選択してください。Serverlessではインデックスエイリアスなど、一部の機能はサポートされません。
 
 ## 主な使い方
 

@@ -19,6 +19,21 @@ function tr(language: Language, key: TranslationKey): string {
   return translations[language][key];
 }
 
+export function resolveSearchApiVersion(
+  configuredVersion: SearchApiVersion | undefined,
+  minimumVersion: SearchApiVersion,
+): SearchApiVersion {
+  const configured = configuredVersion?.trim();
+  const configuredDate = configured?.match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
+  const minimumDate = minimumVersion.match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
+
+  if (!configured || !configuredDate || !minimumDate || configuredDate < minimumDate) {
+    return minimumVersion;
+  }
+
+  return configured;
+}
+
 function makeNetworkErrorMessage(language: Language, rawMessage: string): string {
   const hint = rawMessage === 'Failed to fetch' ? tr(language, 'restNetworkErrorCorsHint') : '';
   return `${tr(language, 'restNetworkErrorPrefix')}: ${rawMessage}${hint}`;
@@ -531,7 +546,9 @@ export async function listIndexes(input: {
   if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
 
   const clientRequestId = uuidv4();
-  const url = `${endpoint}/indexes?api-version=${encodeURIComponent(input.apiVersion)}`;
+  const selectedApiVersion = input.apiVersion.trim();
+  const pagingApiVersion: SearchApiVersion = '2026-05-01-preview';
+  const pageSize = 1000;
 
   const headers: Record<string, string> = {
     'x-ms-client-request-id': clientRequestId,
@@ -540,47 +557,117 @@ export async function listIndexes(input: {
   const qsa = getQuerySourceAuthorizationHeaderValue(input.profile);
   if (qsa) headers['x-ms-query-source-authorization'] = qsa;
 
-  let res: Response;
-  try {
-    res = await fetch(url, { method: 'GET', headers });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return {
-      ok: false,
-      status: 0,
-      requestId: clientRequestId,
-      clientRequestId,
-      url,
-      error: { message: makeNetworkErrorMessage(lang, msg) },
-    };
+  async function requestPage(url: string): Promise<{ res?: Response; parsed?: { json?: JsonValue; text?: string }; networkError?: RestResult }> {
+    let res: Response;
+    try {
+      res = await fetch(url, { method: 'GET', headers });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { networkError: {
+          ok: false,
+          status: 0,
+          requestId: clientRequestId,
+          clientRequestId,
+          url,
+          error: { message: makeNetworkErrorMessage(lang, msg) },
+        } };
+    }
+    return { res, parsed: await readJsonOrText(res) };
   }
 
-  const requestId = getServiceRequestId(res) ?? clientRequestId;
+  async function requestPaged(apiVersion: SearchApiVersion): Promise<RestResult> {
+    const values: JsonValue[] = [];
+    let skip = 0;
+    let requestId = clientRequestId;
+    let totalCount: number | undefined;
+    const firstUrl = `${endpoint}/indexes?api-version=${encodeURIComponent(apiVersion)}&$top=${pageSize}&$skip=0&$count=true`;
 
-  const parsed = await readJsonOrText(res);
-  if (!res.ok) {
+    while (true) {
+      const url = `${endpoint}/indexes?api-version=${encodeURIComponent(apiVersion)}&$top=${pageSize}&$skip=${skip}&$count=true`;
+      const pageResult = await requestPage(url);
+      if (pageResult.networkError) return pageResult.networkError;
+      const res = pageResult.res!;
+      const parsed = pageResult.parsed!;
+
+      requestId = getServiceRequestId(res) ?? requestId;
+      if (!res.ok) {
+        return {
+          ok: false,
+          status: res.status,
+          requestId,
+          clientRequestId,
+          url,
+          error: {
+            message: extractErrorMessage(res.status, parsed),
+            response: parsed.json,
+            responseText: parsed.text,
+          },
+        };
+      }
+
+      const page = parsed.json && typeof parsed.json === 'object' && !Array.isArray(parsed.json)
+        ? parsed.json as Record<string, JsonValue>
+        : {};
+      const pageValues = Array.isArray(page.value) ? page.value : [];
+      values.push(...pageValues);
+      if (typeof page['@odata.count'] === 'number') totalCount = page['@odata.count'];
+
+      if (pageValues.length < pageSize || (totalCount !== undefined && values.length >= totalCount)) break;
+      skip += pageValues.length;
+    }
+
+    const response: Record<string, JsonValue> = { value: values };
+    if (totalCount !== undefined) response['@odata.count'] = totalCount;
+
     return {
-      ok: false,
-      status: res.status,
+      ok: true,
+      status: 200,
       requestId,
       clientRequestId,
-      url,
-      error: {
-        message: extractErrorMessage(res.status, parsed),
-        response: parsed.json,
-        responseText: parsed.text,
-      },
+      url: firstUrl,
+      response,
+      responseText: JSON.stringify(response),
     };
   }
 
+  const supportsPaging = resolveSearchApiVersion(selectedApiVersion, pagingApiVersion) === selectedApiVersion;
+  if (supportsPaging) return requestPaged(selectedApiVersion);
+
+  const selectedUrl = `${endpoint}/indexes?api-version=${encodeURIComponent(selectedApiVersion)}`;
+  const selectedResult = await requestPage(selectedUrl);
+  if (selectedResult.networkError) return selectedResult.networkError;
+  const selectedResponse = selectedResult.res!;
+  const selectedParsed = selectedResult.parsed!;
+  const requestId = getServiceRequestId(selectedResponse) ?? clientRequestId;
+
+  if (selectedResponse.ok) {
+    return {
+      ok: true,
+      status: selectedResponse.status,
+      requestId,
+      clientRequestId,
+      url: selectedUrl,
+      response: (selectedParsed.json ?? (selectedParsed.text as unknown as JsonValue)) ?? null,
+      responseText: selectedParsed.text,
+    };
+  }
+
+  const errorMessage = extractErrorMessage(selectedResponse.status, selectedParsed);
+  const requiresServerlessPaging = selectedResponse.status === 400
+    && errorMessage.toLowerCase().includes('serverless services cannot enumerate resources without paging');
+  if (requiresServerlessPaging) return requestPaged(pagingApiVersion);
+
   return {
-    ok: true,
-    status: res.status,
+    ok: false,
+    status: selectedResponse.status,
     requestId,
     clientRequestId,
-    url,
-    response: (parsed.json ?? (parsed.text as unknown as JsonValue)) ?? null,
-    responseText: parsed.text,
+    url: selectedUrl,
+    error: {
+      message: errorMessage,
+      response: selectedParsed.json,
+      responseText: selectedParsed.text,
+    },
   };
 }
 
@@ -844,7 +931,7 @@ export async function agenticRetrieve(input: {
   if (!kbName) throw new Error(tr(lang, 'restErrorKnowledgeBaseNameUnset'));
 
   const clientRequestId = uuidv4();
-  const apiVersion: SearchApiVersion = '2025-11-01-preview';
+  const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2025-11-01-preview');
   const url = `${endpoint}/knowledgebases/${encodeURIComponent(kbName)}/retrieve?api-version=${encodeURIComponent(apiVersion)}`;
 
   const headers: Record<string, string> = {
@@ -919,7 +1006,7 @@ export async function getKnowledgeBase(input: {
   if (!kbName) throw new Error(tr(lang, 'restErrorKnowledgeBaseNameUnset'));
 
   const clientRequestId = uuidv4();
-  const apiVersion: SearchApiVersion = '2025-11-01-preview';
+  const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2025-11-01-preview');
   const url = `${endpoint}/knowledgebases/${encodeURIComponent(kbName)}?api-version=${encodeURIComponent(apiVersion)}`;
 
   const headers: Record<string, string> = {
@@ -987,7 +1074,7 @@ export async function listKnowledgeSources(input: {
   if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
 
   let requestId = uuidv4();
-  const apiVersion: SearchApiVersion = '2025-11-01-preview';
+  const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2025-11-01-preview');
   const url = `${endpoint}/knowledgesources?api-version=${encodeURIComponent(apiVersion)}&$select=name,kind`;
 
   const headers: Record<string, string> = {
@@ -1048,7 +1135,7 @@ export async function getKnowledgeSource(input: {
   if (!ksName) throw new Error(tr(lang, 'restErrorKnowledgeSourceNameUnset'));
 
   let requestId = uuidv4();
-  const apiVersion: SearchApiVersion = '2025-11-01-preview';
+  const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2025-11-01-preview');
   const url = `${endpoint}/knowledgesources/${encodeURIComponent(ksName)}?api-version=${encodeURIComponent(apiVersion)}`;
 
   const headers: Record<string, string> = {
@@ -1110,7 +1197,7 @@ export async function createOrUpdateKnowledgeSource(input: {
   if (!ksName) throw new Error(tr(lang, 'restErrorKnowledgeSourceNameUnset'));
 
   let requestId = uuidv4();
-  const apiVersion: SearchApiVersion = '2025-11-01-preview';
+  const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2025-11-01-preview');
   const url = `${endpoint}/knowledgesources/${encodeURIComponent(ksName)}?api-version=${encodeURIComponent(apiVersion)}`;
 
   const headers: Record<string, string> = {
@@ -1176,7 +1263,7 @@ export async function deleteKnowledgeSource(input: {
   if (!ksName) throw new Error(tr(lang, 'restErrorKnowledgeSourceNameUnset'));
 
   let requestId = uuidv4();
-  const apiVersion: SearchApiVersion = '2025-11-01-preview';
+  const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2025-11-01-preview');
   const url = `${endpoint}/knowledgesources/${encodeURIComponent(ksName)}?api-version=${encodeURIComponent(apiVersion)}`;
 
   const headers: Record<string, string> = {
@@ -1235,7 +1322,7 @@ export async function listKnowledgeBases(input: {
   if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
 
   const clientRequestId = uuidv4();
-  const apiVersion: SearchApiVersion = '2025-11-01-preview';
+  const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2025-11-01-preview');
   const url = `${endpoint}/knowledgebases?api-version=${encodeURIComponent(apiVersion)}&$select=name`;
 
   const headers: Record<string, string> = {
@@ -1300,7 +1387,7 @@ export async function createOrUpdateKnowledgeBase(input: {
   if (!kbName) throw new Error(tr(lang, 'restErrorKnowledgeBaseNameUnset'));
 
   let requestId = uuidv4();
-  const apiVersion: SearchApiVersion = '2025-11-01-preview';
+  const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2025-11-01-preview');
   const url = `${endpoint}/knowledgebases/${encodeURIComponent(kbName)}?api-version=${encodeURIComponent(apiVersion)}`;
 
   const headers: Record<string, string> = {
@@ -1366,7 +1453,7 @@ export async function deleteKnowledgeBase(input: {
   if (!kbName) throw new Error(tr(lang, 'restErrorKnowledgeBaseNameUnset'));
 
   let requestId = uuidv4();
-  const apiVersion: SearchApiVersion = '2025-11-01-preview';
+  const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2025-11-01-preview');
   const url = `${endpoint}/knowledgebases/${encodeURIComponent(kbName)}?api-version=${encodeURIComponent(apiVersion)}`;
 
   const headers: Record<string, string> = {
@@ -1425,7 +1512,7 @@ export async function listSynonymMaps(input: {
   if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
 
   let requestId = uuidv4();
-  const apiVersion: SearchApiVersion = '2024-07-01';
+  const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2024-07-01');
   const url = `${endpoint}/synonymmaps?api-version=${encodeURIComponent(apiVersion)}`;
 
   const headers: Record<string, string> = {
@@ -1486,7 +1573,7 @@ export async function getSynonymMap(input: {
   if (!mapName) throw new Error(tr(lang, 'restErrorSynonymMapNameUnset'));
 
   let requestId = uuidv4();
-  const apiVersion: SearchApiVersion = '2024-07-01';
+  const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2024-07-01');
   const url = `${endpoint}/synonymmaps/${encodeURIComponent(mapName)}?api-version=${encodeURIComponent(apiVersion)}`;
 
   const headers: Record<string, string> = {
@@ -1548,7 +1635,7 @@ export async function createOrUpdateSynonymMap(input: {
   if (!mapName) throw new Error(tr(lang, 'restErrorSynonymMapNameUnset'));
 
   let requestId = uuidv4();
-  const apiVersion: SearchApiVersion = '2024-07-01';
+  const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2024-07-01');
   const url = `${endpoint}/synonymmaps/${encodeURIComponent(mapName)}?api-version=${encodeURIComponent(apiVersion)}`;
 
   const headers: Record<string, string> = {
@@ -1614,7 +1701,7 @@ export async function deleteSynonymMap(input: {
   if (!mapName) throw new Error(tr(lang, 'restErrorSynonymMapNameUnset'));
 
   let requestId = uuidv4();
-  const apiVersion: SearchApiVersion = '2024-07-01';
+  const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2024-07-01');
   const url = `${endpoint}/synonymmaps/${encodeURIComponent(mapName)}?api-version=${encodeURIComponent(apiVersion)}`;
 
   const headers: Record<string, string> = {

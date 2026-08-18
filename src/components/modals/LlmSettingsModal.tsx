@@ -94,7 +94,7 @@ export function LlmSettingsModal({ open, onClose, t, language, sharedLlm, settin
         [profileId]: {
           name: t('searchConnectionNewName'),
           endpoint: '',
-          apiVersion: '2026-04-01',
+          apiVersion: '2026-05-01-preview',
           authType: 'apiKey',
         },
       },
@@ -152,9 +152,12 @@ export function LlmSettingsModal({ open, onClose, t, language, sharedLlm, settin
                 <input className="field__input" value={activeProfile?.endpoint ?? ''} onChange={(event) => patchActiveProfile({ endpoint: sanitizeEndpoint(event.target.value) })} placeholder="https://{service}.search.windows.net" />
               </label>
               <label className="field">
-                <span className="field__label">{t('apiVersion')}</span>
+                <span className="field__label">
+                  {t('apiVersion')}
+                  <InfoTooltip tooltipKey="searchApiVersion" language={language} />
+                </span>
                 <select className="field__input" value={activeProfile?.apiVersion ?? ''} onChange={(event) => patchActiveProfile({ apiVersion: event.target.value })}>
-                  {['2026-04-01', '2025-11-01-preview', '2025-09-01', '2025-05-01-preview', '2025-03-01-preview', '2024-11-01-preview', '2024-09-01-preview', '2024-07-01', '2024-05-01-preview', '2023-11-01'].map((version) => <option key={version} value={version}>{version}</option>)}
+                  {['2026-05-01-preview', '2026-04-01', '2025-11-01-preview', '2025-09-01', '2025-05-01-preview', '2025-03-01-preview', '2024-11-01-preview', '2024-09-01-preview', '2024-07-01', '2024-05-01-preview', '2023-11-01'].map((version) => <option key={version} value={version}>{version}</option>)}
                 </select>
               </label>
               <label className="field">

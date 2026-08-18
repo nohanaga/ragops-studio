@@ -47,7 +47,7 @@ export const translations = {
     ivMetaSummaryModeV1: 'EFLC v1（既存・軽量）',
     ivMetaSummaryModeV1Hint: 'セントロイド近傍の代表文書から単一のラベル・要約・キーワードを生成します。',
     ivMetaSummaryModeV2: 'EFLC v2（高精度）',
-    ivMetaSummaryModeV2Hint: 'Role-aware evidence、複数ファセット、兄弟クラスタとの差分を使って意味署名を生成します。',
+    ivMetaSummaryModeV2Hint: 'Role-aware evidence、複数ファセット、兄弟クラスタとの差分を使って意味プロファイルを生成します。',
     ivMetaInclusionCriteria: '含有条件',
     ivMetaEtaLabel: 'ETA',
     ivMetaHsaLabel: 'HSA micro数',
@@ -134,7 +134,7 @@ export const translations = {
     ivReductionTSNE: 't-SNE (局所特化)',
     ivReductionPCAUMAP: 'PCA → UMAP (ハイブリッド)',
     ivGraphLabel: 'クラスタグラフ構造 (クラスタ間関係)',
-    ivGraphHint: 'セントロイド類似度を候補生成に使い、ブリッジ文書や意味署名の重なりで説明できるエッジとして可視化します。',
+    ivGraphHint: 'セントロイド類似度を候補生成に使い、ブリッジ文書や意味プロファイルの重なりで説明できるエッジとして可視化します。',
     ivGraphThresholdLabel: 'エッジ閾値',
     ivGraphThresholdHint: 'コサイン類似度がこの値以上のクラスタ間にエッジを作成',
     ivGraphTitle: 'クラスタ関係グラフ',
@@ -202,7 +202,7 @@ export const translations = {
     ivSciInfoRaptorRefs: '参考: RAPTOR (Sarthi et al., 2024, ICLR) / Hierarchical K-Means / Azure AI Search Semantic Ranker',
     ivSciInfoClusterLlmTitle: '技術的背景: EFLC クラスタ要約パイプライン',
     ivSciInfoClusterLlmBody:
-      'EFLC (Embedding-First Lexical Clustering) は、ベクトル空間上の K-Means / 階層 K-Means でドキュメントをクラスタ化し、LLM で各クラスタの意味署名を生成するパイプラインです。\n' +
+      'EFLC (Embedding-First Lexical Clustering) は、ベクトル空間上の K-Means / 階層 K-Means でドキュメントをクラスタ化し、LLM で各クラスタの意味プロファイルを生成するパイプラインです。\n' +
       'v2 では Role-aware evidence sampling、複数ファセット抽出、兄弟クラスタとの inclusion / exclusion criteria 差分、ETA (Embedding Topology Analysis) による分散・密度診断を組み合わせ、クラスタの「何が含まれるか」と「何が含まれないか」を構造的に記述します。\n' +
       '生成された要約は Meta-Index に保存され、2段階検索 (Global → Local) のルーティングに使用されます。',
     ivSciInfoClusterLlmRefs: '参考: K-Means (Lloyd, 1982) / Hierarchical K-Means / Semantic Kernel Role-based Prompt / Azure AI Search Meta-Index',
@@ -293,7 +293,7 @@ export const translations = {
     ivTipsTechH: '採用している技術',
     ivTipsTech: '・**K-Means クラスタリング** (Lloyd のアルゴリズム): Web Worker でメインスレッドをブロックせずに実行。初期化は k-means++ で収束を高速化\n・**Adaptive Sampling**: `_search` API + facet / filter を利用し、チャンク型インデックスでは親ドキュメント単位で均等サンプリング、独立型では分散スキャン\n・**PCA / UMAP / t-SNE / PCA+UMAP**: 高次元 embedding を 2D に射影。PCA は高速、UMAP は局所+大域構造、t-SNE は局所分離の可視化に向く\n・**Embedding Topology Analysis (ETA)**: 凝集度、分離度、境界率、外れ値率を summary 品質と split 判断に利用\n・**Hierarchical Signature Aggregation (HSA)**: micro cluster の semantic signature を macro cluster に bottom-up 集約し、階層要約の一貫性を保つ\n・**Canvas 描画**: DOM ではなく Canvas 2D API で散布図を描画し、数千点でもスムーズにレンダリング\n・**説明可能なクラスタグラフ**: セントロイド類似度に加え、bridge docs、shared facets / keywords、signature overlap を edge reason として保持\n・**Azure OpenAI Chat Completions** (JSON mode): EFLC v1/v2 のクラスタ要約・semantic signature の構造化出力に使用\n・**`.ragvis.json` / `.ragmeta.json`**: 可視化 snapshot と LLM/Meta cache を分離し、再現性と開発時の token cost を制御',
     ivTipsTheoryH: '理論的背景',
-    ivTipsTheory: '本機能は「ベクトル空間のクラスタ分析 + 次元削減可視化」の手法群に基づいています。K-Means はセントロイドベースの分割型クラスタリングで、各クラスタの重心との距離を最小化する EM アルゴリズムの特殊ケースです。階層クラスタリングは 2 段階 K-Means で近似しており、厳密な凝集型 (Agglomerative) / 分割型 (Divisive) とは異なります。PCA は線形射影であり、非線形構造を捉えるには UMAP や t-SNE が有効です。EFLC v2 は Cluster Hypothesis を前提に、role-aware evidence、兄弟クラスタ差分、ETA、HSA を使って「クラスタ全体を代表する意味署名」を低コストに作る設計です。メタインデックスによる 2 段階検索は、IVF (Inverted File Index) の「粗い量子化 → 詳細検索」パターンの応用で、大規模インデックスの検索空間削減に有効です。',
+    ivTipsTheory: '本機能は「ベクトル空間のクラスタ分析 + 次元削減可視化」の手法群に基づいています。K-Means はセントロイドベースの分割型クラスタリングで、各クラスタの重心との距離を最小化する EM アルゴリズムの特殊ケースです。階層クラスタリングは 2 段階 K-Means で近似しており、厳密な凝集型 (Agglomerative) / 分割型 (Divisive) とは異なります。PCA は線形射影であり、非線形構造を捉えるには UMAP や t-SNE が有効です。EFLC v2 は Cluster Hypothesis を前提に、role-aware evidence、兄弟クラスタ差分、ETA、HSA を使って「クラスタ全体を代表する意味プロファイル」を低コストに作る設計です。メタインデックスによる 2 段階検索は、IVF (Inverted File Index) の「粗い量子化 → 詳細検索」パターンの応用で、大規模インデックスの検索空間削減に有効です。',
     ivTipsLimitsH: '限界と注意（必読）',
     ivTipsLimits: '・**K-Means の仮定**: 球形・等サイズのクラスタを仮定。非凸・細長い・密度の異なるクラスタは正しく分割できないことがあります。k の選択はユーザーの判断に依存します（Elbow 法や Silhouette スコアは未実装）。\n・**2D 可視化の読み違い**: PCA / UMAP / t-SNE は可視化用の射影です。2D 上の距離や見た目の隣接が、元の高次元 embedding の距離を常に保存するわけではありません。\n・**UMAP / t-SNE の確率性**: 同じデータでも実行ごとにレイアウトが変わることがあります。傾向確認には有効ですが、絶対座標に意味を置かないでください。\n・**ブラウザ上の計算制約**: 全計算がブラウザ内 (Web Worker) で実行されるため、1 万件以上のドキュメントでは処理時間が大幅に増加します。Adaptive Sampling でサンプルサイズを制御してください。\n・**LLM 要約の品質とコスト**: EFLC v2 は bounded evidence で token cost を抑えますが、専門用語・多言語・ノイズ混入・不適切な k では要約精度が低下します。Meta JSON cache で再実行を避けてください。\n・**保存形式の役割分離**: `.ragvis.json` は可視化構造、`.ragmeta.json` は LLM/Meta cache です。異なるクラスタリング run の meta を混ぜると解釈が破綻します。\n・**メタインデックスのコスト**: メタインデックスは Azure AI Search 上に実際のインデックスとして作成されるため、ストレージ・クエリコストが発生します。不要時は削除してください。\n・**2 段階検索の精度依存**: 2 段階検索の精度はクラスタリング品質に依存します。クラスタ品質が低い（k が不適切、サンプル不足）と絞り込み精度も低下します。',
     ivTipsRecH: '推奨される使い方',
@@ -1631,6 +1631,7 @@ export const translations = {
     indexBuilderAliases: 'Aliases',
     indexBuilderAliasesHint: 'Index Alias を作成・更新・削除し、アプリケーションが参照するインデックス名を安全に切り替えます。',
     indexBuilderAliasServiceLevelNotice: 'Alias はインデックス定義の一部ではなく、Azure AI Search サービスレベルのリソースです。Alias はドキュメント操作やインデックス定義の取得・更新に使用できますが、インデックス削除、Analyze API、インデクサーの targetIndexName、Knowledge Source の参照先には使用できません。',
+    indexBuilderAliasServerlessUnsupported: 'Serverless Developer では Index Alias はサポートされていません。この接続では Alias の作成、更新、削除は使用できません。',
     indexBuilderAliasesRefreshTitle: 'Alias 一覧を再読み込み',
     indexBuilderAliasesLoading: 'Alias を読み込み中…',
     indexBuilderAliasEditorTitle: 'Alias editor',
@@ -3712,6 +3713,7 @@ export const translations = {
     indexBuilderAliases: 'Aliases',
     indexBuilderAliasesHint: 'Create, update, and delete index aliases so applications can safely switch which index name they reference.',
     indexBuilderAliasServiceLevelNotice: 'An alias is a service-level Azure AI Search resource, not part of the index definition. Aliases can be used for document operations and to get or update an index definition, but cannot be used to delete an index, call the Analyze API, set an indexer targetIndexName, or reference a Knowledge Source target.',
+    indexBuilderAliasServerlessUnsupported: 'Index aliases are not supported on Serverless Developer. Alias creation, updates, and deletion are unavailable for this connection.',
     indexBuilderAliasesRefreshTitle: 'Refresh alias list',
     indexBuilderAliasesLoading: 'Loading aliases…',
     indexBuilderAliasEditorTitle: 'Alias editor',
@@ -4181,6 +4183,8 @@ export const paramTooltips = {
     // Header
     searchParameterAutoTuning: 'Search Parameter AutoTuning',
     // Request headers
+    searchApiVersion:
+      'Azure AI Search のデータプレーン REST API バージョンです。新しい接続の既定値は 2026-05-01-preview です。Serverless のインデクサー機能には 2026-05-01-preview 以降が必要です。',
     xMsQuerySourceAuthorization:
       'ドキュメントレベルのアクセス制御や一部の Knowledge Source で、検索時に「ユーザー」の Microsoft Entra トークンを渡すためのヘッダー（例: Bearer <user-token>）。アプリの認可（api-key / Authorization）とは別に、ユーザー/グループ/スコープに基づいて結果がフィルタされます。',
 
@@ -4370,6 +4374,8 @@ export const paramTooltips = {
     // Header
     searchParameterAutoTuning: 'Search Parameter AutoTuning',
     // Request headers
+    searchApiVersion:
+      'The Azure AI Search data-plane REST API version. New connections default to 2026-05-01-preview. Serverless indexer features require 2026-05-01-preview or later.',
     xMsQuerySourceAuthorization:
       'A request header used for document-level access control and some knowledge sources to pass an end-user Microsoft Entra token at query time (for example: Bearer <user-token>). This is separate from the app authorization (api-key / Authorization) and is used to filter results based on the user/group/scope.',
 

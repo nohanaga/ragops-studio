@@ -75,7 +75,7 @@ EFLC は、Azure AI Search にすでに存在するベクトルフィールド�
    K-Means++、階層 K-Means、次元削減を Web Worker で実行する。
 
 3. LLM は「全件処理」ではなく「クラスタ説明」に限定する
-   クラスタ単位のラベル、要約、意味署名だけを生成する。
+   クラスタ単位のラベル、要約、意味プロファイルだけを生成する。
 
 4. 生成物は Azure AI Search に戻す
    メタインデックスを作成し、既存の検索 API と同じ管理面で扱う。
@@ -472,7 +472,7 @@ flowchart TD
 |---|---|---|
 | Centroid similarity | `buildClusterEdges()` | クラスタ重心同士のコサイン類似度 |
 | Bridge Document | `findBridgeNodes()` | 自クラスタだけでなく隣接クラスタにも近い境界文書 |
-| Shared Facet | `signatureJson` / `facetLabels` | EFLC v2 の意味署名上で共有される観点 |
+| Shared Facet | `signatureJson` / `facetLabels` | EFLC v2 の意味プロファイル上で共有される観点 |
 | Shared Keyword | `keywords` / `inclusionCriteria` | 要約や criteria から抽出される共有語 |
 | Signature overlap | `signatureJson` | ファセットやキーワードの重なりを統合した補助スコア |
 
@@ -483,8 +483,8 @@ flowchart TD
 | confidence | relationKind | 意味 |
 |---|---|---|
 | `low` | `candidate` | セントロイドが近いだけの候補エッジ |
-| `medium` | `explained` | Bridge Document または意味署名の重なりがある |
-| `high` | `explained` | Bridge Document と意味署名の両方がある |
+| `medium` | `explained` | Bridge Document または意味プロファイルの重なりがある |
+| `high` | `explained` | Bridge Document と意味プロファイルの両方がある |
 
 UI では、エッジの太さ・不透明度・線種を類似度や信頼度に応じて変え、クリック時に理由を確認できます。
 
@@ -507,7 +507,7 @@ Micro グラフは `buildHierarchicalClusterGraph()` でセッション内に生
 
 ## EFLC v1 / v2 クラスタ要約
 
-クラスタリング結果は数値上のグループであり、そのままでは人間が意味を把握しにくい場合があります。メタインデックス生成では、選択した LLM プロファイルを使ってクラスタのラベル、要約、キーワード、意味署名を生成します。
+クラスタリング結果は数値上のグループであり、そのままでは人間が意味を把握しにくい場合があります。メタインデックス生成では、選択した LLM プロファイルを使ってクラスタのラベル、要約、キーワード、意味プロファイルを生成します。
 
 ### v1: 軽量クラスタ要約
 
@@ -524,7 +524,7 @@ Cluster members
 
 v1 は低コストで高速です。まず全体像を掴みたい場合や、クラスタ数が少ない場合に向いています。
 
-### v2: 高カーディナリティ向け意味署名
+### v2: 高カーディナリティ向け意味プロファイル
 
 v2 は、高分散・高カーディナリティなインデックスでもクラスタ説明が雑にならないよう、より構造化された `ClusterSemanticSignature` を生成します。
 
@@ -550,7 +550,7 @@ v2 では次の補助信号を使います。
 
 ### HSA: Hierarchical Signature Aggregation
 
-階層クラスタリングと v2 を同時に使う場合、Micro クラスタの意味署名を先に生成し、それを Macro クラスタへボトムアップに集約します。これを HSA（Hierarchical Signature Aggregation）として扱います。
+階層クラスタリングと v2 を同時に使う場合、Micro クラスタの意味プロファイルを先に生成し、それを Macro クラスタへボトムアップに集約します。これを HSA（Hierarchical Signature Aggregation）として扱います。
 
 ```mermaid
 flowchart TD
@@ -563,7 +563,7 @@ flowchart TD
     C --> D
 ```
 
-HSA により、大きな Macro クラスタを 1 回の LLM 呼び出しで無理に要約するのではなく、Micro の意味署名から Macro の上位概念を組み立てられます。
+HSA により、大きな Macro クラスタを 1 回の LLM 呼び出しで無理に要約するのではなく、Micro の意味プロファイルから Macro の上位概念を組み立てられます。
 
 ---
 
@@ -584,7 +584,7 @@ HSA により、大きな Macro クラスタを 1 回の LLM 呼び出しで無�
 | `retrievalText` | ラベル、要約、質問、ファセット、criteria を結合した検索面 |
 | `generatedQuestions` | そのノードが答えやすい自然文クエリ |
 | `retrievalIntents` | Overview、比較、トラブルシュートなどの検索意図 |
-| `facetLabels` / `facetSummaries` | v2 意味署名の観点 |
+| `facetLabels` / `facetSummaries` | v2 意味プロファイルの観点 |
 | `inclusionCriteria` / `exclusionCriteria` | クエリ時の絞り込み説明に使う条件 |
 | `memberDocIds` | Source Index 側の候補文書 ID |
 | `referenceDocIds` | 要約や質問ノードの根拠文書 ID |
@@ -686,11 +686,11 @@ Index Cluster Visualizer は、LLM がどのような根拠でクラスタ要約
 | `evidenceStats` | evidence role の分布 |
 | `indexFields` | どの Source Index フィールドを要約に使ったか |
 | `pipelineSteps` | EFLC v2 の段階別処理記録 |
-| `output` | 最終的な意味署名、ETA、HSA 情報 |
+| `output` | 最終的な意味プロファイル、ETA、HSA 情報 |
 
 ### EFLC v2 pipeline steps
 
-Flat / Micro の v2 Trace では `evidence-selection` を含みます。階層 v2 の Macro Trace では、生文書 evidence ではなく Micro の意味署名を入力にするため、`hierarchical-aggregation` が入ります。
+Flat / Micro の v2 Trace では `evidence-selection` を含みます。階層 v2 の Macro Trace では、生文書 evidence ではなく Micro の意味プロファイルを入力にするため、`hierarchical-aggregation` が入ります。
 
 ```text
 member-collection
@@ -926,7 +926,7 @@ K-Means++ は初期セントロイドを距離比例で選ぶため、単純な�
 
 ETA（Embedding Topology Analysis）は、クラスタがどれだけ凝集しているか、隣接クラスタとどれだけ混ざっているか、外れ値がどの程度あるかを測る補助分析です。EFLC v2 の要約では、曖昧なクラスタを単一ラベルへ無理に圧縮しないよう、ETA をプロンプトと Trace に含めます。
 
-HSA（Hierarchical Signature Aggregation）は、Micro の意味署名を Macro へ集約する手法です。大きなクラスタを一度に要約するより、細かい意味署名をボトムアップに統合する方が、混在した主題を説明しやすくなります。
+HSA（Hierarchical Signature Aggregation）は、Micro の意味プロファイルを Macro へ集約する手法です。大きなクラスタを一度に要約するより、細かい意味プロファイルをボトムアップに統合する方が、混在した主題を説明しやすくなります。
 
 ### RAPTOR-lite
 
