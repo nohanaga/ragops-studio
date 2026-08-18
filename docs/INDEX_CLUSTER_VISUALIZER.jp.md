@@ -1,4 +1,4 @@
-﻿# Index Cluster Visualizer — EFLC によるインデックス構造可視化とメタインデックス検索
+# Index Cluster Visualizer — EFLC によるインデックス構造可視化とメタインデックス検索
 
 > **EFLC** (**E**mbedding-**F**irst **L**ightweight **C**lustering)
 
