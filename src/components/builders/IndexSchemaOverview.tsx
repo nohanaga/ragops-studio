@@ -1381,6 +1381,12 @@ function getScoringWeightsText(profile: Record<string, unknown>): string {
     .join('\n')
 }
 
+function getScoringWeightCount(profile: Record<string, unknown>): number {
+  const text = isRecord(profile.text) ? profile.text : {}
+  const weights = isRecord(text.weights) ? text.weights : {}
+  return Object.keys(weights).length
+}
+
 function parseScoringWeights(value: string): Record<string, number> {
   return value
     .split('\n')
@@ -1714,8 +1720,24 @@ function ScoringProfilesEditor({ analysis, t, language, onChangeIndex }: {
       <div className="indexSchemaConfigEditor__cards">
         {profiles.map((profile, profileIndex) => {
           const functions = getScoringFunctions(profile)
+          const profileName = asString(profile.name)
+          const profileLabel = profileName || `Scoring profile ${profileIndex + 1}`
+          const weightCount = getScoringWeightCount(profile)
+          const weightSummary = language === 'ja' ? `重み ${weightCount}` : `${weightCount} weights`
+          const functionSummary = language === 'ja' ? `関数 ${functions.length}` : `${functions.length} functions`
+          const profileSummaryLabel = language === 'ja' ? 'Scoring profile の概要' : 'Scoring profile summary'
           return (
-            <div key={`${profileIndex}-${asString(profile.name)}`} className="indexSchemaConfigEditor__card">
+            <div key={`${profileIndex}-${profileName}`} className="indexSchemaConfigEditor__card indexSchemaConfigEditor__card--scoringProfile">
+              <div className="indexSchemaConfigEditor__profileBanner">
+                <div className="indexSchemaConfigEditor__profileTitle">
+                  <span className="indexSchemaConfigEditor__profileIndex">#{profileIndex + 1}</span>
+                  <strong>{profileLabel}</strong>
+                </div>
+                <div className="indexSchemaConfigEditor__profileMeta" aria-label={profileSummaryLabel}>
+                  <span>{weightSummary}</span>
+                  <span>{functionSummary}</span>
+                </div>
+              </div>
               <div className="indexSchemaConfigEditor__cardHeader">
                 <label className="field">
                   <ConfigLabel label={t('indexBuilderConfigName')} tooltipKey="configName" language={language} />

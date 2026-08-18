@@ -2165,7 +2165,7 @@ const META_TRACE_PHASE_LABELS: Record<MetaTracePhase, { ja: string; en: string }
   'topology-analysis': { ja: 'ETA 解析', en: 'ETA Analysis' },
   'sibling-contrast': { ja: '兄弟クラスタ比較', en: 'Sibling Contrast' },
   'hierarchical-aggregation': { ja: 'HSA 集約', en: 'HSA Aggregation' },
-  'llm-signature': { ja: 'LLM 意味署名生成', en: 'LLM Signature' },
+  'llm-signature': { ja: 'LLM 意味プロファイル生成', en: 'LLM Signature' },
   'quality-scoring': { ja: '品質判定', en: 'Quality Scoring' },
   'meta-document': { ja: 'Meta-Index 出力', en: 'Meta-Index Output' },
 }
@@ -2312,7 +2312,7 @@ function edgeReasonText(reason: EdgeReason, language: Language): string {
     if (reason.kind === 'bridge-documents') return `境界文書 ${reason.detail} 件`
     if (reason.kind === 'shared-facet') return `共通ファセット: ${reason.detail}`
     if (reason.kind === 'shared-keyword') return `共通キーワード: ${reason.detail}`
-    return `意味署名の重なり ${reason.detail}`
+    return `意味プロファイルの重なり ${reason.detail}`
   }
   if (reason.kind === 'centroid') return `Centroid similarity ${reason.detail}`
   if (reason.kind === 'bridge-documents') return `${reason.detail} bridge documents`

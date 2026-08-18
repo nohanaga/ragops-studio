@@ -6181,6 +6181,7 @@ html[data-theme='light'] .rawJsonViewer {
   --vector-algorithm-color: #059669;
   --vectorizer-color: #7c3aed;
   --vector-compression-color: #d97706;
+  --scoring-profile-color: #0f766e;
 }
 
 .indexSchemaConfigEditor .field__input:not(:disabled):not([readonly]),
@@ -6295,6 +6296,19 @@ html[data-theme='light'] .rawJsonViewer {
   background: var(--panel-2);
 }
 
+.indexSchemaConfigEditor__card--scoringProfile {
+  border-color: color-mix(in srgb, var(--scoring-profile-color) 40%, var(--border));
+  border-left: 5px solid var(--scoring-profile-color);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--scoring-profile-color) 8%, transparent), transparent 38%),
+    var(--panel-2);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--scoring-profile-color) 14%, transparent);
+}
+
+.indexSchemaConfigEditor__card--scoringProfile + .indexSchemaConfigEditor__card--scoringProfile {
+  margin-top: 4px;
+}
+
 .indexSchemaConfigEditor__card--vectorProfile,
 .indexSchemaConfigEditor__nestedCard--vectorProfile,
 .field--vectorProfile {
@@ -6344,6 +6358,52 @@ html[data-theme='light'] .rawJsonViewer {
 .indexSchemaConfigEditor__cardHeader {
   justify-content: space-between;
   margin-bottom: 10px;
+}
+
+.indexSchemaConfigEditor__profileBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -2px 0 10px;
+  padding: 0 0 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--scoring-profile-color) 24%, var(--border));
+}
+
+.indexSchemaConfigEditor__profileTitle,
+.indexSchemaConfigEditor__profileMeta {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.indexSchemaConfigEditor__profileTitle strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--scoring-profile-color) 70%, var(--fg));
+  font-size: 13px;
+}
+
+.indexSchemaConfigEditor__profileIndex,
+.indexSchemaConfigEditor__profileMeta span {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--scoring-profile-color) 32%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--scoring-profile-color) 12%, var(--surface));
+  color: color-mix(in srgb, var(--scoring-profile-color) 72%, var(--fg));
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.indexSchemaConfigEditor__profileMeta {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .indexSchemaConfigEditor__cardHeader > .field {
