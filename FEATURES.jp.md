@@ -592,7 +592,7 @@ ragops-studio/
 1. **API Key 認証**（推奨）
    - Endpoint: Azure AI Search サービスのエンドポイント URL（例: `https://your-service.search.windows.net`）
    - API Key: 管理者キーまたはクエリキー
-  - APIバージョン: データプレーンREST APIバージョン（新規接続の既定値: `2026-05-01-preview`。Agenticモードでは選択値を使用し、`2025-11-01-preview`未満の場合のみ最低版へ補正）
+   - APIバージョン: データプレーンREST APIバージョン（新規接続の既定値: `2026-05-01-preview`。Agenticモードでは選択値を使用し、`2025-11-01-preview`未満の場合のみ最低版へ補正）
 
 2. **Bearer Token 認証**
    - Endpoint: Azure AI Search サービスのエンドポイント URL
