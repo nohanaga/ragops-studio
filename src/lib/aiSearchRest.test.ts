@@ -30,6 +30,7 @@ import {
   listKnowledgeSources,
   listSynonymMaps,
   resetIndexer,
+  resolveSearchApiVersion,
   searchDocuments,
   suggestDocuments,
 } from './aiSearchRest'
@@ -42,6 +43,11 @@ function asRecord(v: unknown): Record<string, unknown> {
 describe('lib/aiSearchRest', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('keeps newer configured API versions and raises older versions to the feature minimum', () => {
+    expect(resolveSearchApiVersion('2026-05-01-preview', '2025-11-01-preview')).toBe('2026-05-01-preview')
+    expect(resolveSearchApiVersion('2025-09-01', '2025-11-01-preview')).toBe('2025-11-01-preview')
   })
 
   it('routes Azure endpoints via /api-proxy in DEV and sets proxy headers', async () => {
@@ -277,15 +283,25 @@ describe('lib/aiSearchRest', () => {
 
   it('covers list/get/stats/analyze endpoints (happy path)', async () => {
     server.use(
-      http.get('/api-proxy/indexes', async () => {
+      http.get('/api-proxy/indexes', async ({ request }) => {
+        const url = new URL(request.url)
+        expect(url.searchParams.get('api-version')).toBe('2026-05-01-preview')
+        expect(url.searchParams.get('$top')).toBe('1000')
+        expect(url.searchParams.get('$skip')).toBe('0')
+        expect(url.searchParams.get('$count')).toBe('true')
         return HttpResponse.json(
-          { value: [{ name: 'index1' }] },
+          { '@odata.count': 1, value: [{ name: 'index1' }] },
           { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-list' } },
         )
       }),
-      http.get('https://example.search.windows.net/indexes', async () => {
+      http.get('https://example.search.windows.net/indexes', async ({ request }) => {
+        const url = new URL(request.url)
+        expect(url.searchParams.get('api-version')).toBe('2026-05-01-preview')
+        expect(url.searchParams.get('$top')).toBe('1000')
+        expect(url.searchParams.get('$skip')).toBe('0')
+        expect(url.searchParams.get('$count')).toBe('true')
         return HttpResponse.json(
-          { value: [{ name: 'index1' }] },
+          { '@odata.count': 1, value: [{ name: 'index1' }] },
           { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-list' } },
         )
       }),
@@ -415,6 +431,50 @@ describe('lib/aiSearchRest', () => {
     })
     expect(suggest.ok).toBe(true)
     if (suggest.ok) expect(suggest.requestId).toBe('req-suggest')
+  })
+
+  it('aggregates every page returned by the Serverless index list API', async () => {
+    const observedSkips: string[] = []
+    const handlePage = async ({ request }: { request: Request }) => {
+      const url = new URL(request.url)
+      const skip = url.searchParams.get('$skip') ?? ''
+      observedSkips.push(skip)
+
+      if (skip === '0') {
+        return HttpResponse.json({
+          '@odata.count': 1001,
+          value: Array.from({ length: 1000 }, (_, index) => ({ name: `index-${index}` })),
+        })
+      }
+
+      return HttpResponse.json({
+        '@odata.count': 1001,
+        value: [{ name: 'index-1000' }],
+      })
+    }
+
+    server.use(
+      http.get('/api-proxy/indexes', handlePage),
+      http.get('https://example.search.windows.net/indexes', handlePage),
+    )
+
+    const result = await listIndexes({
+      profile: {
+        endpoint: 'https://example.search.windows.net',
+        apiVersion: '2025-09-01',
+        authType: 'apiKey',
+        apiKey: 'k',
+      },
+      apiVersion: '2025-09-01',
+      language: 'ja',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const values = asRecord(result.response).value
+    expect(Array.isArray(values)).toBe(true)
+    expect(values).toHaveLength(1001)
+    expect(observedSkips).toEqual(['0', '1000'])
   })
 
   it('covers Knowledge Base CRUD (list/get/put/delete)', async () => {
@@ -693,13 +753,15 @@ describe('lib/aiSearchRest', () => {
         return new HttpResponse(null, { status: 204, headers: { 'request-id': 'req-idx-del' } })
       }),
 
-      http.post('/api-proxy/knowledgebases/kb1/retrieve', async () => {
+      http.post('/api-proxy/knowledgebases/kb1/retrieve', async ({ request }) => {
+        expect(new URL(request.url).searchParams.get('api-version')).toBe('2026-05-01-preview')
         return HttpResponse.json(
           { error: { message: 'forbidden' } },
           { status: 403, headers: { 'content-type': 'application/json', 'request-id': 'req-agt-403' } },
         )
       }),
-      http.post('https://example.search.windows.net/knowledgebases/kb1/retrieve', async () => {
+      http.post('https://example.search.windows.net/knowledgebases/kb1/retrieve', async ({ request }) => {
+        expect(new URL(request.url).searchParams.get('api-version')).toBe('2026-05-01-preview')
         return HttpResponse.json(
           { error: { message: 'forbidden' } },
           { status: 403, headers: { 'content-type': 'application/json', 'request-id': 'req-agt-403' } },
@@ -709,7 +771,7 @@ describe('lib/aiSearchRest', () => {
 
     const profile = {
       endpoint: 'https://example.search.windows.net',
-      apiVersion: '2025-09-01' as const,
+      apiVersion: '2026-05-01-preview' as const,
       authType: 'apiKey' as const,
       apiKey: 'k',
     }

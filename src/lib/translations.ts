@@ -1631,6 +1631,7 @@ export const translations = {
     indexBuilderAliases: 'Aliases',
     indexBuilderAliasesHint: 'Index Alias を作成・更新・削除し、アプリケーションが参照するインデックス名を安全に切り替えます。',
     indexBuilderAliasServiceLevelNotice: 'Alias はインデックス定義の一部ではなく、Azure AI Search サービスレベルのリソースです。Alias はドキュメント操作やインデックス定義の取得・更新に使用できますが、インデックス削除、Analyze API、インデクサーの targetIndexName、Knowledge Source の参照先には使用できません。',
+    indexBuilderAliasServerlessUnsupported: 'Serverless Developer では Index Alias はサポートされていません。この接続では Alias の作成、更新、削除は使用できません。',
     indexBuilderAliasesRefreshTitle: 'Alias 一覧を再読み込み',
     indexBuilderAliasesLoading: 'Alias を読み込み中…',
     indexBuilderAliasEditorTitle: 'Alias editor',
@@ -3712,6 +3713,7 @@ export const translations = {
     indexBuilderAliases: 'Aliases',
     indexBuilderAliasesHint: 'Create, update, and delete index aliases so applications can safely switch which index name they reference.',
     indexBuilderAliasServiceLevelNotice: 'An alias is a service-level Azure AI Search resource, not part of the index definition. Aliases can be used for document operations and to get or update an index definition, but cannot be used to delete an index, call the Analyze API, set an indexer targetIndexName, or reference a Knowledge Source target.',
+    indexBuilderAliasServerlessUnsupported: 'Index aliases are not supported on Serverless Developer. Alias creation, updates, and deletion are unavailable for this connection.',
     indexBuilderAliasesRefreshTitle: 'Refresh alias list',
     indexBuilderAliasesLoading: 'Loading aliases…',
     indexBuilderAliasEditorTitle: 'Alias editor',
@@ -4181,6 +4183,8 @@ export const paramTooltips = {
     // Header
     searchParameterAutoTuning: 'Search Parameter AutoTuning',
     // Request headers
+    searchApiVersion:
+      'Azure AI Search のデータプレーン REST API バージョンです。新しい接続の既定値は 2026-05-01-preview です。Serverless のインデクサー機能には 2026-05-01-preview 以降が必要です。',
     xMsQuerySourceAuthorization:
       'ドキュメントレベルのアクセス制御や一部の Knowledge Source で、検索時に「ユーザー」の Microsoft Entra トークンを渡すためのヘッダー（例: Bearer <user-token>）。アプリの認可（api-key / Authorization）とは別に、ユーザー/グループ/スコープに基づいて結果がフィルタされます。',
 
@@ -4370,6 +4374,8 @@ export const paramTooltips = {
     // Header
     searchParameterAutoTuning: 'Search Parameter AutoTuning',
     // Request headers
+    searchApiVersion:
+      'The Azure AI Search data-plane REST API version. New connections default to 2026-05-01-preview. Serverless indexer features require 2026-05-01-preview or later.',
     xMsQuerySourceAuthorization:
       'A request header used for document-level access control and some knowledge sources to pass an end-user Microsoft Entra token at query time (for example: Bearer <user-token>). This is separate from the app authorization (api-key / Authorization) and is used to filter results based on the user/group/scope.',
 

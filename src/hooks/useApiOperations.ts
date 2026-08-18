@@ -11,7 +11,7 @@ import type { CenterTab, LabMode, LatestResponse, SearchFormState, UiLogEntry } 
 import { translations, type Language } from '../lib/translations'
 import type { JsonValue } from '../lib/aiSearchRest'
 import { addArtifact, createRun, updateRun } from '../lib/db'
-import { agenticRetrieve, analyzeIndex, autocompleteDocuments, searchDocuments, suggestDocuments } from '../lib/aiSearchRest'
+import { agenticRetrieve, analyzeIndex, autocompleteDocuments, resolveSearchApiVersion, searchDocuments, suggestDocuments } from '../lib/aiSearchRest'
 import { buildSearchBodyFromForm } from '../utils/appRequestBodies'
 import { inferRunType, parseJsonStrict, validateRequest } from '../utils'
 
@@ -101,8 +101,9 @@ export function useApiOperations(args: {
 
     const startedAt = new Date().toISOString()
 
-    // Agentic retrieval endpoints require a specific preview API version.
-    const ctxApiVersion = labMode === 'agentic' ? '2025-11-01-preview' : activeProfile.apiVersion
+    const ctxApiVersion = labMode === 'agentic'
+      ? resolveSearchApiVersion(activeProfile.apiVersion, '2025-11-01-preview')
+      : activeProfile.apiVersion
     const context: Run['context'] = {
       endpoint: activeProfile.endpoint,
       apiVersion: ctxApiVersion,

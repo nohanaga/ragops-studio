@@ -536,7 +536,7 @@ After launching the application, configure your Azure AI Search connection from 
 1. **API Key Authentication** (Recommended)
    - Endpoint: Azure AI Search service endpoint URL (e.g., `https://your-service.search.windows.net`)
    - API Key: Admin key or query key
-   - API Version: REST API version (default: 2025-09-01, automatically uses 2025-11-01-preview for Agentic mode)
+  - API Version: Data-plane REST API version (new connections default to `2026-05-01-preview`; Agentic mode uses the selected version and only raises versions older than `2025-11-01-preview` to that minimum)
 
 2. **Bearer Token Authentication**
    - Endpoint: Azure AI Search service endpoint URL
@@ -552,6 +552,8 @@ After launching the application, configure your Azure AI Search connection from 
 
 ### Development Proxy
 During development (`npm run dev`), a Vite development proxy is automatically used to avoid CORS errors. Connections to Azure AI Search endpoints (`*.search.windows.net` or `*.search.azure.com`) go through `/api-proxy`.
+
+Serverless Developer (preview) uses the regular Azure AI Search endpoint and authentication methods. Select `2026-05-01-preview` or later in the connection settings when using Serverless indexer features. Some features, including index aliases, aren't supported on Serverless.
 
 ## How to Use
 
