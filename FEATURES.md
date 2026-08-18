@@ -536,7 +536,7 @@ After launching the application, configure your Azure AI Search connection from 
 1. **API Key Authentication** (Recommended)
    - Endpoint: Azure AI Search service endpoint URL (e.g., `https://your-service.search.windows.net`)
    - API Key: Admin key or query key
-  - API Version: Data-plane REST API version (new connections default to `2026-05-01-preview`; Agentic mode uses the selected version and only raises versions older than `2025-11-01-preview` to that minimum)
+   - API Version: Data-plane REST API version (new connections default to `2026-05-01-preview`; Agentic mode uses the selected version and only raises versions older than `2025-11-01-preview` to that minimum)
 
 2. **Bearer Token Authentication**
    - Endpoint: Azure AI Search service endpoint URL
