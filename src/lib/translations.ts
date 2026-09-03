@@ -1627,6 +1627,8 @@ export const translations = {
     indexBuilderPublishCreateNewOption: '＋ 新規作成...',
     indexBuilderPublishNewNamePlaceholder: '新しいインデックス名を入力',
     indexBuilderPublishTargetNameHint: '保存先名が JSON 内の name と異なる場合、保存先の名前で Azure に保存されます。',
+    indexBuilderAllowIndexDowntime: 'インデックス停止を許可',
+    indexBuilderAllowIndexDowntimeWarning: 'allowIndexDowntime=true を指定します。更新中は少なくとも数秒間インデックスがオフラインになり、インデックス作成要求と検索要求が失敗します。復旧後も数分間、性能と書き込み可用性が低下する場合があります。',
     indexBuilderJsonEditor: 'JSON エディター',
     indexBuilderAliases: 'Aliases',
     indexBuilderAliasesHint: 'Index Alias を作成・更新・削除し、アプリケーションが参照するインデックス名を安全に切り替えます。',
@@ -3709,6 +3711,8 @@ export const translations = {
     indexBuilderPublishCreateNewOption: '+ Create new...',
     indexBuilderPublishNewNamePlaceholder: 'Enter new index name',
     indexBuilderPublishTargetNameHint: 'If the target name differs from the name in JSON, the index will be saved under the target name on Azure.',
+    indexBuilderAllowIndexDowntime: 'Allow index downtime',
+    indexBuilderAllowIndexDowntimeWarning: 'Sends allowIndexDowntime=true. The index will be offline for at least a few seconds, causing indexing and query requests to fail. Performance and write availability can remain impaired for several minutes after the update.',
     indexBuilderJsonEditor: 'JSON editor',
     indexBuilderAliases: 'Aliases',
     indexBuilderAliasesHint: 'Create, update, and delete index aliases so applications can safely switch which index name they reference.',
@@ -4185,6 +4189,8 @@ export const paramTooltips = {
     // Request headers
     searchApiVersion:
       'Azure AI Search のデータプレーン REST API バージョンです。新しい接続の既定値は 2026-05-01-preview です。Serverless のインデクサー機能には 2026-05-01-preview 以降が必要です。',
+    allowIndexDowntime:
+      '既定値は false です。既存インデックスへの analyzer、normalizer、tokenizer、token filter、character filter の追加、または similarity の変更を許可するには true を指定します。更新中、インデックスは通常数秒間オフラインになります。',
     xMsQuerySourceAuthorization:
       'ドキュメントレベルのアクセス制御や一部の Knowledge Source で、検索時に「ユーザー」の Microsoft Entra トークンを渡すためのヘッダー（例: Bearer <user-token>）。アプリの認可（api-key / Authorization）とは別に、ユーザー/グループ/スコープに基づいて結果がフィルタされます。',
 
@@ -4376,6 +4382,8 @@ export const paramTooltips = {
     // Request headers
     searchApiVersion:
       'The Azure AI Search data-plane REST API version. New connections default to 2026-05-01-preview. Serverless indexer features require 2026-05-01-preview or later.',
+    allowIndexDowntime:
+      'The default is false. Set to true to allow adding analyzers, normalizers, tokenizers, token filters, or character filters to an existing index, or to modify similarity settings. The index is usually offline for several seconds during the update.',
     xMsQuerySourceAuthorization:
       'A request header used for document-level access control and some knowledge sources to pass an end-user Microsoft Entra token at query time (for example: Bearer <user-token>). This is separate from the app authorization (api-key / Authorization) and is used to filter results based on the user/group/scope.',
 

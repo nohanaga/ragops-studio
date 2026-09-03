@@ -773,6 +773,7 @@ describe('lib/aiSearchRest', () => {
   it('covers Index PUT/DELETE and agenticRetrieve error handling', async () => {
     server.use(
       http.put('/api-proxy/indexes/myindex', async ({ request }) => {
+        expect(new URL(request.url).searchParams.get('allowIndexDowntime')).toBeNull()
         const body = (await request.json()) as unknown
         expect(asRecord(body).name).toBe('myindex')
         return HttpResponse.json(
@@ -781,6 +782,7 @@ describe('lib/aiSearchRest', () => {
         )
       }),
       http.put('https://example.search.windows.net/indexes/myindex', async ({ request }) => {
+        expect(new URL(request.url).searchParams.get('allowIndexDowntime')).toBeNull()
         const body = (await request.json()) as unknown
         expect(asRecord(body).name).toBe('myindex')
         return HttpResponse.json(
@@ -844,6 +846,34 @@ describe('lib/aiSearchRest', () => {
     expect(agt.status).toBe(403)
     // agenticRetrieve intentionally does not run extractErrorMessage.
     expect(agt.error.message).toBe('HTTP 403')
+  })
+
+  it('adds allowIndexDowntime only when index downtime is explicitly allowed', async () => {
+    const handler = http.put('*/indexes/myindex', async ({ request }) => {
+      expect(new URL(request.url).searchParams.get('allowIndexDowntime')).toBe('true')
+      return HttpResponse.json(
+        { name: 'myindex' },
+        { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-idx-downtime' } },
+      )
+    })
+    server.use(handler)
+
+    const result = await createOrUpdateIndex({
+      profile: {
+        endpoint: 'https://example.search.windows.net',
+        apiVersion: '2025-09-01',
+        authType: 'apiKey',
+        apiKey: 'k',
+      },
+      indexName: 'myindex',
+      apiVersion: '2025-09-01',
+      body: { name: 'myindex' },
+      allowIndexDowntime: true,
+      language: 'ja',
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.url).toContain('allowIndexDowntime=true')
   })
 
   it('posts indexer reset with api-version and request id', async () => {

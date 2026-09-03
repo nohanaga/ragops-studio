@@ -2705,6 +2705,7 @@ export async function createOrUpdateIndex(input: {
   indexName: string;
   apiVersion: SearchApiVersion;
   body: JsonValue;
+  allowIndexDowntime?: boolean;
   language?: Language;
   signal?: AbortSignal;
 }): Promise<RestResult> {
@@ -2715,7 +2716,8 @@ export async function createOrUpdateIndex(input: {
   if (!idxName) throw new Error(tr(lang, 'restErrorIndexNameUnset'));
 
   let requestId = uuidv4();
-  const url = `${endpoint}/indexes/${encodeURIComponent(idxName)}?api-version=${encodeURIComponent(input.apiVersion)}`;
+  const allowIndexDowntime = input.allowIndexDowntime === true ? '&allowIndexDowntime=true' : '';
+  const url = `${endpoint}/indexes/${encodeURIComponent(idxName)}?api-version=${encodeURIComponent(input.apiVersion)}${allowIndexDowntime}`;
 
   const headers: Record<string, string> = {
     'content-type': 'application/json',

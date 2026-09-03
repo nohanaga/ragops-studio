@@ -930,6 +930,7 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
         onClose={indexPublish.closeDiffDialog}
         onConfirmPublish={onConfirmIndexPublish}
         publishLoading={indexPublish.publishLoading}
+        publishError={indexPublish.publishError}
         diffViewMode={indexPublish.diffViewMode}
         setDiffViewMode={indexPublish.setDiffViewMode}
         publishBaselineText={indexPublish.publishBaselineText}
@@ -941,6 +942,10 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
         refetchingBaseline={indexPublish.refetchingBaseline}
         onChangeTargetName={indexPublish.changeTargetName}
         existingSkillsetNames={indexPublish.existingIndexNames}
+        indexDowntimeOption={{
+          checked: indexPublish.allowIndexDowntime,
+          onChange: indexPublish.setAllowIndexDowntime,
+        }}
         resourceLabels={{
           targetNameLabel: 'indexBuilderPublishTargetName',
           createNewLabel: 'indexBuilderPublishCreateNew',
