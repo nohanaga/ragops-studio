@@ -6,9 +6,17 @@ import { http, HttpResponse } from 'msw'
 
 import { server } from '../test/mswServer'
 import { translations } from '../lib/translations'
-import { useApiOperations } from './useApiOperations'
+import { shouldUseAgenticStreaming, useApiOperations } from './useApiOperations'
 
 describe('hooks/useApiOperations', () => {
+  it('uses SSE only when the effective API version supports it', () => {
+    expect(shouldUseAgenticStreaming('2026-08-01-preview', true)).toBe(true)
+    expect(shouldUseAgenticStreaming('2026-05-01-preview', true)).toBe(false)
+    expect(shouldUseAgenticStreaming('2026-04-01', true)).toBe(false)
+    expect(shouldUseAgenticStreaming('2025-11-01-preview', true)).toBe(false)
+    expect(shouldUseAgenticStreaming('2026-08-01-preview', false)).toBe(false)
+  })
+
   it('onExecute succeeds and sets LatestResponse (searchDocuments)', async () => {
     server.use(
       // In vitest, `import.meta.env.DEV` is typically true, so the REST client

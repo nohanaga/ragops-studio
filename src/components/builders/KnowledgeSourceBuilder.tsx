@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { ConnectionProfile } from '../../lib/model'
-import type { KnowledgeSource } from '../../types'
+import type { KnowledgeSource, SearchIndexKnowledgeSource } from '../../types'
 import {
   listKnowledgeSources,
   getKnowledgeSource,
@@ -16,9 +16,20 @@ import {
 import { InfoTooltip } from '../InfoTooltip'
 import { translations, type Language } from '../../lib/translations'
 import type { JsonValue } from '../../lib/aiSearchRest'
+import { getSearchApiCapabilities } from '../../lib/searchApiCapabilities'
+import {
+  buildMcpServerKnowledgeSourceBody,
+  normalizeMcpServerParameters,
+} from '../../utils/mcpServerKnowledgeSource'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) return true
+  if (Array.isArray(value)) return value.every(isJsonValue)
+  return isRecord(value) && Object.values(value).every(isJsonValue)
 }
 
 type KnowledgeSourceBuilderProps = {
@@ -27,17 +38,26 @@ type KnowledgeSourceBuilderProps = {
   language: Language
 }
 
+type KnowledgeSourceForm = {
+  name: string
+  kind: 'searchIndex' | 'mcpServer'
+  description: string | null
+  searchIndexParameters: SearchIndexKnowledgeSource['searchIndexParameters']
+  resultsProcessing: 'rerank' | 'none'
+}
+
 export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBuilderProps) {
   const t = useCallback((key: keyof typeof translations.ja) => translations[language][key], [language])
+  const capabilities = getSearchApiCapabilities(profile?.apiVersion)
 
-  const defaultSearchIndexParameters: KnowledgeSource['searchIndexParameters'] = {
+  const defaultSearchIndexParameters: SearchIndexKnowledgeSource['searchIndexParameters'] = {
     searchIndexName: '',
     semanticConfigurationName: null,
     sourceDataFields: [],
     searchFields: [],
   }
 
-  const normalizeSearchIndexParameters = useCallback((input: unknown): KnowledgeSource['searchIndexParameters'] => {
+  const normalizeSearchIndexParameters = useCallback((input: unknown): SearchIndexKnowledgeSource['searchIndexParameters'] => {
     const p: Record<string, unknown> = isRecord(input) ? input : {}
     const toNameArray = (value: unknown): Array<{ name: string }> => {
       if (!Array.isArray(value)) return []
@@ -51,11 +71,21 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
       semanticConfigurationName: typeof p.semanticConfigurationName === 'string' ? p.semanticConfigurationName : null,
       sourceDataFields: toNameArray(p.sourceDataFields),
       searchFields: toNameArray(p.searchFields),
+      ...(isRecord(p.queryHints) && isJsonValue(p.queryHints) ? { queryHints: p.queryHints } : {}),
     }
   }, [])
 
   const normalizeKnowledgeSource = useCallback((input: unknown): KnowledgeSource => {
     const ks: Record<string, unknown> = isRecord(input) ? input : {}
+    if (ks.kind === 'mcpServer') {
+      return {
+        name: typeof ks.name === 'string' ? ks.name : '',
+        kind: 'mcpServer',
+        description: typeof ks.description === 'string' ? ks.description : null,
+        resultsProcessing: ks.resultsProcessing === 'none' ? 'none' : 'rerank',
+        mcpServerParameters: normalizeMcpServerParameters(ks.mcpServerParameters),
+      }
+    }
     return {
       name: typeof ks.name === 'string' ? ks.name : '',
       kind: 'searchIndex',
@@ -67,7 +97,7 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
   const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedSource, setSelectedSource] = useState<KnowledgeSource | null>(null)
-  const [formData, setFormData] = useState<Partial<KnowledgeSource>>({
+  const [formData, setFormData] = useState<KnowledgeSourceForm>({
     name: '',
     kind: 'searchIndex',
     description: null,
@@ -77,8 +107,41 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
       sourceDataFields: [],
       searchFields: [],
     },
+    resultsProcessing: 'rerank',
   })
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [queryHintsJson, setQueryHintsJson] = useState('')
+  const [mcpServerJson, setMcpServerJson] = useState('{\n  "serverURL": "",\n  "tools": []\n}')
+
+  const resetForm = useCallback(() => {
+    setSelectedSource(null)
+    setFormData({
+      name: '',
+      kind: 'searchIndex',
+      description: null,
+      searchIndexParameters: defaultSearchIndexParameters,
+      resultsProcessing: 'rerank',
+    })
+    setQueryHintsJson('')
+    setMcpServerJson('{\n  "serverURL": "",\n  "tools": []\n}')
+  }, [])
+
+  function parseQueryHints(): JsonValue | undefined {
+    if (!capabilities.queryHints || !queryHintsJson.trim()) return undefined
+    const parsed = JSON.parse(queryHintsJson) as unknown
+    if (!isRecord(parsed) || !isJsonValue(parsed)) {
+      throw new Error(t('queryHintsObjectRequired'))
+    }
+    return parsed
+  }
+
+  function parseMcpServerParameters(): JsonValue {
+    const parsed = JSON.parse(mcpServerJson) as unknown
+    if (!isRecord(parsed) || !isJsonValue(parsed)) {
+      throw new Error(t('mcpServerParametersObjectRequired'))
+    }
+    return parsed
+  }
 
   const loadKnowledgeSources = useCallback(async () => {
     if (!profile) return
@@ -112,13 +175,24 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
     }
     setLoading(true)
     try {
-      const normalizedParams = normalizeSearchIndexParameters(formData.searchIndexParameters)
-      const body: JsonValue = {
-        name: formData.name,
-        kind: 'searchIndex',
-        description: formData.description || null,
-        searchIndexParameters: normalizedParams,
-      }
+      const queryHints = formData.kind === 'searchIndex' ? parseQueryHints() : undefined
+      const body: JsonValue = formData.kind === 'mcpServer'
+        ? buildMcpServerKnowledgeSourceBody({
+            name: formData.name,
+            description: formData.description || null,
+            resultsProcessing: formData.resultsProcessing,
+            mcpServerParameters: parseMcpServerParameters(),
+            apiVersion: profile.apiVersion,
+          })
+        : {
+            name: formData.name,
+            kind: 'searchIndex',
+            description: formData.description || null,
+            searchIndexParameters: {
+              ...normalizeSearchIndexParameters(formData.searchIndexParameters),
+              ...(queryHints ? { queryHints } : {}),
+            },
+          }
       const result = await createOrUpdateKnowledgeSource({
         profile,
         knowledgeSourceName: formData.name,
@@ -128,17 +202,7 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
       if (result.ok) {
         setMessage({ type: 'success', text: `${t('created')}: ${formData.name}` })
         await loadKnowledgeSources()
-        setFormData({
-          name: '',
-          kind: 'searchIndex',
-          description: null,
-          searchIndexParameters: {
-            searchIndexName: '',
-            semanticConfigurationName: null,
-            sourceDataFields: [],
-            searchFields: [],
-          },
-        })
+        resetForm()
       } else {
         setMessage({ type: 'error', text: `${t('failed')}: ${result.error.message}` })
       }
@@ -153,13 +217,24 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
     if (!profile || !selectedSource || !formData.name) return
     setLoading(true)
     try {
-      const normalizedParams = normalizeSearchIndexParameters(formData.searchIndexParameters)
-      const body: JsonValue = {
-        name: formData.name,
-        kind: 'searchIndex',
-        description: formData.description || null,
-        searchIndexParameters: normalizedParams,
-      }
+      const queryHints = formData.kind === 'searchIndex' ? parseQueryHints() : undefined
+      const body: JsonValue = formData.kind === 'mcpServer'
+        ? buildMcpServerKnowledgeSourceBody({
+            name: formData.name,
+            description: formData.description || null,
+            resultsProcessing: formData.resultsProcessing,
+            mcpServerParameters: parseMcpServerParameters(),
+            apiVersion: profile.apiVersion,
+          })
+        : {
+            name: formData.name,
+            kind: 'searchIndex',
+            description: formData.description || null,
+            searchIndexParameters: {
+              ...normalizeSearchIndexParameters(formData.searchIndexParameters),
+              ...(queryHints ? { queryHints } : {}),
+            },
+          }
       const result = await createOrUpdateKnowledgeSource({
         profile,
         knowledgeSourceName: formData.name,
@@ -188,18 +263,7 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
         setMessage({ type: 'success', text: `${t('deleted')}: ${name}` })
         await loadKnowledgeSources()
         if (selectedSource?.name === name) {
-          setSelectedSource(null)
-          setFormData({
-            name: '',
-            kind: 'searchIndex',
-            description: null,
-            searchIndexParameters: {
-              searchIndexName: '',
-              semanticConfigurationName: null,
-              sourceDataFields: [],
-              searchFields: [],
-            },
-          })
+          resetForm()
         }
       } else {
         setMessage({ type: 'error', text: `${t('failed')}: ${result.error.message}` })
@@ -219,7 +283,21 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
       if (result.ok && result.response) {
         const source = normalizeKnowledgeSource(result.response)
         setSelectedSource(source)
-        setFormData(source)
+        setFormData({
+          name: source.name,
+          kind: source.kind,
+          description: source.description,
+          searchIndexParameters: source.kind === 'searchIndex'
+            ? source.searchIndexParameters
+            : defaultSearchIndexParameters,
+          resultsProcessing: source.kind === 'mcpServer' ? source.resultsProcessing : 'rerank',
+        })
+        setQueryHintsJson(source.kind === 'searchIndex' && source.searchIndexParameters.queryHints
+          ? JSON.stringify(source.searchIndexParameters.queryHints, null, 2)
+          : '')
+        setMcpServerJson(source.kind === 'mcpServer'
+          ? JSON.stringify(source.mcpServerParameters, null, 2)
+          : '{\n  "serverURL": "",\n  "tools": []\n}')
       }
     } catch (e) {
       console.error(e)
@@ -285,6 +363,24 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
               </label>
               <label className="field">
                 <span className="field__label">
+                  {t('knowledgeSourceKind')} *
+                  <InfoTooltip tooltipKey="knowledgeSourceKind" language={language} />
+                </span>
+                <select
+                  className="field__input"
+                  value={formData.kind}
+                  disabled={!!selectedSource}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    kind: e.target.value as KnowledgeSourceForm['kind'],
+                  })}
+                >
+                  <option value="searchIndex">searchIndex</option>
+                  <option value="mcpServer" disabled={!capabilities.mcpServerKnowledgeSources}>mcpServer</option>
+                </select>
+              </label>
+              <label className="field field--full">
+                <span className="field__label">
                   {t('description')}
                   <InfoTooltip tooltipKey="knowledgeSourceDescription" language={language} />
                 </span>
@@ -294,6 +390,8 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 />
               </label>
+              {formData.kind === 'searchIndex' ? (
+                <>
               <label className="field">
                 <span className="field__label">
                   {t('searchIndexName')} *
@@ -372,34 +470,89 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
                   placeholder={t('searchFieldsPlaceholder')}
                 />
               </label>
+              <label className="field field--full">
+                <span className="field__label">
+                  {t('queryHints')}
+                  <InfoTooltip tooltipKey="queryHints" language={language} />
+                </span>
+                <textarea
+                  className="field__textarea mono"
+                  rows={10}
+                  value={queryHintsJson}
+                  disabled={!capabilities.queryHints}
+                  onChange={(e) => setQueryHintsJson(e.target.value)}
+                  placeholder={'{\n  "filters": [{\n    "field": "productFamily",\n    "fieldValues": ["Model-X100"]\n  }]\n}'}
+                />
+              </label>
+              {!capabilities.queryHints && (
+                <div className="notice notice--info field--full">{t('agenticAugustPreviewRequired')}</div>
+              )}
+                </>
+              ) : (
+                <>
+                  {capabilities.perSourceResultsProcessing && (
+                  <label className="field">
+                    <span className="field__label">
+                      {t('resultsProcessing')}
+                      <InfoTooltip tooltipKey="mcpResultsProcessing" language={language} />
+                    </span>
+                    <select
+                      className="field__input"
+                      value={formData.resultsProcessing}
+                      disabled={!capabilities.mcpServerKnowledgeSources}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        resultsProcessing: e.target.value as KnowledgeSourceForm['resultsProcessing'],
+                      })}
+                    >
+                      <option value="rerank">rerank</option>
+                      <option value="none">none</option>
+                    </select>
+                  </label>
+                  )}
+                  <label className="field field--full">
+                    <span className="field__label">
+                      mcpServerParameters *
+                      <InfoTooltip tooltipKey="mcpServerParameters" language={language} />
+                    </span>
+                    <textarea
+                      className="field__textarea mono"
+                      rows={16}
+                      value={mcpServerJson}
+                      disabled={!capabilities.mcpServerKnowledgeSources}
+                      onChange={(e) => setMcpServerJson(e.target.value)}
+                    />
+                  </label>
+                  {!capabilities.mcpServerKnowledgeSources && (
+                    <div className="notice notice--info field--full">{t('mcpApiVersionRequired')}</div>
+                  )}
+                </>
+              )}
             </div>
             <div className="actions builder__actions" data-guide-target="knowledge-source-actions">
               {selectedSource ? (
-                <button type="button" className="btn" onClick={handleUpdate} disabled={loading}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={handleUpdate}
+                  disabled={loading || (formData.kind === 'mcpServer' && !capabilities.mcpServerKnowledgeSources)}
+                >
                   <i className="bi bi-pencil icon--mr6"></i> {t('update')}
                 </button>
               ) : (
-                <button type="button" className="btn" onClick={handleCreate} disabled={loading}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={handleCreate}
+                  disabled={loading || (formData.kind === 'mcpServer' && !capabilities.mcpServerKnowledgeSources)}
+                >
                   <i className="bi bi-pencil icon--mr6"></i> {t('create')}
                 </button>
               )}
               <button
                 type="button"
                 className="btn"
-                onClick={() => {
-                  setSelectedSource(null)
-                  setFormData({
-                    name: '',
-                    kind: 'searchIndex',
-                    description: null,
-                    searchIndexParameters: {
-                      searchIndexName: '',
-                      semanticConfigurationName: null,
-                      sourceDataFields: [],
-                      searchFields: [],
-                    },
-                  })
-                }}
+                onClick={resetForm}
               >
                 <i className="bi bi-plus-circle icon--mr6"></i> {t('new')}
               </button>

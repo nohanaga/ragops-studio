@@ -28,6 +28,7 @@ type ActivityType =
   | 'web'
   | 'indexedSharePoint'
   | 'azureBlob'
+  | 'modelWebSummarization'
   | 'agenticReasoning'
   | 'modelAnswerSynthesis'
   | string
@@ -45,8 +46,11 @@ interface ActivityItem {
   count?: number
   knowledgeSourceName?: string
   search?: string
+  logicalReasoningEffort?: string
   retrievalReasoningEffort?: string
   queryTime?: string
+  modelName?: string
+  deploymentId?: string
 }
 
 /** Classify a type string into a visual category. */
@@ -54,7 +58,7 @@ function typeCategory(type: string): 'planning' | 'source' | 'reasoning' | 'synt
   if (type === 'modelQueryPlanning') return 'planning'
   if (type === 'agenticReasoning') return 'reasoning'
   if (type === 'modelAnswerSynthesis') return 'synthesis'
-  if (['searchIndex', 'web', 'indexedSharePoint', 'azureBlob'].includes(type)) return 'source'
+  if (['searchIndex', 'web', 'indexedSharePoint', 'azureBlob', 'modelWebSummarization'].includes(type)) return 'source'
   // Treat unknown knowledge-source types as source
   if (type !== 'modelQueryPlanning' && type !== 'agenticReasoning' && type !== 'modelAnswerSynthesis') return 'source'
   return 'unknown'
@@ -114,6 +118,8 @@ function parseActivity(raw: JsonValue): ActivityItem | null {
 
   const retrievalReasoningEffortObj = isJsonObject(raw.retrievalReasoningEffort) ? raw.retrievalReasoningEffort : null
   const retrievalReasoningEffort = typeof retrievalReasoningEffortObj?.kind === 'string' ? retrievalReasoningEffortObj.kind : undefined
+  const logicalReasoningEffortObj = isJsonObject(raw.logicalReasoningEffort) ? raw.logicalReasoningEffort : null
+  const logicalReasoningEffort = typeof logicalReasoningEffortObj?.kind === 'string' ? logicalReasoningEffortObj.kind : undefined
 
   // Extract search string from various argument objects
   let search: string | undefined
@@ -123,8 +129,15 @@ function parseActivity(raw: JsonValue): ActivityItem | null {
   }
 
   const queryTime = typeof raw.queryTime === 'string' ? raw.queryTime : undefined
+  const model = isJsonObject(raw.model) ? raw.model : null
+  const modelName = typeof model?.modelName === 'string'
+    ? model.modelName
+    : typeof raw.modelName === 'string' ? raw.modelName : undefined
+  const deploymentId = typeof model?.deploymentId === 'string'
+    ? model.deploymentId
+    : typeof raw.deploymentId === 'string' ? raw.deploymentId : undefined
 
-  return { type, id, raw: raw as Record<string, JsonValue>, elapsedMs, inputTokens, outputTokens, reasoningTokens, count, knowledgeSourceName, search, retrievalReasoningEffort, queryTime }
+  return { type, id, raw: raw as Record<string, JsonValue>, elapsedMs, inputTokens, outputTokens, reasoningTokens, count, knowledgeSourceName, search, logicalReasoningEffort, retrievalReasoningEffort, queryTime, modelName, deploymentId }
 }
 
 /* ── badge colours ──────────────────────────────────────────── */
@@ -133,8 +146,10 @@ const badgeStyle: Record<string, { bg: string; color: string; icon: string }> = 
   modelQueryPlanning:  { bg: '#dbedff', color: '#0366d6', icon: 'bi-diagram-3' },
   searchIndex:         { bg: '#dcffe4', color: '#22863a', icon: 'bi-search' },
   web:                 { bg: '#fff3cd', color: '#856404', icon: 'bi-globe' },
+  modelWebSummarization:{ bg: '#fff1e6', color: '#9a4a00', icon: 'bi-file-text' },
   indexedSharePoint:   { bg: '#e8daef', color: '#6f42c1', icon: 'bi-file-earmark-richtext' },
   azureBlob:           { bg: '#d1ecf1', color: '#0c5460', icon: 'bi-cloud' },
+  mcpServer:           { bg: '#e2f2ef', color: '#146c5a', icon: 'bi-plugin' },
   agenticReasoning:    { bg: '#f5f0ff', color: '#6f42c1', icon: 'bi-cpu' },
   modelAnswerSynthesis:{ bg: '#ffeef0', color: '#cb2431', icon: 'bi-chat-dots' },
 }
@@ -166,7 +181,12 @@ function MetricPill({ label, value, unit }: { label: string; value: number | str
 
 /* ── Step card ──────────────────────────────────────────────── */
 
-function StepCard({ item, t, indent }: { item: ActivityItem; t: TFunction; indent?: boolean }) {
+function StepCard({ item, t, indent, status }: {
+  item: ActivityItem
+  t: TFunction
+  indent?: boolean
+  status?: 'running' | 'completed'
+}) {
   const [rawOpen, setRawOpen] = useState(false)
 
   return (
@@ -174,6 +194,12 @@ function StepCard({ item, t, indent }: { item: ActivityItem; t: TFunction; inden
       <div className="actTimeline__stepHeader">
         <TypeBadge type={item.type} />
         <span className="actTimeline__stepId">id: {item.id}</span>
+        {status && (
+          <span className={`actTimeline__status actTimeline__status--${status}`}>
+            <i className={`bi ${status === 'running' ? 'bi-arrow-repeat spin' : 'bi-check-circle-fill'}`} aria-hidden="true"></i>
+            {status === 'running' ? t('agenticActivityRunning') : t('agenticActivityCompleted')}
+          </span>
+        )}
       </div>
 
       <div className="actTimeline__metrics">
@@ -182,7 +208,10 @@ function StepCard({ item, t, indent }: { item: ActivityItem; t: TFunction; inden
         {item.outputTokens !== undefined && <MetricPill label={t('actTimelineOutputTokens')} value={item.outputTokens} />}
         {item.reasoningTokens !== undefined && <MetricPill label={t('actTimelineReasoningTokens')} value={item.reasoningTokens} />}
         {item.count !== undefined && <MetricPill label={t('actTimelineHits')} value={item.count} />}
-        {item.retrievalReasoningEffort && <MetricPill label={t('actTimelineEffort')} value={item.retrievalReasoningEffort} />}
+        {item.logicalReasoningEffort && <MetricPill label={t('actTimelineLogicalEffort')} value={item.logicalReasoningEffort} />}
+        {item.retrievalReasoningEffort && <MetricPill label={t('actTimelineRetrievalEffort')} value={item.retrievalReasoningEffort} />}
+        {item.modelName && <MetricPill label="model" value={item.modelName} />}
+        {item.deploymentId && <MetricPill label="deployment" value={item.deploymentId} />}
       </div>
 
       {item.knowledgeSourceName && (
@@ -222,7 +251,11 @@ function StepCard({ item, t, indent }: { item: ActivityItem; t: TFunction; inden
 
 /* ── Parallel lane (for concurrent source queries) ──────────── */
 
-function ParallelLane({ sources, t }: { sources: ActivityItem[]; t: TFunction }) {
+function ParallelLane({ sources, t, getStatus }: {
+  sources: ActivityItem[]
+  t: TFunction
+  getStatus: (item: ActivityItem) => 'running' | 'completed' | undefined
+}) {
   if (sources.length === 0) return null
   const isMultiple = sources.length > 1
 
@@ -236,7 +269,7 @@ function ParallelLane({ sources, t }: { sources: ActivityItem[]; t: TFunction })
       )}
       <div className={isMultiple ? 'actTimeline__parallelGrid' : ''}>
         {sources.map((src) => (
-          <StepCard key={String(src.id)} item={src} t={t} indent={isMultiple} />
+          <StepCard key={String(src.id)} item={src} t={t} indent={isMultiple} status={getStatus(src)} />
         ))}
       </div>
     </div>
@@ -248,10 +281,17 @@ function ParallelLane({ sources, t }: { sources: ActivityItem[]; t: TFunction })
 export interface AgenticActivityTimelineProps {
   activity: JsonValue[]
   t: TFunction
+  runningActivityIds?: string[]
 }
 
-export function AgenticActivityTimeline({ activity, t }: AgenticActivityTimelineProps) {
+export function AgenticActivityTimeline({ activity, t, runningActivityIds }: AgenticActivityTimelineProps) {
   const items = activity.map(parseActivity).filter((x): x is ActivityItem => x !== null)
+  const runningActivityIdSet = new Set(runningActivityIds)
+  const getStatus = (item: ActivityItem): 'running' | 'completed' | undefined => (
+    runningActivityIds === undefined
+      ? undefined
+      : runningActivityIdSet.has(String(item.id)) ? 'running' : 'completed'
+  )
 
   if (items.length === 0) return null
 
@@ -292,13 +332,13 @@ export function AgenticActivityTimeline({ activity, t }: AgenticActivityTimeline
             )}
 
             {/* Planning step */}
-            {round.planning && <StepCard item={round.planning} t={t} />}
+            {round.planning && <StepCard item={round.planning} t={t} status={getStatus(round.planning)} />}
 
             {/* Connector arrow */}
             {round.planning && round.sources.length > 0 && <div className="actTimeline__arrow">↓</div>}
 
             {/* Source queries (parallel lane) */}
-            <ParallelLane sources={round.sources} t={t} />
+            <ParallelLane sources={round.sources} t={t} getStatus={getStatus} />
 
             {/* Connector to next round or to reasoning */}
             {ri < rounds.length - 1 && <div className="actTimeline__arrow">↓</div>}
@@ -309,7 +349,7 @@ export function AgenticActivityTimeline({ activity, t }: AgenticActivityTimeline
         {reasoning && (
           <>
             <div className="actTimeline__arrow">↓</div>
-            <StepCard item={reasoning} t={t} />
+            <StepCard item={reasoning} t={t} status={getStatus(reasoning)} />
           </>
         )}
 
@@ -317,7 +357,7 @@ export function AgenticActivityTimeline({ activity, t }: AgenticActivityTimeline
         {synthesis && (
           <>
             <div className="actTimeline__arrow">↓</div>
-            <StepCard item={synthesis} t={t} />
+            <StepCard item={synthesis} t={t} status={getStatus(synthesis)} />
           </>
         )}
       </div>

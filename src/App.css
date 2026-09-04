@@ -2542,7 +2542,7 @@ select:focus {
   box-shadow: none;
 }
 
-.agenticKsItem--selected {
+.agenticKsItem--overridden {
   background-color: var(--surface2);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
@@ -2550,14 +2550,30 @@ select:focus {
 .agenticKsItem__header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
   font-size: 14px;
   font-weight: 600;
   margin-bottom: 12px;
-  cursor: pointer;
 }
 
 .agenticKsItem__checkbox {
-  margin-right: 8px;
+  margin: 0;
+}
+
+.agenticKsItem__identity,
+.agenticKsItem__override {
+  display: flex;
+  align-items: center;
+}
+
+.agenticKsItem__override {
+  gap: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .agenticKsItem__name {
@@ -2574,7 +2590,7 @@ select:focus {
   font-weight: 500;
 }
 
-.agenticKsItem--selected .agenticKsItem__name {
+.agenticKsItem--overridden .agenticKsItem__name {
   color: var(--accent);
 }
 
@@ -2589,6 +2605,16 @@ select:focus {
   display: flex;
   align-items: center;
   font-size: 13px;
+}
+
+.agenticKsOption--field {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agenticKsOption--wide {
+  grid-column: 1 / -1;
 }
 
 .agenticKsOption__checkbox {
@@ -4219,7 +4245,21 @@ html[data-theme='light'] .rawJsonViewer {
 .resultViewPanel__headerLeft {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.resultViewPanel__streamBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 20px;
+  padding: 1px 7px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .resultViewPanel__compareLabel {
@@ -4242,6 +4282,20 @@ html[data-theme='light'] .rawJsonViewer {
 .resultViewPanel__latency {
   display: flex;
   gap: 16px;
+}
+
+.resultViewPanel__streamStatus {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.resultViewPanel__streamProgress {
+  margin-top: 2px;
+  color: var(--muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
 }
 
 .resultViewPanel__muted12 {
@@ -8773,6 +8827,24 @@ html[data-theme='light'] .rawJsonViewer {
   font-size: 11px;
   color: var(--muted);
   font-family: var(--font-mono, monospace);
+}
+
+.actTimeline__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 62px;
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.actTimeline__status--running {
+  color: var(--accent);
+}
+
+.actTimeline__status--completed {
+  color: var(--success, #22863a);
 }
 
 .actTimeline__badge {

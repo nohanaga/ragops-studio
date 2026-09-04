@@ -138,6 +138,7 @@ export type BuilderTabPaneProps = {
   isExecuting: boolean
   onExecute: () => void
   onExecuteAllModes: () => void
+  onCancelExecute: () => void
   onClearAll: () => void
 
   buildRequestBuilderActiveSummary: () => string
@@ -228,6 +229,7 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
     isExecuting,
     onExecute,
     onExecuteAllModes,
+    onCancelExecute,
     onClearAll,
   } = props
 
@@ -556,6 +558,7 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
           agenticForm={agenticForm}
           setAgenticForm={setAgenticForm}
           availableKnowledgeSources={availableKnowledgeSources}
+          effectiveApiVersion={effectiveApiVersion}
         />
         )}
 
@@ -634,8 +637,10 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
         builderMode={builderMode}
         labMode={labMode}
         isExecuting={isExecuting}
+        canCancelExecute={labMode === 'agentic' && agenticForm.streamResponse}
         onExecute={onExecute}
         onExecuteAllModes={onExecuteAllModes}
+        onCancelExecute={onCancelExecute}
         onClearAll={onClearAll}
         />
       </div>

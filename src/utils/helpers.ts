@@ -92,6 +92,17 @@ export function extractQueryString(params: unknown): string {
       }
     }
   }
+
+  // If `intents` exists (minimal agentic retrieval request shape).
+  if (Array.isArray(p.intents) && p.intents.length > 0) {
+    const intent = p.intents[0]
+    if (intent && typeof intent === 'object' && !Array.isArray(intent)) {
+      const intentObj = intent as Record<string, unknown>
+      if (typeof intentObj.search === 'string' && intentObj.search.trim()) {
+        return truncate(intentObj.search)
+      }
+    }
+  }
   
   // If `userMessages` exists (legacy agentic shape).
   if (Array.isArray(p.userMessages) && p.userMessages.length > 0) {

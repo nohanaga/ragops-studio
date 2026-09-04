@@ -184,6 +184,7 @@ export function AppLayout(props: {
   isExecuting: boolean
   onExecute: () => Promise<void>
   onExecuteAllModes: () => Promise<void>
+  onCancelExecute: () => void
   onClearAll: () => void
   buildRequestBuilderActiveSummary: () => string
 
@@ -363,6 +364,7 @@ export function AppLayout(props: {
     isExecuting,
     onExecute,
     onExecuteAllModes,
+    onCancelExecute,
     onClearAll,
     buildRequestBuilderActiveSummary,
     activeResultView,
@@ -1158,6 +1160,7 @@ export function AppLayout(props: {
                 isExecuting={isExecuting}
                 onExecute={onExecute}
                 onExecuteAllModes={onExecuteAllModes}
+                onCancelExecute={onCancelExecute}
                 onClearAll={onClearAll}
                 buildRequestBuilderActiveSummary={buildRequestBuilderActiveSummary}
               />

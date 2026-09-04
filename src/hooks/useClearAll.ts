@@ -78,6 +78,7 @@ export function useClearAll(params: {
       maxRuntimeInSeconds: 60,
       maxOutputSize: 100000,
       retrievalReasoningEffort: 'low',
+      streamResponse: false,
       knowledgeSourceParams: [],
     })
 

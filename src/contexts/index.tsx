@@ -501,6 +501,7 @@ export function BuilderStateProvider(props: { children: ReactNode; language: Lan
     maxRuntimeInSeconds: 60,
     maxOutputSize: 100000,
     retrievalReasoningEffort: 'low',
+    streamResponse: false,
     knowledgeSourceParams: [],
   })
   const [analyzeForm, setAnalyzeForm] = useState<AnalyzeFormState>({

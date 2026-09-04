@@ -137,6 +137,10 @@ export type KnowledgeSourceParamItem = {
   includeReferences: boolean
   includeReferenceSourceData: boolean
   alwaysQuerySource: boolean
+  neverQuerySource: boolean
+  resultsProcessing: 'rerank' | 'none'
+  maxOutputDocuments: number | ''
+  queryHintOverrides: string
 }
 
 /** Lightweight info about a knowledge source inside a knowledge base. */
@@ -151,7 +155,8 @@ export type AgenticFormState = {
   outputMode: string
   maxRuntimeInSeconds: number
   maxOutputSize: number
-  retrievalReasoningEffort: 'low' | 'medium' | 'minimal'
+  retrievalReasoningEffort: 'low' | 'medium' | 'minimal' | 'auto'
+  streamResponse: boolean
   knowledgeSourceParams: KnowledgeSourceParamItem[]
 }
 
@@ -191,17 +196,29 @@ export type SuggestFormState = {
   liveTest: boolean
 }
 
-export type KnowledgeSource = {
+type KnowledgeSourceBase = {
   name: string
-  kind: 'searchIndex'
   description: string | null
+}
+
+export type SearchIndexKnowledgeSource = KnowledgeSourceBase & {
+  kind: 'searchIndex'
   searchIndexParameters: {
     searchIndexName: string
     semanticConfigurationName: string | null
     sourceDataFields: Array<{ name: string }>
     searchFields: Array<{ name: string }>
+    queryHints?: JsonValue
   }
 }
+
+export type McpServerKnowledgeSource = KnowledgeSourceBase & {
+  kind: 'mcpServer'
+  resultsProcessing: 'rerank' | 'none'
+  mcpServerParameters: JsonValue
+}
+
+export type KnowledgeSource = SearchIndexKnowledgeSource | McpServerKnowledgeSource
 
 export type KnowledgeBase = {
   name: string
@@ -213,6 +230,11 @@ export type KnowledgeBase = {
   models: JsonValue[]
   encryptionKey: JsonValue | null
   retrievalReasoningEffort: { kind: string }
+  retrieveDefaults?: {
+    maxRuntimeInSeconds?: number
+    maxOutputDocuments?: number
+    maxOutputSizeInTokens?: number
+  }
 }
 
 export type SynonymMap = {
@@ -237,4 +259,9 @@ export type LatestResponse = {
   runType: Run['runType']
   latencyMs?: number
   elapsedTimeMs?: number
+  streamState?: {
+    eventCount: number
+    lastEvent: string
+    runningActivityIds: string[]
+  }
 }

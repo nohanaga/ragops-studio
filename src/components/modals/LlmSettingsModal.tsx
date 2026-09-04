@@ -94,7 +94,7 @@ export function LlmSettingsModal({ open, onClose, t, language, sharedLlm, settin
         [profileId]: {
           name: t('searchConnectionNewName'),
           endpoint: '',
-          apiVersion: '2026-05-01-preview',
+          apiVersion: '2026-08-01-preview',
           authType: 'apiKey',
         },
       },
@@ -111,8 +111,8 @@ export function LlmSettingsModal({ open, onClose, t, language, sharedLlm, settin
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content modal-content--lg" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal-content modal-content--lg">
         <div className="modal-header">
           <h2>
             <i className="bi bi-gear"></i> {t('appSettingsTitle')}
@@ -157,7 +157,7 @@ export function LlmSettingsModal({ open, onClose, t, language, sharedLlm, settin
                   <InfoTooltip tooltipKey="searchApiVersion" language={language} />
                 </span>
                 <select className="field__input" value={activeProfile?.apiVersion ?? ''} onChange={(event) => patchActiveProfile({ apiVersion: event.target.value })}>
-                  {['2026-05-01-preview', '2026-04-01', '2025-11-01-preview', '2025-09-01', '2025-05-01-preview', '2025-03-01-preview', '2024-11-01-preview', '2024-09-01-preview', '2024-07-01', '2024-05-01-preview', '2023-11-01'].map((version) => <option key={version} value={version}>{version}</option>)}
+                  {['2026-08-01-preview', '2026-05-01-preview', '2026-04-01', '2025-11-01-preview', '2025-09-01', '2025-05-01-preview', '2025-03-01-preview', '2024-11-01-preview', '2024-09-01-preview', '2024-07-01', '2024-05-01-preview', '2023-11-01'].map((version) => <option key={version} value={version}>{version}</option>)}
                 </select>
               </label>
               <label className="field">

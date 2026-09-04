@@ -17,13 +17,15 @@ export type BuilderActionsProps = {
   labMode: LabMode
 
   isExecuting: boolean
+  canCancelExecute: boolean
   onExecute: () => void
   onExecuteAllModes: () => void
+  onCancelExecute: () => void
   onClearAll: () => void
 }
 
 export function BuilderActions(props: BuilderActionsProps) {
-  const { t, builderMode, labMode, isExecuting, onExecute, onExecuteAllModes, onClearAll } = props
+  const { t, builderMode, labMode, isExecuting, canCancelExecute, onExecute, onExecuteAllModes, onCancelExecute, onClearAll } = props
 
   const executeLabel = (() => {
     if (isExecuting) {
@@ -39,10 +41,17 @@ export function BuilderActions(props: BuilderActionsProps) {
 
   return (
     <div className="actions">
-      <button type="button" className="btn btn--search" onClick={onExecute} disabled={isExecuting} data-guide-target="execute-button">
-        <i className="bi bi-search icon--mr6"></i>
-        {executeLabel}
-      </button>
+      {isExecuting && canCancelExecute ? (
+        <button type="button" className="btn btn--search" onClick={onCancelExecute} data-guide-target="execute-button">
+          <i className="bi bi-stop-fill icon--mr6"></i>
+          {t('cancel')}
+        </button>
+      ) : (
+        <button type="button" className="btn btn--search" onClick={onExecute} disabled={isExecuting} data-guide-target="execute-button">
+          <i className="bi bi-search icon--mr6"></i>
+          {executeLabel}
+        </button>
+      )}
       {builderMode === 'form' && labMode === 'semantic-vector' && (
         <button type="button" className="btn btn--multi-mode" onClick={onExecuteAllModes} disabled={isExecuting}>
           <i className="bi bi-bar-chart-steps icon--mr6"></i>
