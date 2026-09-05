@@ -38,8 +38,8 @@ const EvalDatasetGenerator = lazy(() => import('./builders/EvalDatasetGenerator'
 const SearchParameterAutoTuning = lazy(() => import('./builders/SearchParameterAutoTuning').then(m => ({ default: m.SearchParameterAutoTuning })))
 const SearchPipelineVisualizer = lazy(() => import('./viewers/SearchPipelineVisualizer').then(m => ({ default: m.SearchPipelineVisualizer })))
 const IndexVisualizer = lazy(() => import('./viewers/IndexVisualizer').then(m => ({ default: m.IndexVisualizer })))
-import { extractQueryString } from '../utils'
-import { isTableComparableRunType, SearchComparisonTable } from './viewers/AgenticComparisonTable'
+import { extractQueryString, isTableComparableRunType } from '../utils'
+import { SearchComparisonTable } from './viewers/AgenticComparisonTable'
 import { QueryPerformanceTester } from './viewers/QueryPerformanceTester'
 import { useTheme, useSettings, useModalState, useUiState, useBuilderState, useExperiment } from '../contexts'
 import { useGuide } from '../contexts/GuideContext'

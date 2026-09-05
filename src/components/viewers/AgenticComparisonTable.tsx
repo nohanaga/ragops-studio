@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { Language } from '../../lib/translations'
 import type { JsonValue } from '../../lib/aiSearchRest'
-import type { AppSettings, RunType } from '../../lib/model'
+import type { AppSettings } from '../../lib/model'
 import type { ResultView } from '../../types'
 import { isJsonObject } from '../../app/json'
-import { downloadText, extractAgenticResponse, extractDocs, pickFirstStringField, pickPrimaryText } from '../../utils'
+import { downloadText, extractAgenticResponse, extractDocs, isTableComparableRunType, pickFirstStringField, pickPrimaryText } from '../../utils'
 import { formatLocalDateTime } from '../../utils/helpers'
 
 type ComparisonItem = {
@@ -42,14 +42,6 @@ const RANK_COLUMN_WIDTH = 64
 const MIN_RESULT_COLUMN_WIDTH = 150
 const MAX_RESULT_COLUMN_WIDTH = 520
 const FALLBACK_RESULT_COLUMN_WIDTH = 220
-const COMPARABLE_RUN_TYPES = new Set<RunType>([
-  'query',
-  'semantic',
-  'vector',
-  'hybrid',
-  'semantic_hybrid',
-  'agentic_retrieve',
-])
 
 const copy = {
   ja: {
@@ -173,10 +165,6 @@ function getRankDeltaLabel(baselineRank: number, matchedRank: number, sameRank: 
   const delta = matchedRank - baselineRank
   if (delta === 0) return sameRank
   return delta < 0 ? `↑${Math.abs(delta)}` : `↓${delta}`
-}
-
-export function isTableComparableRunType(runType: RunType | null): boolean {
-  return runType !== null && COMPARABLE_RUN_TYPES.has(runType)
 }
 
 function extractAgenticComparisonItems(body: JsonValue): ComparisonItem[] {

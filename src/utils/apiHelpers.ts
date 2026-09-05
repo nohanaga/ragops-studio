@@ -6,7 +6,7 @@
  */
 
 import type { JsonValue } from '../lib/aiSearchRest'
-import type { Run } from '../lib/model'
+import type { Run, RunType } from '../lib/model'
 import { translations, type Language } from '../lib/translations'
 import type { LabMode, SearchFormState } from '../types'
 
@@ -205,6 +205,15 @@ export function extractDocs(body: JsonValue): Array<Record<string, JsonValue>> {
     return value.filter((x): x is Record<string, JsonValue> => isJsonObject(x))
   }
   return []
+}
+
+export function isTableComparableRunType(runType: RunType | null): boolean {
+  return runType === 'query'
+    || runType === 'semantic'
+    || runType === 'vector'
+    || runType === 'hybrid'
+    || runType === 'semantic_hybrid'
+    || runType === 'agentic_retrieve'
 }
 
 export function extractAgenticResponse(body: JsonValue): { 
