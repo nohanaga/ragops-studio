@@ -61,6 +61,7 @@ const copy = {
     rerankerScore: 'リランカースコア',
     boostedScore: 'ブースト後スコア',
     details: '選択した結果',
+    openDetails: '結果の詳細を表示',
     closeDetails: '詳細を閉じる',
     content: '本文',
     terms: 'Terms',
@@ -68,6 +69,7 @@ const copy = {
     resizeColumn: '列幅を変更',
     baseline: '基準',
     matchSummary: '文書の対応順位',
+    trackResult: '文書の順位対応を表示',
     clearMatch: '対応表示を解除',
     sameRank: '同順位',
     outOfRange: '圏外',
@@ -90,6 +92,7 @@ const copy = {
     rerankerScore: 'Reranker score',
     boostedScore: 'Boosted score',
     details: 'Selected result',
+    openDetails: 'Show result details',
     closeDetails: 'Close details',
     content: 'Content',
     terms: 'Terms',
@@ -97,6 +100,7 @@ const copy = {
     resizeColumn: 'Resize column',
     baseline: 'Baseline',
     matchSummary: 'Matching document ranks',
+    trackResult: 'Show matching document ranks',
     clearMatch: 'Clear document matches',
     sameRank: 'Same rank',
     outOfRange: 'Not ranked',
@@ -272,6 +276,63 @@ function formatScore(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(4)
 }
 
+function renderComparisonContent(content: string) {
+  const blocks: React.ReactNode[] = []
+  const lines = content.split(/\r?\n/)
+  let index = 0
+
+  while (index < lines.length) {
+    const line = lines[index].trim()
+    if (!line) {
+      index += 1
+      continue
+    }
+
+    const heading = /^(#{1,3})\s+(.+)$/.exec(line)
+    if (heading) {
+      const HeadingTag = heading[1].length === 1 ? 'h4' : 'h5'
+      blocks.push(<HeadingTag key={index}>{heading[2]}</HeadingTag>)
+      index += 1
+      continue
+    }
+
+    if (/^---+$/.test(line)) {
+      blocks.push(<hr key={index} />)
+      index += 1
+      continue
+    }
+
+    const orderedItems: string[] = []
+    while (index < lines.length) {
+      const match = /^\d+\.\s+(.+)$/.exec(lines[index].trim())
+      if (!match) break
+      orderedItems.push(match[1])
+      index += 1
+    }
+    if (orderedItems.length > 0) {
+      blocks.push(<ol key={`ol-${index}`}>{orderedItems.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ol>)
+      continue
+    }
+
+    const unorderedItems: string[] = []
+    while (index < lines.length) {
+      const match = /^[-*]\s+(.+)$/.exec(lines[index].trim())
+      if (!match) break
+      unorderedItems.push(match[1])
+      index += 1
+    }
+    if (unorderedItems.length > 0) {
+      blocks.push(<ul key={`ul-${index}`}>{unorderedItems.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</ul>)
+      continue
+    }
+
+    blocks.push(<p key={index}>{line}</p>)
+    index += 1
+  }
+
+  return blocks
+}
+
 function escapeCsvCell(value: string | number | undefined): string {
   const text = value === undefined ? '' : String(value)
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
@@ -395,6 +456,15 @@ export function SearchComparisonTable({
     observer.observe(tableWrap)
     return () => observer.disconnect()
   }, [columns.length])
+
+  useEffect(() => {
+    if (!selected) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSelected(null)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [selected])
 
   const resetColumnWidth = useCallback((columnId: string) => {
     setColumnWidths((current) => {
@@ -572,41 +642,56 @@ export function SearchComparisonTable({
                       return (
                         <td key={column.view.id} className={cellClassName}>
                           {item ? (
-                            <button
-                              type="button"
-                              className="agenticComparison__cellButton"
-                              onClick={() => {
-                                setSelected({ column, item })
-                                setTrackedSelection((current) => (
-                                  current?.column.view.id === column.view.id && current.item.rank === item.rank
-                                    ? null
-                                    : { column, item }
-                                ))
-                                onSelectView(column.view.id)
-                              }}
-                              aria-pressed={isSelected}
-                            >
-                              <span className="agenticComparison__cellTitle">{getDisplayTitle(item, text.untitled)}</span>
-                              <span className="agenticComparison__cellFooter">
-                                <span className="agenticComparison__cellMeta">{text.refId}: {item.refId}</span>
-                                {typeof item.rerankerBoostedScore === 'number' && (
-                                  <span className="agenticComparison__cellMeta">{text.boostedScore}: {formatScore(item.rerankerBoostedScore)}</span>
-                                )}
-                                {typeof item.rerankerScore === 'number' && (
-                                  <span className="agenticComparison__cellMeta">{text.rerankerScore}: {formatScore(item.rerankerScore)}</span>
-                                )}
-                                {typeof item.score === 'number' && (
-                                  <span className="agenticComparison__cellMeta">{text.score}: {formatScore(item.score)}</span>
-                                )}
-                                {isDocumentMatch && trackedSelection && (
-                                  <span className="agenticComparison__rankDelta">
-                                    {isBaselineSource
-                                      ? text.baseline
-                                      : getRankDeltaLabel(trackedSelection.item.rank, item.rank, text.sameRank)}
-                                  </span>
-                                )}
-                              </span>
-                            </button>
+                            <div className="agenticComparison__cellContent">
+                              <button
+                                type="button"
+                                className="agenticComparison__cellButton"
+                                onClick={() => {
+                                  setTrackedSelection((current) => (
+                                    current?.column.view.id === column.view.id && current.item.rank === item.rank
+                                      ? null
+                                      : { column, item }
+                                  ))
+                                  onSelectView(column.view.id)
+                                }}
+                                aria-pressed={isBaselineSource}
+                                aria-label={`${text.trackResult}: ${getDisplayTitle(item, text.untitled)}`}
+                              >
+                                <span className="agenticComparison__cellTitle">{getDisplayTitle(item, text.untitled)}</span>
+                                <span className="agenticComparison__cellFooter">
+                                  <span className="agenticComparison__cellMeta">{text.refId}: {item.refId}</span>
+                                  {typeof item.rerankerBoostedScore === 'number' && (
+                                    <span className="agenticComparison__cellMeta">{text.boostedScore}: {formatScore(item.rerankerBoostedScore)}</span>
+                                  )}
+                                  {typeof item.rerankerScore === 'number' && (
+                                    <span className="agenticComparison__cellMeta">{text.rerankerScore}: {formatScore(item.rerankerScore)}</span>
+                                  )}
+                                  {typeof item.score === 'number' && (
+                                    <span className="agenticComparison__cellMeta">{text.score}: {formatScore(item.score)}</span>
+                                  )}
+                                  {isDocumentMatch && trackedSelection && (
+                                    <span className="agenticComparison__rankDelta">
+                                      {isBaselineSource
+                                        ? text.baseline
+                                        : getRankDeltaLabel(trackedSelection.item.rank, item.rank, text.sameRank)}
+                                    </span>
+                                  )}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                className="agenticComparison__detailsToggleButton"
+                                onClick={() => {
+                                  setSelected(isSelected ? null : { column, item })
+                                  if (!isSelected) onSelectView(column.view.id)
+                                }}
+                                aria-pressed={isSelected}
+                                aria-label={`${isSelected ? text.closeDetails : text.openDetails}: ${getDisplayTitle(item, text.untitled)}`}
+                                title={isSelected ? text.closeDetails : text.openDetails}
+                              >
+                                <i className="bi bi-info-circle" aria-hidden="true" />
+                              </button>
+                            </div>
                           ) : (
                             <span className="agenticComparison__emptyCell">{text.noResult}</span>
                           )}
@@ -620,7 +705,12 @@ export function SearchComparisonTable({
           </div>
 
           {selected && (
-            <aside className="agenticComparison__details" aria-labelledby="agentic-comparison-details-title">
+            <aside
+              className="agenticComparison__details"
+              role="dialog"
+              aria-modal="false"
+              aria-labelledby="agentic-comparison-details-title"
+            >
               <div className="agenticComparison__detailsHeader">
                 <div>
                   <div className="agenticComparison__detailsEyebrow">{selected.column.view.label} · #{selected.item.rank}</div>
@@ -636,42 +726,47 @@ export function SearchComparisonTable({
                   <i className="bi bi-x-lg" aria-hidden="true" />
                 </button>
               </div>
-              <div className="agenticComparison__detailsGrid">
-                <div>
-                  <div className="agenticComparison__detailsLabel">{text.refId}</div>
-                  <div className="mono">{selected.item.refId}</div>
+              <dl className="agenticComparison__detailsMeta">
+                <div className="agenticComparison__detailsStat">
+                  <dt className="agenticComparison__detailsLabel">{text.refId}</dt>
+                  <dd className="mono">{selected.item.refId}</dd>
                 </div>
                 {selected.item.terms && (
-                  <div>
-                    <div className="agenticComparison__detailsLabel">{text.terms}</div>
-                    <div>{selected.item.terms}</div>
+                  <div className="agenticComparison__detailsStat agenticComparison__detailsStat--wide">
+                    <dt className="agenticComparison__detailsLabel">{text.terms}</dt>
+                    <dd>{selected.item.terms}</dd>
                   </div>
                 )}
                 {typeof selected.item.rerankerBoostedScore === 'number' && (
-                  <div>
-                    <div className="agenticComparison__detailsLabel">{text.boostedScore}</div>
-                    <div>{formatScore(selected.item.rerankerBoostedScore)}</div>
+                  <div className="agenticComparison__detailsStat">
+                    <dt className="agenticComparison__detailsLabel">{text.boostedScore}</dt>
+                    <dd>{formatScore(selected.item.rerankerBoostedScore)}</dd>
                   </div>
                 )}
                 {typeof selected.item.rerankerScore === 'number' && (
-                  <div>
-                    <div className="agenticComparison__detailsLabel">{text.rerankerScore}</div>
-                    <div>{formatScore(selected.item.rerankerScore)}</div>
+                  <div className="agenticComparison__detailsStat">
+                    <dt className="agenticComparison__detailsLabel">{text.rerankerScore}</dt>
+                    <dd>{formatScore(selected.item.rerankerScore)}</dd>
                   </div>
                 )}
                 {typeof selected.item.score === 'number' && (
-                  <div>
-                    <div className="agenticComparison__detailsLabel">{text.score}</div>
-                    <div>{formatScore(selected.item.score)}</div>
+                  <div className="agenticComparison__detailsStat">
+                    <dt className="agenticComparison__detailsLabel">{text.score}</dt>
+                    <dd>{formatScore(selected.item.score)}</dd>
                   </div>
                 )}
-                <div className="agenticComparison__detailsContent">
-                  <div className="agenticComparison__detailsLabel">{text.content}</div>
-                  <div>{selected.item.content || text.noResult}</div>
+              </dl>
+              <section className="agenticComparison__detailsContent">
+                <div className="agenticComparison__detailsLabel">{text.content}</div>
+                <div className="agenticComparison__detailsBody">
+                  {selected.item.content ? renderComparisonContent(selected.item.content) : <p>{text.noResult}</p>}
                 </div>
-              </div>
+              </section>
               <details className="agenticComparison__raw">
-                <summary className="resultCard__summary">{text.raw}</summary>
+                <summary className="resultCard__summary">
+                  <i className="bi bi-chevron-right resultCard__summaryIcon" aria-hidden="true" />
+                  <span className="resultCard__summaryText">{text.raw}</span>
+                </summary>
                 <pre className="notice__pre">{JSON.stringify(selected.item.raw, null, 2)}</pre>
               </details>
             </aside>
