@@ -1361,6 +1361,14 @@
   min-width: 0;
 }
 
+.agenticComparison__toolbarActions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .agenticComparison__titleRow {
   display: flex;
   align-items: center;
@@ -1768,8 +1776,8 @@
     flex-direction: column;
   }
 
-  .agenticComparison__toolbar > .btn {
-    align-self: flex-start;
+  .agenticComparison__toolbarActions {
+    justify-content: flex-start;
   }
 
   .agenticComparison__tableWrap {

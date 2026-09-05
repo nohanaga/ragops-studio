@@ -355,6 +355,9 @@ A browser-integrated Python development environment for building, testing, and d
   - `startedAt` / `endedAt`: Execution time
 - **Run list**: Display runs under experiment in chronological order (max 200)
 - **Run selection**: Select multiple runs (max 10) to compare results side by side
+- **Table comparison**: Compare ranked results from `query`, `semantic`, `vector`, `hybrid`, `semantic_hybrid`, and `agentic_retrieve` runs in columns
+  - Shows document rank movement, search and reranker scores, latency, and raw results
+  - Because score scales differ by search mode, cross-mode comparisons emphasize rank and document movement
 - **Delete runs**: Delete individual runs
 - **Query filter**: Filter runs by query text
 - **Experiment note**: Record notes before execution to annotate the next saved run
