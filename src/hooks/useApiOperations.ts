@@ -39,12 +39,13 @@ function applyAgenticStreamEvent(snapshot: AgenticStreamSnapshot, item: AgenticS
   }
 
   if ((item.event === 'activity.started' || item.event === 'activity.completed') && isJsonObject(item.data)) {
+    const eventData = item.data
     const index = snapshot.activity.findIndex((activity) => (
-      isJsonObject(activity) && activity.id === item.data.id
+      isJsonObject(activity) && activity.id === eventData.id
     ))
     const activity = index >= 0 && isJsonObject(snapshot.activity[index])
-      ? { ...snapshot.activity[index], ...item.data }
-      : item.data
+      ? { ...snapshot.activity[index], ...eventData }
+      : eventData
     const activities = [...snapshot.activity]
     if (index >= 0) activities[index] = activity
     else activities.push(activity)

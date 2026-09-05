@@ -325,4 +325,24 @@ describe('utils/appRequestBodies', () => {
     expect(() => buildAgenticBodyFromForm(makeAgenticForm(''), '2026-08-01-preview'))
       .toThrow("Knowledge source kind could not be resolved for 'ks-web-646'.")
   })
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid maxOutputDocuments value %s',
+    (maxOutputDocuments) => {
+      const form = makeAgenticForm('searchIndex')
+      form.knowledgeSourceParams[0].maxOutputDocuments = maxOutputDocuments
+
+      expect(() => buildAgenticBodyFromForm(form, '2026-08-01-preview'))
+        .toThrow("maxOutputDocuments must be a positive integer for 'ks-web-646'.")
+    },
+  )
+
+  it('rejects conflicting source inclusion flags when both are supported', () => {
+    const form = makeAgenticForm('searchIndex')
+    form.knowledgeSourceParams[0].alwaysQuerySource = true
+    form.knowledgeSourceParams[0].neverQuerySource = true
+
+    expect(() => buildAgenticBodyFromForm(form, '2026-08-01-preview'))
+      .toThrow("alwaysQuerySource and neverQuerySource cannot both be true for 'ks-web-646'.")
+  })
 })

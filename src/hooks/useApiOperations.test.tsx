@@ -85,6 +85,16 @@ describe('hooks/useApiOperations', () => {
         selectedExperimentId: exps[0].experimentId,
         requestJson: JSON.stringify({ search: 'hi', queryType: 'simple', top: 3, skip: 0, count: true }),
         runNote: 'saved note',
+        agenticForm: {
+          userMessage: '',
+          includeActivity: true,
+          outputMode: 'answerSynthesis',
+          maxRuntimeInSeconds: 60,
+          maxOutputSize: 5000,
+          retrievalReasoningEffort: 'low',
+          streamResponse: false,
+          knowledgeSourceParams: [],
+        },
         // Not used in json mode path, but required by signature.
         searchForm: {
           search: '',

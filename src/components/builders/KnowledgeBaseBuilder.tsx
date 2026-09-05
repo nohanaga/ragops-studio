@@ -454,7 +454,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                     })
                   }}
                 >
-                  <option value="">{t('none')}</option>
+                  <option value="">{t('optionNone')}</option>
                   {SUPPORTED_MODEL_NAMES.map((name) => <option key={name} value={name}>{name}</option>)}
                   {modelName && !SUPPORTED_MODEL_NAMES.includes(modelName as typeof SUPPORTED_MODEL_NAMES[number]) && (
                     <option value={modelName}>{modelName}</option>

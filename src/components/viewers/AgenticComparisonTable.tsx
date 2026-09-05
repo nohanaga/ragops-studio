@@ -294,7 +294,7 @@ function buildComparisonCsv(columns: ComparisonColumn[]): string {
     'rerankerBoostedScore',
     'rawJson',
   ]
-  const rows = [header]
+  const rows: Array<Array<string | number | undefined>> = [header]
 
   for (const column of columns) {
     const response = column.view.response

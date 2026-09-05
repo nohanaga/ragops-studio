@@ -1068,7 +1068,11 @@ export function parseAgenticSseEvent(block: string): AgenticStreamEvent | null {
   }
 
   if (!event || dataLines.length === 0) return null;
-  return { event, data: JSON.parse(dataLines.join('\n')) as JsonValue };
+  try {
+    return { event, data: JSON.parse(dataLines.join('\n')) as JsonValue };
+  } catch {
+    return null;
+  }
 }
 
 function getAgenticStreamErrorMessage(data: JsonValue): string | undefined {

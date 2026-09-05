@@ -184,14 +184,23 @@ export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: Searc
     if (!kind) {
       throw new Error(`Knowledge source kind could not be resolved for '${ks.knowledgeSourceName}'. Reload the knowledge base and try again.`)
     }
-    const base: Record<string, unknown> = {
+    const base: Record<string, JsonValue> = {
       knowledgeSourceName: ks.knowledgeSourceName,
       kind,
       includeReferences: ks.includeReferences,
       includeReferenceSourceData: ks.includeReferenceSourceData,
     }
+    if (typeof ks.maxOutputDocuments === 'number') {
+      if (!Number.isFinite(ks.maxOutputDocuments) || !Number.isInteger(ks.maxOutputDocuments) || ks.maxOutputDocuments < 1) {
+        throw new Error(`maxOutputDocuments must be a positive integer for '${ks.knowledgeSourceName}'.`)
+      }
+      base.maxOutputDocuments = ks.maxOutputDocuments
+    }
+    if (capabilities.alwaysQuerySource && capabilities.perSourceResultsProcessing
+      && ks.alwaysQuerySource && ks.neverQuerySource) {
+      throw new Error(`alwaysQuerySource and neverQuerySource cannot both be true for '${ks.knowledgeSourceName}'.`)
+    }
     if (capabilities.alwaysQuerySource) base.alwaysQuerySource = ks.alwaysQuerySource
-    if (typeof ks.maxOutputDocuments === 'number') base.maxOutputDocuments = ks.maxOutputDocuments
     if (capabilities.perSourceResultsProcessing) {
       if (ks.neverQuerySource) base.neverQuerySource = true
       base.resultsProcessing = ks.resultsProcessing === 'none' ? 'none' : 'rerank'
@@ -203,44 +212,36 @@ export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: Searc
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
           throw new Error('queryHintOverrides must be a JSON object.')
         }
-        base.queryHintOverrides = parsed
+        base.queryHintOverrides = parsed as Record<string, JsonValue>
       }
     }
     return base
   })
 
-  const queryInput = !capabilities.agenticResponseSynthesis || s.retrievalReasoningEffort === 'minimal'
-    ? {
-        intents: [{ type: 'semantic', search: s.userMessage }],
-      }
-    : {
-        messages: [
-          {
-            role: 'user',
-            content: [{ type: 'text', text: s.userMessage }],
-          },
-        ],
-      }
+  const body: Record<string, JsonValue> = {
+    includeActivity: s.includeActivity,
+    maxRuntimeInSeconds: s.maxRuntimeInSeconds,
+  }
+  if (knowledgeSourceParams.length > 0) body.knowledgeSourceParams = knowledgeSourceParams
 
-  if (!capabilities.agenticResponseSynthesis) {
-    return {
-      ...queryInput,
-      includeActivity: s.includeActivity,
-      maxRuntimeInSeconds: s.maxRuntimeInSeconds,
-      maxOutputSizeInTokens: s.maxOutputSize,
-      knowledgeSourceParams: knowledgeSourceParams.length > 0 ? knowledgeSourceParams : undefined,
-    } as JsonValue
+  if (!capabilities.agenticResponseSynthesis || s.retrievalReasoningEffort === 'minimal') {
+    body.intents = [{ type: 'semantic', search: s.userMessage }]
+  } else {
+    body.messages = [{
+      role: 'user',
+      content: [{ type: 'text', text: s.userMessage }],
+    }]
   }
 
-  return {
-    ...queryInput,
-    includeActivity: s.includeActivity,
-    outputMode: s.outputMode,
-    maxRuntimeInSeconds: s.maxRuntimeInSeconds,
-    maxOutputSize: s.maxOutputSize,
-    retrievalReasoningEffort: { kind: s.retrievalReasoningEffort },
-    knowledgeSourceParams: knowledgeSourceParams.length > 0 ? knowledgeSourceParams : undefined,
-  } as JsonValue
+  if (!capabilities.agenticResponseSynthesis) {
+    body.maxOutputSizeInTokens = s.maxOutputSize
+    return body
+  }
+
+  body.outputMode = s.outputMode
+  body.maxOutputSize = s.maxOutputSize
+  body.retrievalReasoningEffort = { kind: s.retrievalReasoningEffort }
+  return body
 }
 
 export function buildKnowledgeBaseBodyForApiVersion(

@@ -112,6 +112,7 @@ describe('lib/aiSearchRest', () => {
       event: 'references.completed',
       data: [{ id: '0' }],
     })
+    expect(parseAgenticSseEvent('event: response.completed\ndata: {invalid-json}')).toBeNull()
   })
 
   it('streams agentic events and returns the response.completed payload', async () => {
