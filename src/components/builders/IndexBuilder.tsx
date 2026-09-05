@@ -28,6 +28,7 @@ type IndexBuilderProps = {
   language: Language
   theme: ThemePreference
   onClose: () => void
+  onSearchIndex: (indexName: string) => void
   onOpenSynonymMapBuilder: () => void
   copyToClipboard: (text: string) => Promise<void>
 }
@@ -113,7 +114,7 @@ function formatCount(n: number | null | undefined, locale: string): string {
   }
 }
 
-export function IndexBuilder({ profile, apiVersion, activeIndexName, language, theme, onOpenSynonymMapBuilder, copyToClipboard }: IndexBuilderProps) {
+export function IndexBuilder({ profile, apiVersion, activeIndexName, language, theme, onSearchIndex, onOpenSynonymMapBuilder, copyToClipboard }: IndexBuilderProps) {
   const t = (key: keyof typeof translations.ja): string => String(translations[language][key] ?? '')
   const format = (key: keyof typeof translations.ja, params: Record<string, string | number>): string => {
     let text: string = t(key)
@@ -786,6 +787,17 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
               >
                 <i className="bi bi-trash icon--mr6"></i>
                 {deleting ? t('indexBuilderDeleting') : t('indexBuilderDelete')}
+              </button>
+
+              <button
+                type="button"
+                className="btn"
+                onClick={() => onSearchIndex(selectedName.trim())}
+                disabled={!canQuery || !selectedName.trim() || !isExistingSelectedIndex || loadingDef || saving || deleting}
+                title={t('indexBuilderSearchTitle')}
+              >
+                <i className="bi bi-search icon--mr6"></i>
+                {t('indexBuilderSearch')}
               </button>
 
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>

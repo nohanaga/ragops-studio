@@ -1272,6 +1272,11 @@ export function AppLayout(props: {
                 language={language}
                 theme={theme}
                 onClose={() => setCenterTab('builder')}
+                onSearchIndex={(selectedIndexName) => {
+                  setIndexName(selectedIndexName)
+                  setLabMode('query')
+                  setCenterTab('builder')
+                }}
                 onOpenSynonymMapBuilder={() => {
                   setIsSynonymMapBuilderOpen(true)
                   setCenterTab('synonym-map-builder')
