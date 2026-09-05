@@ -16,6 +16,23 @@ import {
 import { InfoTooltip } from '../InfoTooltip'
 import { translations, type Language } from '../../lib/translations'
 import type { JsonValue } from '../../lib/aiSearchRest'
+import { getSearchApiCapabilities } from '../../lib/searchApiCapabilities'
+import { buildKnowledgeBaseBodyForApiVersion } from '../../utils/appRequestBodies'
+
+const SUPPORTED_MODEL_NAMES = [
+  'gpt-5',
+  'gpt-5-mini',
+  'gpt-5-nano',
+  'gpt-5.1',
+  'gpt-5.2',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.4-nano',
+  'gpt-5.5',
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
+] as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -39,6 +56,7 @@ type KnowledgeBaseBuilderProps = {
 
 export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilderProps) {
   const t = useCallback((key: keyof typeof translations.ja) => translations[language][key], [language])
+  const capabilities = getSearchApiCapabilities(profile?.apiVersion)
 
   const normalizeKnowledgeBase = useCallback((input: unknown): KnowledgeBase => {
     const kb: Record<string, unknown> = isRecord(input) ? input : {}
@@ -63,6 +81,19 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
         isRecord(kb.retrievalReasoningEffort)
           ? { kind: typeof kb.retrievalReasoningEffort.kind === 'string' ? kb.retrievalReasoningEffort.kind : 'low' }
           : { kind: 'low' },
+      retrieveDefaults: isRecord(kb.retrieveDefaults)
+        ? {
+            ...(typeof kb.retrieveDefaults.maxRuntimeInSeconds === 'number'
+              ? { maxRuntimeInSeconds: kb.retrieveDefaults.maxRuntimeInSeconds }
+              : {}),
+            ...(typeof kb.retrieveDefaults.maxOutputDocuments === 'number'
+              ? { maxOutputDocuments: kb.retrieveDefaults.maxOutputDocuments }
+              : {}),
+            ...(typeof kb.retrieveDefaults.maxOutputSizeInTokens === 'number'
+              ? { maxOutputSizeInTokens: kb.retrieveDefaults.maxOutputSizeInTokens }
+              : {}),
+          }
+        : undefined,
     }
   }, [])
   
@@ -79,8 +110,43 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
     models: [],
     encryptionKey: null,
     retrievalReasoningEffort: { kind: 'low' },
+    retrieveDefaults: undefined,
   })
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  useEffect(() => {
+    setFormData((previous) => {
+      const outputMode = capabilities.agenticResponseSynthesis ? previous.outputMode : 'extractiveData'
+      const currentEffort = previous.retrievalReasoningEffort?.kind
+      const effortKind = !capabilities.agenticResponseSynthesis
+        ? 'minimal'
+        : currentEffort === 'auto' && !capabilities.reasoningAuto
+          ? 'low'
+          : currentEffort
+      if (outputMode === previous.outputMode && effortKind === currentEffort) return previous
+      return {
+        ...previous,
+        outputMode,
+        retrievalReasoningEffort: { kind: effortKind || 'low' },
+      }
+    })
+  }, [capabilities.agenticResponseSynthesis, capabilities.reasoningAuto])
+
+  const firstModel = isRecord(formData.models?.[0]) ? formData.models[0] : {}
+  const firstModelParameters = isRecord(firstModel.azureOpenAIParameters) ? firstModel.azureOpenAIParameters : {}
+  const modelName = typeof firstModelParameters.modelName === 'string' ? firstModelParameters.modelName : ''
+  const deploymentId = typeof firstModelParameters.deploymentId === 'string' ? firstModelParameters.deploymentId : ''
+  const resourceUri = typeof firstModelParameters.resourceUri === 'string' ? firstModelParameters.resourceUri : ''
+
+  function updateFirstModel(patch: Record<string, string>) {
+    const models = [...(formData.models ?? [])]
+    models[0] = {
+      ...firstModel,
+      kind: 'azureOpenAI',
+      azureOpenAIParameters: { ...firstModelParameters, ...patch },
+    } as JsonValue
+    setFormData({ ...formData, models })
+  }
 
   const loadKnowledgeBases = useCallback(async () => {
     if (!profile) return
@@ -114,17 +180,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
     }
     setLoading(true)
     try {
-      const body: JsonValue = {
-        name: formData.name,
-        description: formData.description || null,
-        retrievalInstructions: formData.retrievalInstructions || null,
-        answerInstructions: formData.answerInstructions || null,
-        outputMode: formData.outputMode || 'answerSynthesis',
-        knowledgeSources: formData.knowledgeSources || [],
-        models: formData.models || [],
-        encryptionKey: null,
-        retrievalReasoningEffort: formData.retrievalReasoningEffort || { kind: 'low' },
-      }
+      const body = buildKnowledgeBaseBodyForApiVersion(formData, profile.apiVersion)
       const result = await createOrUpdateKnowledgeBase({
         profile,
         knowledgeBaseName: formData.name,
@@ -144,6 +200,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
           models: [],
           encryptionKey: null,
           retrievalReasoningEffort: { kind: 'low' },
+          retrieveDefaults: undefined,
         })
       } else {
         setMessage({ type: 'error', text: `${t('failed')}: ${result.error.message}` })
@@ -159,17 +216,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
     if (!profile || !selectedBase || !formData.name) return
     setLoading(true)
     try {
-      const body: JsonValue = {
-        name: formData.name,
-        description: formData.description || null,
-        retrievalInstructions: formData.retrievalInstructions || null,
-        answerInstructions: formData.answerInstructions || null,
-        outputMode: formData.outputMode || 'answerSynthesis',
-        knowledgeSources: formData.knowledgeSources || [],
-        models: formData.models || [],
-        encryptionKey: null,
-        retrievalReasoningEffort: formData.retrievalReasoningEffort || { kind: 'low' },
-      }
+      const body = buildKnowledgeBaseBodyForApiVersion(formData, profile.apiVersion)
       const result = await createOrUpdateKnowledgeBase({
         profile,
         knowledgeBaseName: formData.name,
@@ -209,6 +256,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
             models: [],
             encryptionKey: null,
             retrievalReasoningEffort: { kind: 'low' },
+            retrieveDefaults: undefined,
           })
         }
       } else {
@@ -314,6 +362,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                   className="field__textarea"
                   rows={3}
                   value={formData.retrievalInstructions || ''}
+                  disabled={!capabilities.agenticResponseSynthesis}
                   onChange={(e) => setFormData({ ...formData, retrievalInstructions: e.target.value })}
                   placeholder={t('retrievalInstructionsPlaceholder')}
                 />
@@ -327,6 +376,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                   className="field__textarea"
                   rows={2}
                   value={formData.answerInstructions || ''}
+                  disabled={!capabilities.agenticResponseSynthesis}
                   onChange={(e) => setFormData({ ...formData, answerInstructions: e.target.value })}
                   placeholder={t('answerInstructionsPlaceholder')}
                 />
@@ -338,7 +388,8 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                 </span>
                 <select
                   className="field__input"
-                  value={formData.outputMode || 'answerSynthesis'}
+                  value={capabilities.agenticResponseSynthesis ? formData.outputMode || 'answerSynthesis' : 'extractiveData'}
+                  disabled={!capabilities.agenticResponseSynthesis}
                   onChange={(e) => setFormData({ ...formData, outputMode: e.target.value })}
                 >
                   <option value="answerSynthesis">Answer Synthesis</option>
@@ -369,14 +420,102 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                 </span>
                 <select
                   className="field__input"
-                  value={formData.retrievalReasoningEffort?.kind || 'low'}
+                  value={!capabilities.agenticResponseSynthesis
+                    ? 'minimal'
+                    : formData.retrievalReasoningEffort?.kind === 'auto' && !capabilities.reasoningAuto
+                      ? 'low'
+                      : formData.retrievalReasoningEffort?.kind || 'low'}
+                  disabled={!capabilities.agenticResponseSynthesis}
                   onChange={(e) => setFormData({ ...formData, retrievalReasoningEffort: { kind: e.target.value } })}
                 >
                   <option value="minimal">{t('minimal')}</option>
                   <option value="low">{t('low')}</option>
                   <option value="medium">{t('medium')}</option>
+                  <option value="auto" disabled={!capabilities.reasoningAuto}>auto</option>
                 </select>
               </label>
+              <label className="field">
+                <span className="field__label">
+                  {t('knowledgeBaseModelName')}
+                  <InfoTooltip tooltipKey="knowledgeBaseModelName" language={language} />
+                </span>
+                <select
+                  className="field__input"
+                  value={modelName}
+                  disabled={!capabilities.retrieveDefaults}
+                  onChange={(e) => {
+                    if (!e.target.value) {
+                      setFormData({ ...formData, models: [] })
+                      return
+                    }
+                    updateFirstModel({
+                      modelName: e.target.value,
+                      deploymentId: deploymentId || e.target.value,
+                    })
+                  }}
+                >
+                  <option value="">{t('optionNone')}</option>
+                  {SUPPORTED_MODEL_NAMES.map((name) => <option key={name} value={name}>{name}</option>)}
+                  {modelName && !SUPPORTED_MODEL_NAMES.includes(modelName as typeof SUPPORTED_MODEL_NAMES[number]) && (
+                    <option value={modelName}>{modelName}</option>
+                  )}
+                </select>
+              </label>
+              <label className="field">
+                <span className="field__label">
+                  resourceUri
+                  <InfoTooltip tooltipKey="knowledgeBaseModelResourceUri" language={language} />
+                </span>
+                <input
+                  className="field__input"
+                  value={resourceUri}
+                  disabled={!capabilities.retrieveDefaults || !modelName}
+                  onChange={(e) => updateFirstModel({ resourceUri: e.target.value })}
+                  placeholder="https://{resource}.openai.azure.com"
+                />
+              </label>
+              <label className="field">
+                <span className="field__label">
+                  deploymentId
+                  <InfoTooltip tooltipKey="knowledgeBaseModelDeploymentId" language={language} />
+                </span>
+                <input
+                  className="field__input"
+                  value={deploymentId}
+                  disabled={!capabilities.retrieveDefaults || !modelName}
+                  onChange={(e) => updateFirstModel({ deploymentId: e.target.value })}
+                />
+              </label>
+              <div className="field field--full">
+                <span className="field__label">
+                  {t('retrieveDefaults')}
+                  <InfoTooltip tooltipKey="retrieveDefaults" language={language} />
+                </span>
+                <div className="form">
+                  {(['maxRuntimeInSeconds', 'maxOutputDocuments', 'maxOutputSizeInTokens'] as const).map((key) => (
+                    <label className="field" key={key}>
+                      <span className="field__label">{key}</span>
+                      <input
+                        className="field__input"
+                        type="number"
+                        min={1}
+                        value={formData.retrieveDefaults?.[key] ?? ''}
+                        disabled={!capabilities.retrieveDefaults}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          retrieveDefaults: {
+                            ...formData.retrieveDefaults,
+                            [key]: e.target.value === '' ? undefined : Number(e.target.value),
+                          },
+                        })}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {!capabilities.retrieveDefaults && (
+                <div className="notice notice--info field--full">{t('agenticAugustPreviewRequired')}</div>
+              )}
             </div>
             <div className="actions builder__actions" data-guide-target="knowledge-base-actions">
               {selectedBase ? (

@@ -21,6 +21,7 @@ import type { ThemePreference } from '../../types/app'
 import type { Language } from '../../lib/translations'
 import { translations } from '../../lib/translations'
 import { diffEntriesToText, type DiffEntry, type SkillsetDiffResult, type ResourceDiffResult } from '../../utils/skillsetDiff'
+import { InfoTooltip } from '../InfoTooltip'
 
 type TranslationKey = keyof typeof translations.ja
 
@@ -136,6 +137,7 @@ export interface PublishDiffModalProps {
   onConfirmPublish: () => void
 
   publishLoading: boolean
+  publishError?: string | null
   diffViewMode: 'semantic' | 'text'
   setDiffViewMode: (mode: 'semantic' | 'text') => void
 
@@ -154,6 +156,11 @@ export interface PublishDiffModalProps {
   onChangeTargetName: (name: string) => void
   /** Names of existing resources on Azure (for the dropdown). */
   existingSkillsetNames: string[]
+  /** Optional downtime confirmation shown only when updating an existing index. */
+  indexDowntimeOption?: {
+    checked: boolean
+    onChange: (allow: boolean) => void
+  }
 
   /**
    * Resource type label configuration (defaults to skillset labels).
@@ -189,6 +196,7 @@ export function PublishDiffModal(props: PublishDiffModalProps) {
     onClose,
     onConfirmPublish,
     publishLoading,
+    publishError,
     diffViewMode,
     setDiffViewMode,
     publishBaselineText,
@@ -200,6 +208,7 @@ export function PublishDiffModal(props: PublishDiffModalProps) {
     refetchingBaseline,
     onChangeTargetName,
     existingSkillsetNames,
+    indexDowntimeOption,
     resourceLabels,
   } = props
 
@@ -372,6 +381,12 @@ export function PublishDiffModal(props: PublishDiffModalProps) {
             </div>
           )}
 
+          {publishError ? (
+            <div className="notice notice--error" style={{ marginBottom: 10 }}>
+              {publishError}
+            </div>
+          ) : null}
+
           <div className="section__hint" style={{ marginBottom: 10 }}>
             {t('spbSaveConfirmHint')}
             <br />
@@ -498,6 +513,21 @@ export function PublishDiffModal(props: PublishDiffModalProps) {
               </div>
             </>
           )}
+
+          {indexDowntimeOption && !isNewSkillset ? (
+            <div className="notice" style={{ marginTop: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={indexDowntimeOption.checked}
+                  onChange={(event) => indexDowntimeOption.onChange(event.currentTarget.checked)}
+                />
+                <span>{t('indexBuilderAllowIndexDowntime')}</span>
+                <InfoTooltip tooltipKey="allowIndexDowntime" language={language} />
+              </label>
+              <div style={{ marginTop: 6 }}>{t('indexBuilderAllowIndexDowntimeWarning')}</div>
+            </div>
+          ) : null}
 
           <div className="actions" style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button type="button" className="btn" onClick={onClose}>

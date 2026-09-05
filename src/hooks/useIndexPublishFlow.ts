@@ -52,6 +52,7 @@ export interface UseIndexPublishFlowReturn {
   setDiffViewMode: (mode: 'semantic' | 'text') => void
   publishTargetName: string
   isNewIndex: boolean
+  allowIndexDowntime: boolean
   refetchingBaseline: boolean
   existingIndexNames: string[]
 
@@ -69,6 +70,7 @@ export interface UseIndexPublishFlowReturn {
   closeDiffDialog: () => void
   clearMessages: () => void
   changeTargetName: (name: string) => void
+  setAllowIndexDowntime: (allow: boolean) => void
 }
 
 export function useIndexPublishFlow({ profile, apiVersion, language, t }: UseIndexPublishFlowArgs): UseIndexPublishFlowReturn {
@@ -81,6 +83,7 @@ export function useIndexPublishFlow({ profile, apiVersion, language, t }: UseInd
   const [diffViewMode, setDiffViewMode] = useState<'semantic' | 'text'>('semantic')
   const [publishTargetName, setPublishTargetName] = useState('')
   const [isNewIndex, setIsNewIndex] = useState(false)
+  const [allowIndexDowntime, setAllowIndexDowntime] = useState(false)
   const [refetchingBaseline, setRefetchingBaseline] = useState(false)
   const [existingIndexNames, setExistingIndexNames] = useState<string[]>([])
 
@@ -159,6 +162,7 @@ export function useIndexPublishFlow({ profile, apiVersion, language, t }: UseInd
     }
 
     setPublishTargetName(name)
+    setAllowIndexDowntime(false)
     setPublishCandidateText(candidateJson)
     setPublishOkMessage(null)
     setPublishError(null)
@@ -230,6 +234,7 @@ export function useIndexPublishFlow({ profile, apiVersion, language, t }: UseInd
         indexName: name,
         apiVersion: apiVersion as any,
         body: body as any,
+        allowIndexDowntime: !isNewIndex && allowIndexDowntime,
         language,
       })
 
@@ -249,10 +254,11 @@ export function useIndexPublishFlow({ profile, apiVersion, language, t }: UseInd
     } finally {
       setPublishLoading(false)
     }
-  }, [profile, publishTargetName, apiVersion, language, publishCandidateObject, t])
+  }, [profile, publishTargetName, apiVersion, language, publishCandidateObject, isNewIndex, allowIndexDowntime, t])
 
   const changeTargetName = useCallback((newName: string) => {
     setPublishTargetName(newName)
+    setAllowIndexDowntime(false)
     if (!profile || !newName.trim() || !apiVersion.trim()) return
 
     setRefetchingBaseline(true)
@@ -287,6 +293,7 @@ export function useIndexPublishFlow({ profile, apiVersion, language, t }: UseInd
     setDiffViewMode,
     publishTargetName,
     isNewIndex,
+    allowIndexDowntime,
     refetchingBaseline,
     existingIndexNames,
     publishBaselineText,
@@ -298,5 +305,6 @@ export function useIndexPublishFlow({ profile, apiVersion, language, t }: UseInd
     closeDiffDialog,
     clearMessages,
     changeTargetName,
+    setAllowIndexDowntime,
   }
 }

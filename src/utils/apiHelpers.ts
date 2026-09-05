@@ -6,9 +6,9 @@
  */
 
 import type { JsonValue } from '../lib/aiSearchRest'
-import type { Run } from '../lib/model'
+import type { Run, RunType } from '../lib/model'
 import { translations, type Language } from '../lib/translations'
-import type { LabMode, SearchFormState, AgenticFormState } from '../types'
+import type { LabMode, SearchFormState } from '../types'
 
 type JsonObject = { [key: string]: JsonValue }
 
@@ -97,36 +97,6 @@ export function buildSearchBodyFromForm(mode: LabMode, s: SearchFormState, langu
   }
 
   return body as JsonValue
-}
-
-export function buildAgenticBodyFromForm(s: AgenticFormState): JsonValue {
-  const knowledgeSourceParams = s.knowledgeSourceParams.map((ks) => {
-    const base: Record<string, unknown> = {
-      knowledgeSourceName: ks.knowledgeSourceName,
-      kind: ks.kind || 'searchIndex',
-    }
-    if (ks.kind === 'searchIndex' || !ks.kind) {
-      base.includeReferences = ks.includeReferences
-      base.includeReferenceSourceData = ks.includeReferenceSourceData
-      base.alwaysQuerySource = ks.alwaysQuerySource
-    }
-    return base
-  })
-  
-  return {
-    messages: [
-      {
-        role: 'user',
-        content: [{ type: 'text', text: s.userMessage }],
-      },
-    ],
-    includeActivity: s.includeActivity,
-    outputMode: s.outputMode,
-    maxRuntimeInSeconds: s.maxRuntimeInSeconds,
-    maxOutputSize: s.maxOutputSize,
-    retrievalReasoningEffort: { kind: s.retrievalReasoningEffort },
-    knowledgeSourceParams: knowledgeSourceParams.length > 0 ? knowledgeSourceParams : undefined,
-  } as JsonValue
 }
 
 export function inferRunType(body: JsonValue, mode: LabMode): Run['runType'] {
@@ -235,6 +205,15 @@ export function extractDocs(body: JsonValue): Array<Record<string, JsonValue>> {
     return value.filter((x): x is Record<string, JsonValue> => isJsonObject(x))
   }
   return []
+}
+
+export function isTableComparableRunType(runType: RunType | null): boolean {
+  return runType === 'query'
+    || runType === 'semantic'
+    || runType === 'vector'
+    || runType === 'hybrid'
+    || runType === 'semantic_hybrid'
+    || runType === 'agentic_retrieve'
 }
 
 export function extractAgenticResponse(body: JsonValue): { 

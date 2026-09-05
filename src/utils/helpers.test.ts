@@ -45,6 +45,14 @@ describe('utils/helpers', () => {
     ).toBe('agentic prompt text')
   })
 
+  it('extractQueryString returns minimal agentic intent search when present', () => {
+    expect(
+      extractQueryString({
+        intents: [{ type: 'semantic', search: 'minimal agentic prompt' }],
+      }),
+    ).toBe('minimal agentic prompt')
+  })
+
   it('extractQueryString returns empty for unknown shapes', () => {
     expect(extractQueryString(null)).toBe('')
     expect(extractQueryString({})).toBe('')

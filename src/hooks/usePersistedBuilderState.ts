@@ -172,7 +172,19 @@ export function usePersistedBuilderState(params: {
     if (typeof restored.knowledgeBaseName === 'string') setKnowledgeBaseName(restored.knowledgeBaseName)
 
     if (restored.searchForm) setSearchForm(restored.searchForm)
-    if (restored.agenticForm) setAgenticForm(restored.agenticForm)
+    if (restored.agenticForm) {
+      setAgenticForm({
+        ...restored.agenticForm,
+        streamResponse: restored.agenticForm.streamResponse ?? false,
+        knowledgeSourceParams: (restored.agenticForm.knowledgeSourceParams ?? []).map((param) => ({
+          ...param,
+          neverQuerySource: param.neverQuerySource ?? false,
+          resultsProcessing: param.resultsProcessing === 'none' ? 'none' : 'rerank',
+          maxOutputDocuments: typeof param.maxOutputDocuments === 'number' ? param.maxOutputDocuments : '',
+          queryHintOverrides: typeof param.queryHintOverrides === 'string' ? param.queryHintOverrides : '',
+        })),
+      })
+    }
     if (restored.analyzeForm) setAnalyzeForm(restored.analyzeForm)
     if (restored.autocompleteForm) setAutocompleteForm(restored.autocompleteForm)
     if (restored.suggestForm) setSuggestForm(restored.suggestForm)

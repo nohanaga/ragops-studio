@@ -4,7 +4,7 @@ import type { ConnectionProfile } from '../lib/model'
 import type { AgenticFormState, KnowledgeSourceInfo, LabMode } from '../types'
 import type { Language } from '../lib/translations'
 import { translations } from '../lib/translations'
-import { getKnowledgeBase, listKnowledgeBases } from '../lib/aiSearchRest'
+import { getKnowledgeBase, listKnowledgeBases, listKnowledgeSources } from '../lib/aiSearchRest'
 
 export function useKnowledgeBaseData(params: {
   labMode: LabMode
@@ -43,20 +43,35 @@ export function useKnowledgeBaseData(params: {
     const abortController = new AbortController()
     ;(async () => {
       try {
-        const result = await getKnowledgeBase({
-          profile: activeProfile,
-          knowledgeBaseName: knowledgeBaseName.trim(),
-          language,
-        })
+        const [result, sourceListResult] = await Promise.all([
+          getKnowledgeBase({
+            profile: activeProfile,
+            knowledgeBaseName: knowledgeBaseName.trim(),
+            language,
+          }),
+          listKnowledgeSources({ profile: activeProfile, language }),
+        ])
 
         if (abortController.signal.aborted) return
 
         if (result.ok && result.response && typeof result.response === 'object') {
           const kb = result.response as { knowledgeSources?: Array<{ name: string; kind?: string }> }
+          const sourceKinds = new Map<string, string>()
+          if (sourceListResult.ok && sourceListResult.response && typeof sourceListResult.response === 'object') {
+            const sourceList = sourceListResult.response as { value?: Array<{ name?: string; kind?: string }> }
+            for (const source of sourceList.value ?? []) {
+              if (typeof source.name === 'string' && typeof source.kind === 'string') {
+                sourceKinds.set(source.name, source.kind)
+              }
+            }
+          }
           const sources: KnowledgeSourceInfo[] = Array.isArray(kb.knowledgeSources)
             ? kb.knowledgeSources
                 .filter((ks): ks is { name: string; kind?: string } => typeof ks.name === 'string')
-                .map((ks) => ({ name: ks.name, kind: typeof ks.kind === 'string' ? ks.kind : 'searchIndex' }))
+                .map((ks) => ({
+                  name: ks.name,
+                  kind: sourceKinds.get(ks.name) ?? (typeof ks.kind === 'string' ? ks.kind : ''),
+                }))
             : []
 
           setAvailableKnowledgeSources(sources)
@@ -68,13 +83,24 @@ export function useKnowledgeBaseData(params: {
                 knowledgeSourceParams: sources.map((src) => ({
                   knowledgeSourceName: src.name,
                   kind: src.kind,
-                  includeReferences: src.kind === 'searchIndex',
-                  includeReferenceSourceData: src.kind === 'searchIndex',
+                  includeReferences: true,
+                  includeReferenceSourceData: true,
                   alwaysQuerySource: false,
+                  neverQuerySource: false,
+                  resultsProcessing: 'rerank',
+                  maxOutputDocuments: '',
+                  queryHintOverrides: '',
                 })),
               }
             }
-            return prev
+            const kindByName = new Map(sources.map((source) => [source.name, source.kind]))
+            return {
+              ...prev,
+              knowledgeSourceParams: prev.knowledgeSourceParams.map((param) => ({
+                ...param,
+                kind: kindByName.get(param.knowledgeSourceName) || param.kind,
+              })),
+            }
           })
         }
       } catch (e) {

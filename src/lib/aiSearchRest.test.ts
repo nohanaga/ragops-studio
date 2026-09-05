@@ -6,6 +6,7 @@ import { http, HttpResponse } from 'msw'
 import { server } from '../test/mswServer'
 import {
   agenticRetrieve,
+  agenticRetrieveStream,
   autocompleteDocuments,
   analyzeIndex,
   createOrUpdateAlias,
@@ -21,6 +22,7 @@ import {
   getIndexDefinition,
   getIndexStatistics,
   getAliasDefinition,
+  getCitationDocument,
   getKnowledgeBase,
   getKnowledgeSource,
   getSynonymMap,
@@ -29,6 +31,7 @@ import {
   listKnowledgeBases,
   listKnowledgeSources,
   listSynonymMaps,
+  parseAgenticSseEvent,
   resetIndexer,
   resolveSearchApiVersion,
   searchDocuments,
@@ -47,7 +50,191 @@ describe('lib/aiSearchRest', () => {
 
   it('keeps newer configured API versions and raises older versions to the feature minimum', () => {
     expect(resolveSearchApiVersion('2026-05-01-preview', '2025-11-01-preview')).toBe('2026-05-01-preview')
+    expect(resolveSearchApiVersion('2026-04-01', '2025-11-01-preview')).toBe('2026-04-01')
     expect(resolveSearchApiVersion('2025-09-01', '2025-11-01-preview')).toBe('2025-11-01-preview')
+  })
+
+  it('uses the minimum supported API version for agentic knowledge resources', async () => {
+    const observedApiVersions: string[] = []
+    const observeVersion = (request: Request) => {
+      observedApiVersions.push(new URL(request.url).searchParams.get('api-version') ?? '')
+    }
+    server.use(
+      http.post('*/knowledgebases/kb-minimum/retrieve', ({ request }) => {
+        observeVersion(request)
+        return HttpResponse.json({ response: [], activity: [], references: [] })
+      }),
+      http.put('*/knowledgebases/kb-minimum', ({ request }) => {
+        observeVersion(request)
+        return HttpResponse.json({ name: 'kb-minimum' }, { status: 201 })
+      }),
+      http.put('*/knowledgesources/ks-minimum', ({ request }) => {
+        observeVersion(request)
+        return HttpResponse.json({ name: 'ks-minimum', kind: 'searchIndex' }, { status: 201 })
+      }),
+    )
+    const profile = {
+      endpoint: 'https://example.search.windows.net',
+      apiVersion: '2025-09-01' as const,
+      authType: 'apiKey' as const,
+      apiKey: 'k',
+    }
+
+    const retrieve = await agenticRetrieve({
+      profile,
+      knowledgeBaseName: 'kb-minimum',
+      body: { intents: [{ type: 'semantic', search: 'hello' }] },
+    })
+    const knowledgeBase = await createOrUpdateKnowledgeBase({
+      profile,
+      knowledgeBaseName: 'kb-minimum',
+      body: { name: 'kb-minimum' },
+    })
+    const knowledgeSource = await createOrUpdateKnowledgeSource({
+      profile,
+      knowledgeSourceName: 'ks-minimum',
+      body: { name: 'ks-minimum', kind: 'searchIndex' },
+    })
+
+    expect(retrieve.ok).toBe(true)
+    expect(knowledgeBase.ok).toBe(true)
+    expect(knowledgeSource.ok).toBe(true)
+    expect(observedApiVersions).toEqual([
+      '2025-11-01-preview',
+      '2025-11-01-preview',
+      '2025-11-01-preview',
+    ])
+  })
+
+  it('parses named SSE events and ignores heartbeat comments', () => {
+    expect(parseAgenticSseEvent(': heartbeat')).toBeNull()
+    expect(parseAgenticSseEvent('event: references.completed\r\ndata: [{"id":"0"}]')).toEqual({
+      event: 'references.completed',
+      data: [{ id: '0' }],
+    })
+    expect(parseAgenticSseEvent('event: response.completed\ndata: {invalid-json}')).toBeNull()
+  })
+
+  it('streams agentic events and returns the response.completed payload', async () => {
+    const observedEvents: string[] = []
+    server.use(
+      http.post('*/knowledgebases/kb-stream/retrieve', async ({ request }) => {
+        expect(request.headers.get('accept')).toBe('text/event-stream')
+        expect(new URL(request.url).searchParams.get('api-version')).toBe('2026-08-01-preview')
+        return new HttpResponse([
+          'event: retrieval.started\n',
+          'data: {"requestId":"stream-request"}\n\n',
+          ': heartbeat\n\n',
+          'event: activity.started\n',
+          'data: {"id":1,"type":"searchIndex"}\n\n',
+          'event: activity.completed\n',
+          'data: {"id":1,"type":"searchIndex","count":2}\n\n',
+          'event: response.completed\n',
+          'data: {"statusCode":206,"response":{"response":[],"activity":[],"references":[]}}\n\n',
+        ].join(''), {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream; charset=utf-8', 'request-id': 'req-stream' },
+        })
+      }),
+    )
+
+    const result = await agenticRetrieveStream({
+      profile: {
+        endpoint: 'https://example.search.windows.net',
+        apiVersion: '2026-08-01-preview',
+        authType: 'apiKey',
+        apiKey: 'k',
+      },
+      knowledgeBaseName: 'kb-stream',
+      body: { messages: [] },
+      onEvent: (item) => observedEvents.push(item.event),
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.status).toBe(206)
+    expect(result.requestId).toBe('req-stream')
+    expect(observedEvents).toEqual([
+      'retrieval.started',
+      'activity.started',
+      'activity.completed',
+      'response.completed',
+    ])
+  })
+
+  it('rejects an agentic SSE stream that ends without a terminal event', async () => {
+    server.use(
+      http.post('*/knowledgebases/kb-incomplete/retrieve', () => new HttpResponse(
+        'event: retrieval.started\ndata: {"requestId":"stream-request"}\n\n',
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      )),
+    )
+
+    const result = await agenticRetrieveStream({
+      profile: {
+        endpoint: 'https://example.search.windows.net',
+        apiVersion: '2026-08-01-preview',
+        authType: 'apiKey',
+        apiKey: 'k',
+      },
+      knowledgeBaseName: 'kb-incomplete',
+      body: { messages: [] },
+      language: 'en',
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.status).toBe(0)
+    expect(result.error.message).toContain('terminal event')
+  })
+
+  it('does not send credentials to a citation URL on another origin', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const result = await getCitationDocument({
+      profile: {
+        endpoint: 'https://example.search.windows.net',
+        apiVersion: '2026-08-01-preview',
+        authType: 'apiKey',
+        apiKey: 'secret-key',
+      },
+      citationUrl: 'https://attacker.example/documents/1',
+      language: 'en',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('follows a same-origin citation URL with existing authorization headers', async () => {
+    server.use(
+      http.get('*/indexes/products/docs/sku-1', ({ request }) => {
+        expect(request.headers.get('api-key')).toBe('k')
+        expect(request.headers.get('x-ms-query-source-authorization')).toBe('user-token')
+        expect(new URL(request.url).searchParams.get('$select')).toBe('title,content')
+        return HttpResponse.json(
+          { id: 'sku-1', title: 'Product' },
+          { headers: { 'request-id': 'req-citation' } },
+        )
+      }),
+    )
+
+    const citationUrl = 'https://example.search.windows.net/indexes/products/docs/sku-1?$select=title%2Ccontent&api-version=2026-08-01-preview'
+    const result = await getCitationDocument({
+      profile: {
+        endpoint: 'https://example.search.windows.net',
+        apiVersion: '2026-08-01-preview',
+        authType: 'apiKey',
+        apiKey: 'k',
+        querySourceAuthorization: 'user-token',
+      },
+      citationUrl,
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.url).toBe(citationUrl)
+    expect(result.requestId).toBe('req-citation')
+    expect(result.response).toEqual({ id: 'sku-1', title: 'Product' })
   })
 
   it('routes Azure endpoints via /api-proxy in DEV and sets proxy headers', async () => {
@@ -489,6 +676,98 @@ describe('lib/aiSearchRest', () => {
     ])
   })
 
+  it('follows opaque cursor links for 2026-08-01-preview index lists', async () => {
+    const observedUrls: string[] = []
+    server.use(
+      http.get('/api-proxy/indexes', async ({ request }) => {
+        const url = new URL(request.url)
+        observedUrls.push(`${url.pathname}${url.search}`)
+        if (!url.searchParams.has('$skiptoken')) {
+          return HttpResponse.json({
+            value: [{ name: 'index-1' }],
+            '@odata.nextLink': 'https://example.search.windows.net/indexes?api-version=2026-08-01-preview&$skiptoken=opaque%2Bcursor',
+          })
+        }
+        return HttpResponse.json({ value: [{ name: 'index-2' }] })
+      }),
+    )
+
+    const result = await listIndexes({
+      profile: {
+        endpoint: 'https://example.search.windows.net',
+        apiVersion: '2026-08-01-preview',
+        authType: 'apiKey',
+        apiKey: 'k',
+      },
+      apiVersion: '2026-08-01-preview',
+      language: 'ja',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(asRecord(result.response).value).toEqual([{ name: 'index-1' }, { name: 'index-2' }])
+    expect(observedUrls).toEqual([
+      '/api-proxy/indexes?api-version=2026-08-01-preview&pageSize=1000',
+      '/api-proxy/indexes?api-version=2026-08-01-preview&$skiptoken=opaque%2Bcursor',
+    ])
+  })
+
+  it('uses cursor list parameters without duplicating the dev proxy for knowledge resources', async () => {
+    const observedUrls: string[] = []
+    server.use(
+      http.get('/api-proxy/knowledgebases', ({ request }) => {
+        const url = new URL(request.url)
+        observedUrls.push(`${url.pathname}${url.search}`)
+        return HttpResponse.json({ value: [{ name: 'kb1' }] })
+      }),
+      http.get('/api-proxy/knowledgesources', ({ request }) => {
+        const url = new URL(request.url)
+        observedUrls.push(`${url.pathname}${url.search}`)
+        return HttpResponse.json({ value: [{ name: 'ks-web', kind: 'web' }] })
+      }),
+    )
+    const profile = {
+      endpoint: 'https://example.search.windows.net',
+      apiVersion: '2026-08-01-preview' as const,
+      authType: 'apiKey' as const,
+      apiKey: 'k',
+    }
+
+    const knowledgeBases = await listKnowledgeBases({ profile, language: 'ja' })
+    const knowledgeSources = await listKnowledgeSources({ profile, language: 'ja' })
+
+    expect(knowledgeBases.ok).toBe(true)
+    expect(knowledgeSources.ok).toBe(true)
+    expect(observedUrls).toEqual([
+      '/api-proxy/knowledgebases?api-version=2026-08-01-preview&pageSize=1000',
+      '/api-proxy/knowledgesources?api-version=2026-08-01-preview&pageSize=1000',
+    ])
+  })
+
+  it('rejects cross-origin cursor links before forwarding credentials', async () => {
+    server.use(
+      http.get('/api-proxy/indexes', () => HttpResponse.json({
+        value: [{ name: 'index-1' }],
+        '@odata.nextLink': 'https://untrusted.example/indexes?$skiptoken=cursor',
+      })),
+    )
+
+    const result = await listIndexes({
+      profile: {
+        endpoint: 'https://example.search.windows.net',
+        apiVersion: '2026-08-01-preview',
+        authType: 'apiKey',
+        apiKey: 'k',
+      },
+      apiVersion: '2026-08-01-preview',
+      language: 'ja',
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.message).toContain('cross-origin')
+  })
+
   it('does not retry a non-Serverless 400 response with a newer API version', async () => {
     const observedApiVersions: string[] = []
     const handleError = async ({ request }: { request: Request }) => {
@@ -773,6 +1052,7 @@ describe('lib/aiSearchRest', () => {
   it('covers Index PUT/DELETE and agenticRetrieve error handling', async () => {
     server.use(
       http.put('/api-proxy/indexes/myindex', async ({ request }) => {
+        expect(new URL(request.url).searchParams.get('allowIndexDowntime')).toBeNull()
         const body = (await request.json()) as unknown
         expect(asRecord(body).name).toBe('myindex')
         return HttpResponse.json(
@@ -781,6 +1061,7 @@ describe('lib/aiSearchRest', () => {
         )
       }),
       http.put('https://example.search.windows.net/indexes/myindex', async ({ request }) => {
+        expect(new URL(request.url).searchParams.get('allowIndexDowntime')).toBeNull()
         const body = (await request.json()) as unknown
         expect(asRecord(body).name).toBe('myindex')
         return HttpResponse.json(
@@ -844,6 +1125,34 @@ describe('lib/aiSearchRest', () => {
     expect(agt.status).toBe(403)
     // agenticRetrieve intentionally does not run extractErrorMessage.
     expect(agt.error.message).toBe('HTTP 403')
+  })
+
+  it('adds allowIndexDowntime only when index downtime is explicitly allowed', async () => {
+    const handler = http.put('*/indexes/myindex', async ({ request }) => {
+      expect(new URL(request.url).searchParams.get('allowIndexDowntime')).toBe('true')
+      return HttpResponse.json(
+        { name: 'myindex' },
+        { status: 200, headers: { 'content-type': 'application/json', 'request-id': 'req-idx-downtime' } },
+      )
+    })
+    server.use(handler)
+
+    const result = await createOrUpdateIndex({
+      profile: {
+        endpoint: 'https://example.search.windows.net',
+        apiVersion: '2025-09-01',
+        authType: 'apiKey',
+        apiKey: 'k',
+      },
+      indexName: 'myindex',
+      apiVersion: '2025-09-01',
+      body: { name: 'myindex' },
+      allowIndexDowntime: true,
+      language: 'ja',
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.url).toContain('allowIndexDowntime=true')
   })
 
   it('posts indexer reset with api-version and request id', async () => {

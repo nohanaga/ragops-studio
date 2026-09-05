@@ -16,7 +16,7 @@ import type { AppSettings, ConnectionProfile, SearchApiVersion } from '../../lib
 import { extractDocs, extractAgenticResponse, pickPrimaryText, pickFirstStringField } from '../../utils'
 import { formatLocalDateTime } from '../../utils/helpers'
 import { unifiedDiff } from '../../lib/diffText'
-import { indexDocuments, type JsonValue } from '../../lib/aiSearchRest'
+import { getCitationDocument, indexDocuments, type JsonValue } from '../../lib/aiSearchRest'
 import { JsonViewer } from './JsonViewer'
 import { AgenticActivityTimeline } from './AgenticActivityTimeline'
 import { JSON_VIEWER_MAX_STRING_LENGTH } from '../../app/constants'
@@ -146,10 +146,18 @@ type ResultViewPanelProps = {
   documentActionIndexName?: string
   documentActionApiVersion?: SearchApiVersion | ''
   documentActionKeyFieldName?: string | null
+  isStreamingResponse?: boolean
   onDocumentActionApplied?: (change: { keyFieldName: string; keyValue: JsonValue; nextDocument: JsonObject | null }) => void
 }
 
 type DocumentActionNotice = { type: 'success' | 'error' | 'warning' | 'info'; text: string }
+
+type CitationPreviewState = {
+  key: string
+  loading: boolean
+  document?: JsonValue
+  error?: string
+}
 
 type EditingDocumentState = {
   keyValue: JsonValue
@@ -278,6 +286,7 @@ export function ResultViewPanel({
   documentActionIndexName,
   documentActionApiVersion,
   documentActionKeyFieldName,
+  isStreamingResponse = false,
   onDocumentActionApplied,
 }: ResultViewPanelProps) {
   const latestResponse = view.response
@@ -285,6 +294,7 @@ export function ResultViewPanel({
   const [documentActionNotice, setDocumentActionNotice] = useState<DocumentActionNotice | null>(null)
   const [documentActionBusyKey, setDocumentActionBusyKey] = useState<string | null>(null)
   const [editingDocument, setEditingDocument] = useState<EditingDocumentState | null>(null)
+  const [citationPreview, setCitationPreview] = useState<CitationPreviewState | null>(null)
   const labMode: LabMode = view.runType === 'agentic_retrieve' ? 'agentic' 
     : view.runType === 'analyze' ? 'analyze'
     : view.runType === 'autocomplete' ? 'autocomplete'
@@ -294,6 +304,29 @@ export function ResultViewPanel({
   const resultUrl = latestResponse?.url ?? ''
   const effectiveDocumentActionIndexName = parseIndexNameFromUrl(resultUrl) || (documentActionIndexName ?? '').trim()
   const effectiveDocumentActionApiVersion = (parseApiVersionFromUrl(resultUrl) || documentActionApiVersion || '') as SearchApiVersion | ''
+
+  async function loadCitationPreview(key: string, citationUrl: string) {
+    if (citationPreview?.key === key && !citationPreview.loading) {
+      setCitationPreview(null)
+      return
+    }
+    if (!documentActionProfile) {
+      setCitationPreview({ key, loading: false, error: t('resultDocumentActionUnavailable') })
+      return
+    }
+
+    setCitationPreview({ key, loading: true })
+    const result = await getCitationDocument({
+      profile: documentActionProfile,
+      citationUrl,
+      language,
+    })
+    if (result.ok) {
+      setCitationPreview({ key, loading: false, document: result.response })
+    } else {
+      setCitationPreview({ key, loading: false, error: result.error.message })
+    }
+  }
 
   function getDocumentActionUnavailableReason(doc: JsonObject): string | null {
     if (!documentActionProfile) return t('resultDocumentActionUnavailable')
@@ -463,13 +496,43 @@ export function ResultViewPanel({
     )
   }
 
+  function renderStreamStatus() {
+    if (!isStreamingResponse) return null
+    return (
+      <div className="notice notice--info resultViewPanel__streamStatus" role="status" aria-live="polite">
+        <i className="bi bi-arrow-repeat spin" aria-hidden="true"></i>
+        <div>
+          <strong>{t('agenticStreamReceiving')}</strong>
+          <div className="resultViewPanel__streamProgress">
+            {latestResponse?.streamState
+              ? formatTemplate(t('agenticStreamProgress'), {
+                  count: latestResponse.streamState.eventCount,
+                  event: latestResponse.streamState.lastEvent,
+                })
+              : t('agenticStreamWaiting')}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const streamBadge = isStreamingResponse ? (
+    <span className="resultViewPanel__streamBadge">
+      <i className="bi bi-broadcast-pin" aria-hidden="true"></i>
+      {t('agenticStreamActive')}
+    </span>
+  ) : null
+
   if (!latestResponse) {
     return (
       <div className="section resultViewPanel">
         <div
           className="section__title resultViewPanel__header"
         >
-          <span>{view.label}</span>
+          <div className="resultViewPanel__headerLeft">
+            <span>{view.label}</span>
+            {streamBadge}
+          </div>
           <label className="resultViewPanel__compareLabel">
             <input
               type="checkbox"
@@ -479,7 +542,7 @@ export function ResultViewPanel({
             <span>{t('compareMode')}</span>
           </label>
         </div>
-        <div className="empty">{t('noResults')}</div>
+        {renderStreamStatus() ?? <div className="empty">{t('noResults')}</div>}
       </div>
     )
   }
@@ -496,6 +559,7 @@ export function ResultViewPanel({
         <div className="resultViewPanel__headerLeft">
           <span>{view.label}</span>
           <span className={`run__type run__type--${view.runType}`}>{view.runType}</span>
+          {streamBadge}
         </div>
         <label className="resultViewPanel__compareLabel">
           <input
@@ -507,6 +571,7 @@ export function ResultViewPanel({
         </label>
       </div>
       {!editingDocument && renderDocumentActionNotice()}
+      {renderStreamStatus()}
       <>
         <div className="kv">
           <div className="kv__row">
@@ -784,6 +849,8 @@ export function ResultViewPanel({
                           const title = typeof refValue.title === 'string' ? refValue.title : ''
                           const rerankerScore = typeof refValue.rerankerScore === 'number' ? refValue.rerankerScore : undefined
                           const sourceDataText = typeof sourceData?.text === 'string' ? sourceData.text : ''
+                          const citationUrl = typeof refValue.citationUrl === 'string' ? refValue.citationUrl : ''
+                          const citationKey = `${rawDetailsResetKey}:${idx}:${citationUrl}`
                           
                           return (
                             <div key={idx} className={'resultCard' + (compareMode ? ' resultCard--compare' : '')}>
@@ -837,6 +904,38 @@ export function ResultViewPanel({
                                       </div>
                                     )}
                                   </div>
+                                  {citationUrl && (
+                                    <div className="actions builder__actions">
+                                      <button
+                                        type="button"
+                                        className="btn btn--mini"
+                                        title={t('citationPreview')}
+                                        aria-label={t('citationPreview')}
+                                        disabled={citationPreview?.key === citationKey && citationPreview.loading}
+                                        onClick={() => void loadCitationPreview(citationKey, citationUrl)}
+                                      >
+                                        <i className="bi bi-file-earmark-text"></i>
+                                      </button>
+                                    </div>
+                                  )}
+                                  {citationPreview?.key === citationKey && citationPreview.loading && (
+                                    <div className="notice notice--info">{t('citationPreviewLoading')}</div>
+                                  )}
+                                  {citationPreview?.key === citationKey && citationPreview.error && (
+                                    <div className="notice notice--error">{citationPreview.error}</div>
+                                  )}
+                                  {citationPreview?.key === citationKey && citationPreview.document !== undefined && (
+                                    <div className="mono jsonViewer__body rawJsonViewer">
+                                      <JsonViewer
+                                        data={citationPreview.document}
+                                        initialOpenDepth={2}
+                                        maxStringLength={JSON_VIEWER_MAX_STRING_LENGTH}
+                                        hideRootObjectToggle
+                                        collapseArraysByDefault
+                                        t={t}
+                                      />
+                                    </div>
+                                  )}
                                   {sourceData && (
                                     <LazyDetails
                                       key={`${rawDetailsResetKey}:source-data:${idx}`}
@@ -885,7 +984,11 @@ export function ResultViewPanel({
                   {/* Activity Array (hierarchical timeline) */}
                   {activity && activity.length > 0 && (
                     <div className="section">
-                      <AgenticActivityTimeline activity={activity} t={t} />
+                      <AgenticActivityTimeline
+                        activity={activity}
+                        t={t}
+                        runningActivityIds={latestResponse.streamState?.runningActivityIds}
+                      />
                     </div>
                   )}
                 </>

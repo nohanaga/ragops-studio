@@ -1595,7 +1595,7 @@ function SemanticConfigEditor({ analysis, t, language, onChangeIndex }: {
           const prioritizedFields = getPrioritizedFields(configuration)
           const titleField = isRecord(prioritizedFields.titleField) ? asString(prioritizedFields.titleField.fieldName) : ''
           return (
-            <div key={`${configurationIndex}-${asString(configuration.name)}`} className="indexSchemaConfigEditor__card">
+            <div key={`semantic-${configurationIndex}`} className="indexSchemaConfigEditor__card">
               <div className="indexSchemaConfigEditor__cardHeader">
                 <label className="field">
                   <ConfigLabel label={t('indexBuilderConfigName')} tooltipKey="configName" language={language} />
@@ -1727,7 +1727,7 @@ function ScoringProfilesEditor({ analysis, t, language, onChangeIndex }: {
           const functionSummary = language === 'ja' ? `関数 ${functions.length}` : `${functions.length} functions`
           const profileSummaryLabel = language === 'ja' ? 'Scoring profile の概要' : 'Scoring profile summary'
           return (
-            <div key={`${profileIndex}-${profileName}`} className="indexSchemaConfigEditor__card indexSchemaConfigEditor__card--scoringProfile">
+            <div key={`scoring-profile-${profileIndex}`} className="indexSchemaConfigEditor__card indexSchemaConfigEditor__card--scoringProfile">
               <div className="indexSchemaConfigEditor__profileBanner">
                 <div className="indexSchemaConfigEditor__profileTitle">
                   <span className="indexSchemaConfigEditor__profileIndex">#{profileIndex + 1}</span>
@@ -1802,7 +1802,7 @@ function ScoringProfilesEditor({ analysis, t, language, onChangeIndex }: {
                   const functionType = getScoringFunctionType(scoringFunction)
                   const parameters = getScoringFunctionParameters(scoringFunction, functionType)
                   return (
-                    <div key={`${functionIndex}-${asString(scoringFunction.fieldName)}`} className="indexSchemaConfigEditor__nestedCard">
+                    <div key={`scoring-function-${functionIndex}`} className="indexSchemaConfigEditor__nestedCard">
                       <ScoringFunctionGuide
                         functionType={functionType}
                         interpolation={asString(scoringFunction.interpolation)}
@@ -1974,7 +1974,7 @@ function SuggestersEditor({ analysis, t, language, onChangeIndex }: {
       {suggesters.length === 0 ? <EmptyFeatureNotice label={t('indexBuilderNoSuggesters')} /> : null}
       <div className="indexSchemaConfigEditor__cards">
         {suggesters.map((suggester, suggesterIndex) => (
-          <div key={`${suggesterIndex}-${asString(suggester.name)}`} className="indexSchemaConfigEditor__card">
+          <div key={`suggester-${suggesterIndex}`} className="indexSchemaConfigEditor__card">
             <div className="indexSchemaConfigEditor__cardHeader">
               <label className="field">
                 <ConfigLabel label={t('indexBuilderConfigName')} tooltipKey="configName" language={language} />
@@ -2321,7 +2321,7 @@ function AnalyzersEditor({ analysis, t, language, onChangeIndex }: {
       {analyzers.length === 0 ? <EmptyFeatureNotice label={t('indexBuilderNoAnalyzers')} /> : null}
       <div className="indexSchemaConfigEditor__cards">
         {analyzers.map((analyzer, analyzerIndex) => (
-          <div key={`${analyzerIndex}-${asString(analyzer.name)}`} className="indexSchemaConfigEditor__card">
+          <div key={`analyzer-${analyzerIndex}`} className="indexSchemaConfigEditor__card">
             <div className="indexSchemaConfigEditor__cardHeader">
               <label className="field">
                 <ConfigLabel label={t('indexBuilderConfigName')} tooltipKey="configName" language={language} />
@@ -2373,7 +2373,7 @@ function AnalyzersEditor({ analysis, t, language, onChangeIndex }: {
               {collection.length === 0 ? <EmptyFeatureNotice label={t('indexBuilderNoComponents')} /> : null}
               <div className="indexSchemaConfigEditor__nestedCards">
                 {collection.map((component, componentIndex) => (
-                  <div key={`${componentIndex}-${asString(component.name)}`} className="indexSchemaConfigEditor__nestedCard">
+                  <div key={`${section.propertyName}-${componentIndex}`} className="indexSchemaConfigEditor__nestedCard">
                     <div className="indexSchemaConfigEditor__grid indexSchemaConfigEditor__grid--compact">
                       <label className="field">
                         <ConfigLabel label={t('indexBuilderConfigName')} tooltipKey="configName" language={language} />
@@ -2439,7 +2439,7 @@ function NormalizersEditor({ analysis, t, language, onChangeIndex }: {
       {normalizers.length === 0 ? <EmptyFeatureNotice label={t('indexBuilderNoNormalizers')} /> : null}
       <div className="indexSchemaConfigEditor__cards">
         {normalizers.map((normalizer, normalizerIndex) => (
-          <div key={`${normalizerIndex}-${asString(normalizer.name)}`} className="indexSchemaConfigEditor__card">
+          <div key={`normalizer-${normalizerIndex}`} className="indexSchemaConfigEditor__card">
             <div className="indexSchemaConfigEditor__cardHeader">
               <label className="field">
                 <ConfigLabel label={t('indexBuilderConfigName')} tooltipKey="configName" language={language} />
@@ -2517,7 +2517,7 @@ function VectorProfilesEditor({ analysis, t, language, onChangeIndex }: {
           {profiles.length === 0 ? <EmptyFeatureNotice label={t('indexBuilderNoVectorProfiles')} /> : null}
           <div className="indexSchemaConfigEditor__nestedCards">
             {profiles.map((profile, profileIndex) => (
-              <div key={`${profileIndex}-${asString(profile.name)}`} className="indexSchemaConfigEditor__nestedCard indexSchemaConfigEditor__nestedCard--vectorProfile">
+              <div key={`vector-profile-${profileIndex}`} className="indexSchemaConfigEditor__nestedCard indexSchemaConfigEditor__nestedCard--vectorProfile">
                 <div className="indexSchemaConfigEditor__grid indexSchemaConfigEditor__grid--compact">
                   <label className="field field--vectorProfile"><ConfigLabel label={t('indexBuilderConfigName')} tooltipKey="vectorProfileName" language={language} /><input className="field__input" value={asString(profile.name)} onChange={(event) => onChangeIndex(updateVectorSearchCollectionItem(analysis.index, 'profiles', profileIndex, (nextProfile) => setOptionalRecordValue(nextProfile, 'name', event.currentTarget.value)))} /></label>
                   <label className="field field--vectorAlgorithm"><ConfigLabel label={t('indexBuilderAlgorithm')} tooltipKey="vectorAlgorithm" language={language} /><input className="field__input" list="indexBuilderVectorAlgorithmNames" value={asString(profile.algorithm)} onChange={(event) => onChangeIndex(updateVectorSearchCollectionItem(analysis.index, 'profiles', profileIndex, (nextProfile) => setOptionalRecordValue(nextProfile, 'algorithm', event.currentTarget.value)))} /></label>
@@ -2544,7 +2544,7 @@ function VectorProfilesEditor({ analysis, t, language, onChangeIndex }: {
               const parameters = getAlgorithmParameters(algorithm)
               const kind = asString(algorithm.kind) || 'hnsw'
               return (
-                <div key={`${algorithmIndex}-${asString(algorithm.name)}`} className="indexSchemaConfigEditor__nestedCard indexSchemaConfigEditor__nestedCard--vectorAlgorithm">
+                <div key={`vector-algorithm-${algorithmIndex}`} className="indexSchemaConfigEditor__nestedCard indexSchemaConfigEditor__nestedCard--vectorAlgorithm">
                   <div className="indexSchemaConfigEditor__grid indexSchemaConfigEditor__grid--compact">
                     <label className="field field--vectorAlgorithm"><ConfigLabel label={t('indexBuilderConfigName')} tooltipKey="configName" language={language} /><input className="field__input" value={asString(algorithm.name)} onChange={(event) => onChangeIndex(updateVectorSearchCollectionItem(analysis.index, 'algorithms', algorithmIndex, (nextAlgorithm) => setOptionalRecordValue(nextAlgorithm, 'name', event.currentTarget.value)))} /></label>
                     <label className="field field--vectorAlgorithm"><ConfigLabel label={t('indexBuilderKind')} tooltipKey="vectorAlgorithmKind" language={language} /><select className="field__input" value={kind} onChange={(event) => onChangeIndex(updateVectorSearchCollectionItem(analysis.index, 'algorithms', algorithmIndex, (nextAlgorithm) => ({ ...nextAlgorithm, kind: event.currentTarget.value })))}><option value="hnsw">hnsw</option><option value="exhaustiveKnn">exhaustiveKnn</option></select></label>
@@ -2581,7 +2581,7 @@ function VectorProfilesEditor({ analysis, t, language, onChangeIndex }: {
               {collection.length === 0 ? <EmptyFeatureNotice label={t('indexBuilderNoComponents')} /> : null}
               <div className="indexSchemaConfigEditor__nestedCards">
                 {collection.map((item, itemIndex) => (
-                  <div key={`${itemIndex}-${asString(item.name)}`} className={`indexSchemaConfigEditor__nestedCard ${section.propertyName === 'vectorizers' ? 'indexSchemaConfigEditor__nestedCard--vectorizer' : 'indexSchemaConfigEditor__nestedCard--vectorCompression'}`}>
+                  <div key={`${section.propertyName}-${itemIndex}`} className={`indexSchemaConfigEditor__nestedCard ${section.propertyName === 'vectorizers' ? 'indexSchemaConfigEditor__nestedCard--vectorizer' : 'indexSchemaConfigEditor__nestedCard--vectorCompression'}`}>
                     <div className="indexSchemaConfigEditor__grid indexSchemaConfigEditor__grid--compact">
                       <label className={`field ${section.propertyName === 'vectorizers' ? 'field--vectorizer' : 'field--vectorCompression'}`}><ConfigLabel label={t('indexBuilderConfigName')} tooltipKey="configName" language={language} /><input className="field__input" value={asString(item.name)} onChange={(event) => onChangeIndex(updateVectorSearchCollectionItem(analysis.index, section.propertyName, itemIndex, (nextItem) => setOptionalRecordValue(nextItem, 'name', event.currentTarget.value)))} /></label>
                       <label className={`field ${section.propertyName === 'vectorizers' ? 'field--vectorizer' : 'field--vectorCompression'}`}><ConfigLabel label={t('indexBuilderKind')} tooltipKey={section.propertyName === 'vectorizers' ? 'vectorizerKind' : 'compressionKind'} language={language} /><input className="field__input" value={asString(item.kind)} onChange={(event) => onChangeIndex(updateVectorSearchCollectionItem(analysis.index, section.propertyName, itemIndex, (nextItem) => setOptionalRecordValue(nextItem, 'kind', event.currentTarget.value)))} /></label>

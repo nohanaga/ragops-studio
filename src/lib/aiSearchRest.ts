@@ -7,6 +7,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type { ConnectionProfile, SearchApiVersion } from './model';
+import { getSearchApiCapabilities } from './searchApiCapabilities';
 import { translations, type Language } from './translations';
 
 type TranslationKey = keyof typeof translations.ja;
@@ -197,6 +198,118 @@ function extractErrorMessage(status: number, parsed: { json?: JsonValue; text?: 
   }
   
   return baseMsg;
+}
+
+function prepareCursorRequestUrl(profile: ConnectionProfile, nextLink: string): string {
+  const serviceUrl = new URL(normalizeRawEndpoint(profile.endpoint));
+  const resolved = new URL(nextLink, `${serviceUrl.origin}/`);
+  if (resolved.origin !== serviceUrl.origin || resolved.username || resolved.password) {
+    throw new Error('Azure AI Search returned an invalid cross-origin @odata.nextLink.');
+  }
+  if (!isUsingDevProxy(profile)) return resolved.toString();
+  return `/api-proxy${resolved.pathname}${resolved.search}`;
+}
+
+async function collectCursorListPages(input: {
+  profile: ConnectionProfile;
+  initialUrl: string;
+  language: Language;
+  signal?: AbortSignal;
+}): Promise<RestResult> {
+  const clientRequestId = uuidv4();
+  const headers: Record<string, string> = {
+    'x-ms-client-request-id': clientRequestId,
+    ...makeAuthHeaders(input.profile, input.language),
+  };
+  const querySourceAuthorization = getQuerySourceAuthorizationHeaderValue(input.profile);
+  if (querySourceAuthorization) headers['x-ms-query-source-authorization'] = querySourceAuthorization;
+  const values: JsonValue[] = [];
+  const visited = new Set<string>();
+  let nextLink: string | undefined = input.initialUrl;
+  let isInitialRequest = true;
+  let requestId = clientRequestId;
+  let status = 200;
+
+  while (nextLink) {
+    if (visited.has(nextLink)) {
+      return {
+        ok: false,
+        status: 0,
+        requestId,
+        clientRequestId,
+        url: nextLink,
+        error: { message: 'Azure AI Search returned a repeated @odata.nextLink.' },
+      };
+    }
+    visited.add(nextLink);
+
+    let url: string;
+    try {
+      url = isInitialRequest ? nextLink : prepareCursorRequestUrl(input.profile, nextLink);
+      isInitialRequest = false;
+    } catch (error) {
+      return {
+        ok: false,
+        status: 0,
+        requestId,
+        clientRequestId,
+        url: nextLink,
+        error: { message: error instanceof Error ? error.message : String(error) },
+      };
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(url, { method: 'GET', headers, signal: input.signal });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        ok: false,
+        status: 0,
+        requestId,
+        clientRequestId,
+        url,
+        error: { message: makeNetworkErrorMessage(input.language, message) },
+      };
+    }
+
+    status = res.status;
+    requestId = getServiceRequestId(res) ?? requestId;
+    const parsed = await readJsonOrText(res);
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        requestId,
+        clientRequestId,
+        url,
+        error: {
+          message: extractErrorMessage(res.status, parsed),
+          response: parsed.json,
+          responseText: parsed.text,
+        },
+      };
+    }
+
+    const page = parsed.json && typeof parsed.json === 'object' && !Array.isArray(parsed.json)
+      ? parsed.json as Record<string, JsonValue>
+      : {};
+    if (Array.isArray(page.value)) values.push(...page.value);
+    nextLink = typeof page['@odata.nextLink'] === 'string' && page['@odata.nextLink'].length > 0
+      ? page['@odata.nextLink']
+      : undefined;
+  }
+
+  const response: JsonValue = { value: values };
+  return {
+    ok: true,
+    status,
+    requestId,
+    clientRequestId,
+    url: input.initialUrl,
+    response,
+    responseText: JSON.stringify(response),
+  };
 }
 
 export async function searchDocuments(input: {
@@ -557,6 +670,15 @@ export async function listIndexes(input: {
   const qsa = getQuerySourceAuthorizationHeaderValue(input.profile);
   if (qsa) headers['x-ms-query-source-authorization'] = qsa;
 
+  if (getSearchApiCapabilities(selectedApiVersion).cursorList) {
+    const url = `${endpoint}/indexes?api-version=${encodeURIComponent(selectedApiVersion)}&pageSize=${pageSize}`;
+    return collectCursorListPages({
+      profile: input.profile,
+      initialUrl: url,
+      language: lang,
+    });
+  }
+
   async function requestPage(url: string): Promise<{ res?: Response; parsed?: { json?: JsonValue; text?: string }; networkError?: RestResult }> {
     let res: Response;
     try {
@@ -811,6 +933,14 @@ export async function listAliases(input: {
   let requestId = uuidv4();
   const url = `${endpoint}/aliases?api-version=${encodeURIComponent(input.apiVersion)}`;
 
+  if (getSearchApiCapabilities(input.apiVersion).cursorList) {
+    return collectCursorListPages({
+      profile: input.profile,
+      initialUrl: `${url}&pageSize=1000`,
+      language: lang,
+    });
+  }
+
   const headers: Record<string, string> = {
     'x-ms-client-request-id': requestId,
     ...makeAuthHeaders(input.profile, lang),
@@ -918,6 +1048,237 @@ export async function getAliasDefinition(input: {
   };
 }
 
+export type AgenticStreamEvent = {
+  event: string;
+  data: JsonValue;
+};
+
+export function parseAgenticSseEvent(block: string): AgenticStreamEvent | null {
+  let event = '';
+  const dataLines: string[] = [];
+
+  for (const line of block.split(/\r?\n/)) {
+    if (!line || line.startsWith(':')) continue;
+    const separator = line.indexOf(':');
+    const field = separator >= 0 ? line.slice(0, separator) : line;
+    let value = separator >= 0 ? line.slice(separator + 1) : '';
+    if (value.startsWith(' ')) value = value.slice(1);
+    if (field === 'event') event = value;
+    else if (field === 'data') dataLines.push(value);
+  }
+
+  if (!event || dataLines.length === 0) return null;
+  try {
+    return { event, data: JSON.parse(dataLines.join('\n')) as JsonValue };
+  } catch {
+    return null;
+  }
+}
+
+function getAgenticStreamErrorMessage(data: JsonValue): string | undefined {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return undefined;
+  const error = data.error;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object' && !Array.isArray(error) && typeof error.message === 'string') {
+    return error.message;
+  }
+  return typeof data.message === 'string' ? data.message : undefined;
+}
+
+export async function agenticRetrieveStream(input: {
+  profile: ConnectionProfile;
+  knowledgeBaseName: string;
+  body: JsonValue;
+  language?: Language;
+  signal?: AbortSignal;
+  onEvent?: (event: AgenticStreamEvent) => void;
+}): Promise<RestResult> {
+  const lang = getLang(input.language);
+  const endpoint = normalizeEndpoint(input.profile.endpoint);
+  const kbName = input.knowledgeBaseName.trim();
+  if (!endpoint) throw new Error(tr(lang, 'restErrorEndpointUnset'));
+  if (!kbName) throw new Error(tr(lang, 'restErrorKnowledgeBaseNameUnset'));
+
+  const clientRequestId = uuidv4();
+  const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2026-08-01-preview');
+  const url = `${endpoint}/knowledgebases/${encodeURIComponent(kbName)}/retrieve?api-version=${encodeURIComponent(apiVersion)}`;
+  const headers: Record<string, string> = {
+    accept: 'text/event-stream',
+    'content-type': 'application/json',
+    'x-ms-client-request-id': clientRequestId,
+    ...makeAuthHeaders(input.profile, lang),
+  };
+  if (isUsingDevProxy(input.profile)) headers['x-ais-idempotent'] = 'true';
+  const qsa = getQuerySourceAuthorizationHeaderValue(input.profile);
+  if (qsa) headers['x-ms-query-source-authorization'] = qsa;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(input.body ?? {}),
+      signal: input.signal,
+    });
+  } catch (error) {
+    if (input.signal?.aborted) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      status: 0,
+      requestId: clientRequestId,
+      clientRequestId,
+      url,
+      error: { message: makeNetworkErrorMessage(lang, message) },
+    };
+  }
+
+  const requestId = getServiceRequestId(response) ?? clientRequestId;
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+  if (!response.ok || !contentType.includes('text/event-stream')) {
+    const parsed = await readJsonOrText(response);
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        requestId,
+        clientRequestId,
+        url,
+        error: {
+          message: extractErrorMessage(response.status, parsed),
+          response: parsed.json,
+          responseText: parsed.text,
+        },
+      };
+    }
+    return {
+      ok: true,
+      status: response.status,
+      requestId,
+      clientRequestId,
+      url,
+      response: parsed.json ?? null,
+      responseText: parsed.text,
+    };
+  }
+
+  if (!response.body) {
+    return {
+      ok: false,
+      status: 0,
+      requestId,
+      clientRequestId,
+      url,
+      error: { message: tr(lang, 'restAgenticStreamBodyMissing') },
+    };
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+
+      let boundary = buffer.match(/\r?\n\r?\n/);
+      while (boundary?.index !== undefined) {
+        const block = buffer.slice(0, boundary.index);
+        buffer = buffer.slice(boundary.index + boundary[0].length);
+        const item = parseAgenticSseEvent(block);
+        if (item) {
+          input.onEvent?.(item);
+          if (item.event === 'response.completed') {
+            if (!item.data || typeof item.data !== 'object' || Array.isArray(item.data)) {
+              throw new Error(tr(lang, 'restAgenticStreamInvalidTerminal'));
+            }
+            const statusCode = typeof item.data.statusCode === 'number' ? item.data.statusCode : response.status;
+            if (statusCode !== 200 && statusCode !== 206) {
+              throw new Error(tr(lang, 'restAgenticStreamInvalidTerminal'));
+            }
+            return {
+              ok: true,
+              status: statusCode,
+              requestId,
+              clientRequestId,
+              url,
+              response: item.data.response ?? null,
+            };
+          }
+          if (item.event === 'error') {
+            return {
+              ok: false,
+              status: 500,
+              requestId,
+              clientRequestId,
+              url,
+              error: {
+                message: getAgenticStreamErrorMessage(item.data) ?? tr(lang, 'restAgenticStreamFailed'),
+                response: item.data,
+              },
+            };
+          }
+        }
+        boundary = buffer.match(/\r?\n\r?\n/);
+      }
+
+      if (done) break;
+    }
+
+    const finalItem = parseAgenticSseEvent(buffer);
+    if (finalItem) {
+      input.onEvent?.(finalItem);
+      if (finalItem.event === 'response.completed' && finalItem.data && typeof finalItem.data === 'object' && !Array.isArray(finalItem.data)) {
+        const statusCode = typeof finalItem.data.statusCode === 'number' ? finalItem.data.statusCode : response.status;
+        if (statusCode === 200 || statusCode === 206) {
+          return {
+            ok: true,
+            status: statusCode,
+            requestId,
+            clientRequestId,
+            url,
+            response: finalItem.data.response ?? null,
+          };
+        }
+      }
+      if (finalItem.event === 'error') {
+        return {
+          ok: false,
+          status: 500,
+          requestId,
+          clientRequestId,
+          url,
+          error: {
+            message: getAgenticStreamErrorMessage(finalItem.data) ?? tr(lang, 'restAgenticStreamFailed'),
+            response: finalItem.data,
+          },
+        };
+      }
+    }
+  } catch (error) {
+    if (input.signal?.aborted) throw error;
+    return {
+      ok: false,
+      status: 0,
+      requestId,
+      clientRequestId,
+      url,
+      error: { message: error instanceof Error ? error.message : String(error) },
+    };
+  } finally {
+    reader.releaseLock();
+  }
+
+  return {
+    ok: false,
+    status: 0,
+    requestId,
+    clientRequestId,
+    url,
+    error: { message: tr(lang, 'restAgenticStreamIncomplete') },
+  };
+}
+
 export async function agenticRetrieve(input: {
   profile: ConnectionProfile;
   knowledgeBaseName: string;
@@ -990,6 +1351,94 @@ export async function agenticRetrieve(input: {
     clientRequestId,
     url,
     response: (parsed.json ?? (parsed.text as unknown as JsonValue)) ?? null,
+    responseText: parsed.text,
+  };
+}
+
+export async function getCitationDocument(input: {
+  profile: ConnectionProfile;
+  citationUrl: string;
+  language?: Language;
+  signal?: AbortSignal;
+}): Promise<RestResult> {
+  const lang = getLang(input.language);
+  const rawEndpoint = normalizeRawEndpoint(input.profile.endpoint);
+  let endpointUrl: URL;
+  let citationUrl: URL;
+  try {
+    endpointUrl = new URL(rawEndpoint);
+    citationUrl = new URL(input.citationUrl);
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      requestId: '',
+      url: input.citationUrl,
+      error: { message: tr(lang, 'restCitationUrlInvalid') },
+    };
+  }
+
+  if (citationUrl.origin !== endpointUrl.origin) {
+    return {
+      ok: false,
+      status: 0,
+      requestId: '',
+      url: input.citationUrl,
+      error: { message: tr(lang, 'restCitationOriginMismatch') },
+    };
+  }
+
+  const clientRequestId = uuidv4();
+  const requestUrl = import.meta.env.DEV && isLikelyAzureAiSearchEndpoint(rawEndpoint)
+    ? `/api-proxy${citationUrl.pathname}${citationUrl.search}`
+    : input.citationUrl;
+  const headers: Record<string, string> = {
+    'x-ms-client-request-id': clientRequestId,
+    ...makeAuthHeaders(input.profile, lang),
+  };
+  const qsa = getQuerySourceAuthorizationHeaderValue(input.profile);
+  if (qsa) headers['x-ms-query-source-authorization'] = qsa;
+
+  let response: Response;
+  try {
+    response = await fetch(requestUrl, { method: 'GET', headers, signal: input.signal });
+  } catch (error) {
+    if (input.signal?.aborted) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      status: 0,
+      requestId: clientRequestId,
+      clientRequestId,
+      url: input.citationUrl,
+      error: { message: makeNetworkErrorMessage(lang, message) },
+    };
+  }
+
+  const requestId = getServiceRequestId(response) ?? clientRequestId;
+  const parsed = await readJsonOrText(response);
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      requestId,
+      clientRequestId,
+      url: input.citationUrl,
+      error: {
+        message: extractErrorMessage(response.status, parsed),
+        response: parsed.json,
+        responseText: parsed.text,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    requestId,
+    clientRequestId,
+    url: input.citationUrl,
+    response: parsed.json ?? null,
     responseText: parsed.text,
   };
 }
@@ -1075,7 +1524,17 @@ export async function listKnowledgeSources(input: {
 
   let requestId = uuidv4();
   const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2025-11-01-preview');
-  const url = `${endpoint}/knowledgesources?api-version=${encodeURIComponent(apiVersion)}&$select=name,kind`;
+  const collectionUrl = `${endpoint}/knowledgesources?api-version=${encodeURIComponent(apiVersion)}`;
+
+  if (getSearchApiCapabilities(apiVersion).cursorList) {
+    return collectCursorListPages({
+      profile: input.profile,
+      initialUrl: `${collectionUrl}&pageSize=1000`,
+      language: lang,
+    });
+  }
+
+  const url = `${collectionUrl}&$select=name,kind`;
 
   const headers: Record<string, string> = {
     'x-ms-client-request-id': requestId,
@@ -1323,7 +1782,17 @@ export async function listKnowledgeBases(input: {
 
   const clientRequestId = uuidv4();
   const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2025-11-01-preview');
-  const url = `${endpoint}/knowledgebases?api-version=${encodeURIComponent(apiVersion)}&$select=name`;
+  const collectionUrl = `${endpoint}/knowledgebases?api-version=${encodeURIComponent(apiVersion)}`;
+
+  if (getSearchApiCapabilities(apiVersion).cursorList) {
+    return collectCursorListPages({
+      profile: input.profile,
+      initialUrl: `${collectionUrl}&pageSize=1000`,
+      language: lang,
+    });
+  }
+
+  const url = `${collectionUrl}&$select=name`;
 
   const headers: Record<string, string> = {
     'x-ms-client-request-id': clientRequestId,
@@ -1514,6 +1983,14 @@ export async function listSynonymMaps(input: {
   let requestId = uuidv4();
   const apiVersion = resolveSearchApiVersion(input.profile.apiVersion, '2024-07-01');
   const url = `${endpoint}/synonymmaps?api-version=${encodeURIComponent(apiVersion)}`;
+
+  if (getSearchApiCapabilities(apiVersion).cursorList) {
+    return collectCursorListPages({
+      profile: input.profile,
+      initialUrl: `${url}&pageSize=1000`,
+      language: lang,
+    });
+  }
 
   const headers: Record<string, string> = {
     'x-ms-client-request-id': requestId,
@@ -1762,6 +2239,14 @@ export async function listDataSources(input: {
 
   const clientRequestId = uuidv4();
   const url = `${endpoint}/datasources?api-version=${encodeURIComponent(input.apiVersion)}`;
+
+  if (getSearchApiCapabilities(input.apiVersion).cursorList) {
+    return collectCursorListPages({
+      profile: input.profile,
+      initialUrl: `${url}&pageSize=1000`,
+      language: lang,
+    });
+  }
 
   const headers: Record<string, string> = {
     'x-ms-client-request-id': clientRequestId,
@@ -2018,6 +2503,14 @@ export async function listIndexers(input: {
 
   const clientRequestId = uuidv4();
   const url = `${endpoint}/indexers?api-version=${encodeURIComponent(input.apiVersion)}`;
+
+  if (getSearchApiCapabilities(input.apiVersion).cursorList) {
+    return collectCursorListPages({
+      profile: input.profile,
+      initialUrl: `${url}&pageSize=1000`,
+      language: lang,
+    });
+  }
 
   const headers: Record<string, string> = {
     'x-ms-client-request-id': clientRequestId,
@@ -2464,6 +2957,14 @@ export async function listSkillsets(input: {
   let requestId = uuidv4();
   const url = `${endpoint}/skillsets?api-version=${encodeURIComponent(input.apiVersion)}`;
 
+  if (getSearchApiCapabilities(input.apiVersion).cursorList) {
+    return collectCursorListPages({
+      profile: input.profile,
+      initialUrl: `${url}&pageSize=1000`,
+      language: lang,
+    });
+  }
+
   const headers: Record<string, string> = {
     'x-ms-client-request-id': requestId,
     ...makeAuthHeaders(input.profile, lang),
@@ -2705,6 +3206,7 @@ export async function createOrUpdateIndex(input: {
   indexName: string;
   apiVersion: SearchApiVersion;
   body: JsonValue;
+  allowIndexDowntime?: boolean;
   language?: Language;
   signal?: AbortSignal;
 }): Promise<RestResult> {
@@ -2715,7 +3217,8 @@ export async function createOrUpdateIndex(input: {
   if (!idxName) throw new Error(tr(lang, 'restErrorIndexNameUnset'));
 
   let requestId = uuidv4();
-  const url = `${endpoint}/indexes/${encodeURIComponent(idxName)}?api-version=${encodeURIComponent(input.apiVersion)}`;
+  const allowIndexDowntime = input.allowIndexDowntime === true ? '&allowIndexDowntime=true' : '';
+  const url = `${endpoint}/indexes/${encodeURIComponent(idxName)}?api-version=${encodeURIComponent(input.apiVersion)}${allowIndexDowntime}`;
 
   const headers: Record<string, string> = {
     'content-type': 'application/json',

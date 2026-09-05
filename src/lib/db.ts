@@ -111,7 +111,7 @@ export async function ensureSeedData(language: Language = 'en'): Promise<void> {
         profiles: {
           default: {
             endpoint: 'https://<your-service-name>.search.windows.net',
-            apiVersion: '2026-05-01-preview',
+            apiVersion: '2026-08-01-preview',
             authType: 'apiKey',
           },
         },
@@ -134,7 +134,7 @@ export async function ensureSeedData(language: Language = 'en'): Promise<void> {
       createdAt,
       updatedAt: createdAt,
       defaultContext: {
-        apiVersion: '2026-05-01-preview',
+        apiVersion: '2026-08-01-preview',
       },
     });
   }

@@ -6,8 +6,10 @@
  */
 
 import type { JsonValue } from '../lib/aiSearchRest'
+import type { SearchApiVersion } from '../lib/model'
+import { getSearchApiCapabilities } from '../lib/searchApiCapabilities'
 import { translations, type Language } from '../lib/translations'
-import type { LabMode, SearchFormState, AgenticFormState, AnalyzeFormState, AutocompleteFormState, SuggestFormState } from '../types'
+import type { LabMode, SearchFormState, AgenticFormState, AnalyzeFormState, AutocompleteFormState, SuggestFormState, KnowledgeBase } from '../types'
 
 function csvToArray(raw: string): string[] {
   return raw
@@ -171,33 +173,116 @@ export function buildSearchBodyFromForm(
   return body as JsonValue
 }
 
-export function buildAgenticBodyFromForm(s: AgenticFormState): JsonValue {
+export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: SearchApiVersion): JsonValue {
+  const capabilities = getSearchApiCapabilities(apiVersion)
+  if (s.retrievalReasoningEffort === 'auto' && !capabilities.reasoningAuto) {
+    throw new Error('retrievalReasoningEffort=auto requires API version 2026-08-01-preview.')
+  }
+
   const knowledgeSourceParams = s.knowledgeSourceParams.map((ks) => {
-    const base: Record<string, unknown> = {
-      knowledgeSourceName: ks.knowledgeSourceName,
-      kind: ks.kind || 'searchIndex',
+    const kind = ks.kind.trim()
+    if (!kind) {
+      throw new Error(`Knowledge source kind could not be resolved for '${ks.knowledgeSourceName}'. Reload the knowledge base and try again.`)
     }
-    if (ks.kind === 'searchIndex' || !ks.kind) {
-      base.includeReferences = ks.includeReferences
-      base.includeReferenceSourceData = ks.includeReferenceSourceData
-      base.alwaysQuerySource = ks.alwaysQuerySource
+    const base: Record<string, JsonValue> = {
+      knowledgeSourceName: ks.knowledgeSourceName,
+      kind,
+      includeReferences: ks.includeReferences,
+      includeReferenceSourceData: ks.includeReferenceSourceData,
+    }
+    if (typeof ks.maxOutputDocuments === 'number') {
+      if (!Number.isFinite(ks.maxOutputDocuments) || !Number.isInteger(ks.maxOutputDocuments) || ks.maxOutputDocuments < 1) {
+        throw new Error(`maxOutputDocuments must be a positive integer for '${ks.knowledgeSourceName}'.`)
+      }
+      base.maxOutputDocuments = ks.maxOutputDocuments
+    }
+    if (capabilities.alwaysQuerySource && capabilities.perSourceResultsProcessing
+      && ks.alwaysQuerySource && ks.neverQuerySource) {
+      throw new Error(`alwaysQuerySource and neverQuerySource cannot both be true for '${ks.knowledgeSourceName}'.`)
+    }
+    if (capabilities.alwaysQuerySource) base.alwaysQuerySource = ks.alwaysQuerySource
+    if (capabilities.perSourceResultsProcessing) {
+      if (ks.neverQuerySource) base.neverQuerySource = true
+      base.resultsProcessing = ks.resultsProcessing === 'none' ? 'none' : 'rerank'
+      const queryHintOverrides = kind === 'searchIndex' && typeof ks.queryHintOverrides === 'string'
+        ? ks.queryHintOverrides.trim()
+        : ''
+      if (queryHintOverrides) {
+        const parsed = JSON.parse(queryHintOverrides) as unknown
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('queryHintOverrides must be a JSON object.')
+        }
+        base.queryHintOverrides = parsed as Record<string, JsonValue>
+      }
     }
     return base
   })
 
-  return {
-    messages: [
-      {
-        role: 'user',
-        content: [{ type: 'text', text: s.userMessage }],
-      },
-    ],
+  const body: Record<string, JsonValue> = {
     includeActivity: s.includeActivity,
-    outputMode: s.outputMode,
     maxRuntimeInSeconds: s.maxRuntimeInSeconds,
-    maxOutputSize: s.maxOutputSize,
-    retrievalReasoningEffort: { kind: s.retrievalReasoningEffort },
-    knowledgeSourceParams: knowledgeSourceParams.length > 0 ? knowledgeSourceParams : undefined,
+  }
+  if (knowledgeSourceParams.length > 0) body.knowledgeSourceParams = knowledgeSourceParams
+
+  if (!capabilities.agenticResponseSynthesis || s.retrievalReasoningEffort === 'minimal') {
+    body.intents = [{ type: 'semantic', search: s.userMessage }]
+  } else {
+    body.messages = [{
+      role: 'user',
+      content: [{ type: 'text', text: s.userMessage }],
+    }]
+  }
+
+  if (!capabilities.agenticResponseSynthesis) {
+    body.maxOutputSizeInTokens = s.maxOutputSize
+    return body
+  }
+
+  body.outputMode = s.outputMode
+  body.maxOutputSize = s.maxOutputSize
+  body.retrievalReasoningEffort = { kind: s.retrievalReasoningEffort }
+  return body
+}
+
+export function buildKnowledgeBaseBodyForApiVersion(
+  s: Partial<KnowledgeBase>,
+  apiVersion?: SearchApiVersion,
+): JsonValue {
+  const capabilities = getSearchApiCapabilities(apiVersion)
+  const base: Record<string, JsonValue> = {
+    name: s.name || '',
+    description: s.description || null,
+    knowledgeSources: s.knowledgeSources || [],
+    models: s.models || [],
+    encryptionKey: s.encryptionKey ?? null,
+  }
+
+  if (!capabilities.agenticResponseSynthesis) return base
+
+  const retrieveDefaults = capabilities.retrieveDefaults && s.retrieveDefaults
+    ? {
+        ...(typeof s.retrieveDefaults.maxRuntimeInSeconds === 'number'
+          ? { maxRuntimeInSeconds: s.retrieveDefaults.maxRuntimeInSeconds }
+          : {}),
+        ...(typeof s.retrieveDefaults.maxOutputDocuments === 'number'
+          ? { maxOutputDocuments: s.retrieveDefaults.maxOutputDocuments }
+          : {}),
+        ...(typeof s.retrieveDefaults.maxOutputSizeInTokens === 'number'
+          ? { maxOutputSizeInTokens: s.retrieveDefaults.maxOutputSizeInTokens }
+          : {}),
+      }
+    : undefined
+  const retrievalReasoningEffort = s.retrievalReasoningEffort?.kind === 'auto' && !capabilities.reasoningAuto
+    ? { kind: 'low' }
+    : s.retrievalReasoningEffort || { kind: 'low' }
+
+  return {
+    ...base,
+    retrievalInstructions: s.retrievalInstructions || null,
+    answerInstructions: s.answerInstructions || null,
+    outputMode: s.outputMode || 'answerSynthesis',
+    retrievalReasoningEffort,
+    ...(retrieveDefaults && Object.keys(retrieveDefaults).length > 0 ? { retrieveDefaults } : {}),
   } as JsonValue
 }
 

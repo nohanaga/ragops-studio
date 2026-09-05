@@ -156,6 +156,12 @@ export function useRunRestore(params: {
               includeReferenceSourceData:
                 typeof ks.includeReferenceSourceData === 'boolean' ? ks.includeReferenceSourceData : true,
               alwaysQuerySource: typeof ks.alwaysQuerySource === 'boolean' ? ks.alwaysQuerySource : false,
+              neverQuerySource: typeof ks.neverQuerySource === 'boolean' ? ks.neverQuerySource : false,
+              resultsProcessing: ks.resultsProcessing === 'none' ? 'none' as const : 'rerank' as const,
+              maxOutputDocuments: typeof ks.maxOutputDocuments === 'number' ? ks.maxOutputDocuments : '' as const,
+              queryHintOverrides: isJsonObject(ks.queryHintOverrides)
+                ? JSON.stringify(ks.queryHintOverrides, null, 2)
+                : '',
             }))
             .filter((ks) => ks.knowledgeSourceName.trim().length > 0)
 
@@ -168,9 +174,11 @@ export function useRunRestore(params: {
             retrievalReasoningEffort:
               retrievalReasoningEffort === 'low' ||
               retrievalReasoningEffort === 'medium' ||
-              retrievalReasoningEffort === 'minimal'
+              retrievalReasoningEffort === 'minimal' ||
+              retrievalReasoningEffort === 'auto'
                 ? retrievalReasoningEffort
                 : 'low',
+            streamResponse: false,
             knowledgeSourceParams,
           })
         }

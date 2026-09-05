@@ -5,17 +5,62 @@
  * execution against Azure AI Search, and UI state updates.
  */
 
-import { useState } from 'react'
-import type { ConnectionProfile, Run } from '../lib/model'
-import type { CenterTab, LabMode, LatestResponse, SearchFormState, UiLogEntry } from '../types'
+import { useRef, useState } from 'react'
+import type { ConnectionProfile, Run, SearchApiVersion } from '../lib/model'
+import type { AgenticFormState, CenterTab, LabMode, LatestResponse, SearchFormState, UiLogEntry } from '../types'
 import { translations, type Language } from '../lib/translations'
 import type { JsonValue } from '../lib/aiSearchRest'
 import { addArtifact, createRun, updateRun } from '../lib/db'
-import { agenticRetrieve, analyzeIndex, autocompleteDocuments, resolveSearchApiVersion, searchDocuments, suggestDocuments } from '../lib/aiSearchRest'
+import { agenticRetrieve, agenticRetrieveStream, analyzeIndex, autocompleteDocuments, resolveSearchApiVersion, searchDocuments, suggestDocuments } from '../lib/aiSearchRest'
+import type { AgenticStreamEvent } from '../lib/aiSearchRest'
 import { buildSearchBodyFromForm } from '../utils/appRequestBodies'
 import { inferRunType, parseJsonStrict, validateRequest } from '../utils'
+import { getSearchApiCapabilities } from '../lib/searchApiCapabilities'
 
 type TranslationKey = keyof typeof translations.ja
+
+type AgenticStreamSnapshot = {
+  response: JsonValue[]
+  activity: JsonValue[]
+  references: JsonValue[]
+}
+
+function isJsonObject(value: JsonValue): value is Record<string, JsonValue> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+export function shouldUseAgenticStreaming(apiVersion: SearchApiVersion, requested: boolean): boolean {
+  return requested && getSearchApiCapabilities(apiVersion).agenticStreaming
+}
+
+function applyAgenticStreamEvent(snapshot: AgenticStreamSnapshot, item: AgenticStreamEvent): AgenticStreamSnapshot {
+  if (item.event === 'references.completed' && Array.isArray(item.data)) {
+    return { ...snapshot, references: item.data }
+  }
+
+  if ((item.event === 'activity.started' || item.event === 'activity.completed') && isJsonObject(item.data)) {
+    const eventData = item.data
+    const index = snapshot.activity.findIndex((activity) => (
+      isJsonObject(activity) && activity.id === eventData.id
+    ))
+    const activity = index >= 0 && isJsonObject(snapshot.activity[index])
+      ? { ...snapshot.activity[index], ...eventData }
+      : eventData
+    const activities = [...snapshot.activity]
+    if (index >= 0) activities[index] = activity
+    else activities.push(activity)
+    return { ...snapshot, activity: activities }
+  }
+
+  if (item.event === 'answer.completed' && isJsonObject(item.data) && isJsonObject(item.data.message)) {
+    const messageIndex = typeof item.data.messageIndex === 'number' ? item.data.messageIndex : snapshot.response.length
+    const messages = [...snapshot.response]
+    messages[messageIndex] = item.data.message
+    return { ...snapshot, response: messages }
+  }
+
+  return snapshot
+}
 
 export function useApiOperations(args: {
   labMode: LabMode
@@ -25,6 +70,7 @@ export function useApiOperations(args: {
   selectedExperimentId: string | null
   requestJson: string
   searchForm: SearchFormState
+  agenticForm: AgenticFormState
   runNote: string
   language: Language
   t: (key: TranslationKey) => string
@@ -45,6 +91,7 @@ export function useApiOperations(args: {
     selectedExperimentId,
     requestJson,
     searchForm,
+    agenticForm,
     runNote,
     language,
     t,
@@ -59,6 +106,12 @@ export function useApiOperations(args: {
   } = args
 
   const [isExecuting, setIsExecuting] = useState(false)
+  const [isStreamingResponse, setIsStreamingResponse] = useState(false)
+  const executeAbortRef = useRef<AbortController | null>(null)
+
+  function onCancelExecute() {
+    executeAbortRef.current?.abort()
+  }
 
   function setErrorWithLog(title: string, detail: string) {
     setUiError(title)
@@ -74,6 +127,7 @@ export function useApiOperations(args: {
 
   async function onExecute() {
     // Reset UI-level transient state for a fresh execution.
+    setIsStreamingResponse(false)
     setUiError(null)
     setUiLog(null)
     setLatestResponse(null)
@@ -100,10 +154,26 @@ export function useApiOperations(args: {
     }
 
     const startedAt = new Date().toISOString()
-
+    let createdRun: Run | null = null
+    let requestBytes = 0
+    let streamSnapshot: AgenticStreamSnapshot = { response: [], activity: [], references: [] }
+    let streamEventCount = 0
+    let streamRequestId = ''
+    const runningActivityIds = new Set<string>()
     const ctxApiVersion = labMode === 'agentic'
       ? resolveSearchApiVersion(activeProfile.apiVersion, '2025-11-01-preview')
       : activeProfile.apiVersion
+    const useAgenticStreaming = labMode === 'agentic'
+      && shouldUseAgenticStreaming(ctxApiVersion, agenticForm.streamResponse)
+    const executeAbortController = useAgenticStreaming
+      ? new AbortController()
+      : null
+    executeAbortRef.current = executeAbortController
+    if (executeAbortController) {
+      setIsStreamingResponse(true)
+      setCenterTab('latest')
+    }
+
     const context: Run['context'] = {
       endpoint: activeProfile.endpoint,
       apiVersion: ctxApiVersion,
@@ -127,22 +197,61 @@ export function useApiOperations(args: {
         metrics: {},
         note: runNote.trim() || undefined,
       })
+      createdRun = run
 
       // Persist the exact request JSON as an artifact.
       const requestPretty = JSON.stringify(body ?? {}, null, 2)
       const bytesIn = new TextEncoder().encode(requestPretty).byteLength
+      requestBytes = bytesIn
       await addArtifact({ runId: run.runId, type: 'request_json', content: requestPretty })
 
       // Execute the REST request and measure client-side latency.
       const t0 = performance.now()
       const result =
         labMode === 'agentic'
-          ? await agenticRetrieve({
-              profile: activeProfile,
-              knowledgeBaseName,
-              body,
-              language,
-            })
+          ? useAgenticStreaming
+            ? await agenticRetrieveStream({
+                profile: activeProfile,
+                knowledgeBaseName,
+                body,
+                language,
+                signal: executeAbortController?.signal,
+                onEvent: (item) => {
+                  streamSnapshot = applyAgenticStreamEvent(streamSnapshot, item)
+                  streamEventCount += 1
+                  const eventData = isJsonObject(item.data) ? item.data : null
+                  if (typeof eventData?.requestId === 'string') streamRequestId = eventData.requestId
+                  if ((typeof eventData?.id === 'string' || typeof eventData?.id === 'number')) {
+                    const activityId = String(eventData.id)
+                    if (item.event === 'activity.started') runningActivityIds.add(activityId)
+                    if (item.event === 'activity.completed') runningActivityIds.delete(activityId)
+                  }
+                  const livePayload: LatestResponse = {
+                    at: new Date().toISOString(),
+                    requestId: streamRequestId,
+                    url: '',
+                    status: 200,
+                    body: { ...streamSnapshot },
+                    requestBody: body,
+                    runId: run.runId,
+                    runType,
+                    latencyMs: Math.round(performance.now() - t0),
+                    streamState: {
+                      eventCount: streamEventCount,
+                      lastEvent: item.event,
+                      runningActivityIds: [...runningActivityIds],
+                    },
+                  }
+                  setLatestResponse(livePayload)
+                  setCenterTab('latest')
+                },
+              })
+            : await agenticRetrieve({
+                profile: activeProfile,
+                knowledgeBaseName,
+                body,
+                language,
+              })
           : labMode === 'analyze'
           ? await analyzeIndex({
               profile: activeProfile,
@@ -174,6 +283,7 @@ export function useApiOperations(args: {
               body,
               language,
             })
+            setIsStreamingResponse(false)
       const latencyMs = Math.round(performance.now() - t0)
       const endedAt = new Date().toISOString()
 
@@ -200,6 +310,23 @@ export function useApiOperations(args: {
           result.status === 0
             ? t('networkError')
             : `${t('apiError')}: HTTP ${result.status}`
+
+        if (useAgenticStreaming) {
+          setLatestResponse({
+            at: endedAt,
+            requestId: result.requestId || streamRequestId,
+            clientRequestId: result.clientRequestId,
+            url: result.url,
+            status: result.status,
+            body: { ...streamSnapshot },
+            requestBody: body,
+            runId: run.runId,
+            runType,
+            latencyMs,
+            elapsedTimeMs: result.elapsedTimeMs,
+          })
+          setCenterTab('latest')
+        }
 
         const detail = [
           `title: ${title}`,
@@ -285,6 +412,39 @@ export function useApiOperations(args: {
 
       await reloadRuns(selectedExperimentId)
     } catch (e) {
+      if (executeAbortController?.signal.aborted && createdRun) {
+        const endedAt = new Date().toISOString()
+        const responsePretty = JSON.stringify(streamSnapshot, null, 2)
+        await addArtifact({ runId: createdRun.runId, type: 'response_json', content: responsePretty })
+        await updateRun(createdRun.runId, {
+          status: 'canceled',
+          endedAt,
+          metrics: {
+            bytesIn: requestBytes,
+            bytesOut: new TextEncoder().encode(responsePretty).byteLength,
+          },
+        })
+        setLatestResponse({
+          at: endedAt,
+          requestId: streamRequestId,
+          url: '',
+          status: 0,
+          body: { ...streamSnapshot },
+          requestBody: body,
+          runId: createdRun.runId,
+          runType: createdRun.runType,
+        })
+        setCenterTab('latest')
+        setUiLog({
+          level: 'info',
+          message: t('requestCanceled'),
+          timestamp: endedAt,
+          at: endedAt,
+          title: t('requestCanceled'),
+        })
+        await reloadRuns(selectedExperimentId)
+        return
+      }
       const msg = e instanceof Error ? e.message : String(e)
       const detail = [
         'Unexpected exception while executing request',
@@ -298,11 +458,14 @@ export function useApiOperations(args: {
       ].join('\n')
       setErrorWithLog(msg, detail)
     } finally {
+      executeAbortRef.current = null
+      setIsStreamingResponse(false)
       setIsExecuting(false)
     }
   }
 
   async function onExecuteAllModes() {
+    setIsStreamingResponse(false)
     setUiError(null)
     setUiLog(null)
     setLatestResponse(null)
@@ -552,7 +715,9 @@ export function useApiOperations(args: {
 
   return {
     isExecuting,
+    isStreamingResponse,
     onExecute,
     onExecuteAllModes,
+    onCancelExecute,
   }
 }

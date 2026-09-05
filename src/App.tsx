@@ -645,7 +645,7 @@ function App() {
     return null
   }, [centerTab, latestResponse])
 
-  const { isExecuting, onExecute, onExecuteAllModes } = useApiOperations({
+  const { isExecuting, isStreamingResponse, onExecute, onExecuteAllModes, onCancelExecute } = useApiOperations({
     labMode,
     activeProfile,
     indexName,
@@ -653,6 +653,7 @@ function App() {
     selectedExperimentId,
     requestJson,
     searchForm,
+    agenticForm,
     runNote,
     language,
     t,
@@ -768,6 +769,7 @@ function App() {
     suggestForm,
     language,
     isPreviewApiVersion,
+    effectiveApiVersion,
     requestJson,
     setRequestJson,
     setUiError,
@@ -839,6 +841,7 @@ function App() {
     latestResponse,
     setLatestResponse,
     setRunResultMap,
+    isStreamingResponse,
   })
 
   /** Pastes the generated vector into the classic request builder's vector field. */
@@ -1002,6 +1005,7 @@ function App() {
       isExecuting={isExecuting}
       onExecute={onExecute}
       onExecuteAllModes={onExecuteAllModes}
+      onCancelExecute={onCancelExecute}
       onClearAll={onClearAll}
       buildRequestBuilderActiveSummary={buildRequestBuilderActiveSummary}
       activeResultView={activeResultView}

@@ -68,6 +68,7 @@ export function useResultViewRenderer(params: {
   latestResponse: LatestResponse | null
   setLatestResponse: Dispatch<SetStateAction<LatestResponse | null>>
   setRunResultMap: Dispatch<SetStateAction<Record<string, { run: Run; response: LatestResponse | null }>>>
+  isStreamingResponse: boolean
 }) {
   const {
     t,
@@ -84,6 +85,7 @@ export function useResultViewRenderer(params: {
     latestResponse,
     setLatestResponse,
     setRunResultMap,
+    isStreamingResponse,
   } = params
 
   const onDocumentActionApplied = useCallback(
@@ -150,11 +152,12 @@ export function useResultViewRenderer(params: {
           documentActionIndexName={view.indexName ?? indexName}
           documentActionApiVersion={(view.apiVersion as SearchApiVersion | undefined) ?? apiVersion}
           documentActionKeyFieldName={requestBuilderKeyFieldName}
+          isStreamingResponse={view.id === 'latest' && isStreamingResponse}
           onDocumentActionApplied={(change) => onDocumentActionApplied({ ...change, viewId: view.id, runId: view.runId })}
         />
       )
     },
-    [activeProfile, apiVersion, compareMode, indexName, language, latestResponse, onDocumentActionApplied, requestBuilderKeyFieldName, resultPages, setCompareMode, setResultPages, settings, t],
+    [activeProfile, apiVersion, compareMode, indexName, isStreamingResponse, language, latestResponse, onDocumentActionApplied, requestBuilderKeyFieldName, resultPages, setCompareMode, setResultPages, settings, t],
   )
 
   return { renderResultView }
