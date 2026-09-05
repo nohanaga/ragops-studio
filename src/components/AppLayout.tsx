@@ -39,6 +39,7 @@ const SearchParameterAutoTuning = lazy(() => import('./builders/SearchParameterA
 const SearchPipelineVisualizer = lazy(() => import('./viewers/SearchPipelineVisualizer').then(m => ({ default: m.SearchPipelineVisualizer })))
 const IndexVisualizer = lazy(() => import('./viewers/IndexVisualizer').then(m => ({ default: m.IndexVisualizer })))
 import { extractQueryString } from '../utils'
+import { AgenticComparisonTable } from './viewers/AgenticComparisonTable'
 import { QueryPerformanceTester } from './viewers/QueryPerformanceTester'
 import { useTheme, useSettings, useModalState, useUiState, useBuilderState, useExperiment } from '../contexts'
 import { useGuide } from '../contexts/GuideContext'
@@ -436,6 +437,11 @@ export function AppLayout(props: {
   } = indexInspector
 
   const [isLlmSettingsOpen, setIsLlmSettingsOpen] = useState(false)
+  const [isAgenticTableCompareOpen, setIsAgenticTableCompareOpen] = useState(false)
+  const agenticComparisonViewCount = useMemo(
+    () => resultViews.filter((view) => view.runType === 'agentic_retrieve' && view.response).length,
+    [resultViews],
+  )
 
   const { launchCompanion } = useGuide()
 
@@ -1393,17 +1399,42 @@ export function AppLayout(props: {
             centerTab !== 'index-visualizer' &&
             centerTab !== 'eval-dataset-generator' && (
               <div className="pane__centerContent">
-                <div className="resultGrid" style={{ gridTemplateColumns: `repeat(${resultViews.length}, minmax(0, 1fr))` }}>
-                  {resultViews.map((view) => (
-                    <div
-                      key={view.id}
-                      className={'resultCard' + (centerTab === view.id ? ' resultCard--active' : '')}
-                      onClick={() => setCenterTab(view.id)}
-                    >
-                      {renderResultView(view)}
+                {isAgenticTableCompareOpen ? (
+                  <AgenticComparisonTable
+                    views={resultViews}
+                    language={language}
+                    onClose={() => setIsAgenticTableCompareOpen(false)}
+                    onSelectView={(viewId) => setCenterTab(viewId)}
+                  />
+                ) : (
+                  <>
+                    <div className="resultComparisonToolbar">
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => setIsAgenticTableCompareOpen(true)}
+                        disabled={agenticComparisonViewCount < 2}
+                        title={language === 'ja'
+                          ? 'Agentic Retrieval の結果を 2 件以上選択すると表で比較できます。'
+                          : 'Select at least two Agentic Retrieval results to compare in a table.'}
+                      >
+                        <i className="bi bi-table icon--mr6" aria-hidden="true" />
+                        {language === 'ja' ? '表で比較' : 'Compare as table'}
+                      </button>
                     </div>
-                  ))}
-                </div>
+                    <div className="resultGrid" style={{ gridTemplateColumns: `repeat(${resultViews.length}, minmax(0, 1fr))` }}>
+                      {resultViews.map((view) => (
+                        <div
+                          key={view.id}
+                          className={'resultCard' + (centerTab === view.id ? ' resultCard--active' : '')}
+                          onClick={() => setCenterTab(view.id)}
+                        >
+                          {renderResultView(view)}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             )}
         </main>
