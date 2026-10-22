@@ -9705,6 +9705,29 @@ html:is([data-theme='dark'], [data-theme='midnight'], [data-theme='forest']) .re
   overflow-wrap: anywhere;
 }
 
+.actGraph__textBlock {
+  margin-bottom: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.actGraph__textLabel {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.actGraph__textBody {
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .actGraph__inspector.actGraph__inspector--inline {
   max-height: none;
   overflow: visible;

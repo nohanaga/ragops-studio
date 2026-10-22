@@ -85,9 +85,25 @@ export type ActivityGraphNode = {
   raw: JsonValue
   item?: ActivityItem
   parameters?: JsonValue
+  textBlocks?: { label?: string; text: string }[]
 }
 export type ActivityGraphEdge = { id: string; source: string; target: string; uncertain: boolean }
 export type ActivityGraph = { nodes: ActivityGraphNode[]; edges: ActivityGraphEdge[] }
+
+function messageTextBlocks(messages: JsonValue | undefined): NonNullable<ActivityGraphNode['textBlocks']> {
+  if (!Array.isArray(messages)) return []
+  return messages.filter(isActivityObject).flatMap((message) => {
+    const label = typeof message.role === 'string' ? message.role : undefined
+    const content = typeof message.content === 'string'
+      ? [message.content]
+      : Array.isArray(message.content)
+        ? message.content.flatMap((part) => (
+          isActivityObject(part) && part.type === 'text' && typeof part.text === 'string' ? [part.text] : []
+        ))
+        : []
+    return content.filter((text) => text.trim().length > 0).map((text) => ({ label, text }))
+  })
+}
 
 export function buildActivityGraph({
   items, response, streaming = false, t,
@@ -115,6 +131,14 @@ export function buildActivityGraph({
     id: 'request', kind: 'request', title: t('actGraphRequest'),
     subtitle: request ? ['messages', 'intents'].filter((key) => Array.isArray(request[key])).join(' / ') || t('actGraphRequested') : t('actGraphUnknown'),
     status: request ? 'completed' : 'unknown', raw: request,
+    textBlocks: [
+      ...messageTextBlocks(request?.messages),
+      ...(Array.isArray(request?.intents) ? request.intents.filter(isActivityObject).flatMap((intent) => (
+        typeof intent.search === 'string' && intent.search.trim().length > 0
+          ? [{ label: typeof intent.type === 'string' ? `intents · ${intent.type}` : 'intents', text: intent.search }]
+          : []
+      )) : []),
+    ],
   })]
   if (request) {
     const options = Object.fromEntries(Object.entries(request).filter(([key]) => !['messages', 'intents', 'knowledgeSourceParams'].includes(key)))
@@ -188,6 +212,7 @@ export function buildActivityGraph({
     id: 'result', kind: 'result', title: t('actGraphResult'),
     subtitle: typeof request?.outputMode === 'string' ? request.outputMode : t('actGraphUnknown'),
     status: outcome, raw: body?.error ?? body?.response ?? null,
+    textBlocks: messageTextBlocks(body?.response),
   })
   connect([merge], result)
   const delivery = add({

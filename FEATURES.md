@@ -53,7 +53,7 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
   - **Trace**: Inspect query planning, source searches, reasoning, and answer synthesis as round-based activity cards
   - **Graph**: Visualize actions, source branches, references, and final output as connected nodes, with pan and zoom
   - **Timeline**: View execution durations and overlapping activity on a shared time axis using recorded start and completion timestamps
-  - **Activity details**: Inspect queries, models, token usage, hit counts, generated filters/boosts, references, and raw JSON
+  - **Activity details**: Read request and final result text; inspect queries, models, token usage, hit counts, generated filters/boosts, references, and raw JSON
   - **Execution status**: Track running, completed, failed, and incomplete activity, including streaming responses
 - **API version**: Automatically uses `2025-11-01-preview`
 

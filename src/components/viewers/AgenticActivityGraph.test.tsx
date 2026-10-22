@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import type { ReactNode } from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { translations } from '../../lib/translations'
 import { AgenticActivityTimeline } from './AgenticActivityTimeline'
@@ -137,5 +137,18 @@ describe('AgenticActivityGraph integration', () => {
     const subtitle = screen.getByText('query only').closest('.actGraph__nodeSubtitle')!
     expect(subtitle.querySelector('.bi-database')).toBeNull()
     expect(subtitle.querySelectorAll('.actGraph__subtitleRow')).toHaveLength(1)
+  })
+
+  it('shows result text by default and request text when the request node is selected', () => {
+    render(<AgenticActivityTimeline activity={activity} t={t} language="ja" response={{
+      at: undefined, requestId: '', url: '', status: 200, runType: 'agentic_retrieve',
+      requestBody: { messages: [{ role: 'user', content: [{ type: 'text', text: '検索する内容' }] }] },
+      body: { response: [{ role: 'assistant', content: [{ type: 'text', text: '最終的な回答本文' }] }], references: [] },
+    }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'グラフ' }))
+    expect(within(screen.getByRole('region', { name: '最終結果のテキスト' })).getByText('最終的な回答本文')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^検索要求:/ }))
+    expect(within(screen.getByRole('region', { name: '検索要求のテキスト' })).getByText('検索する内容')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '最終結果のテキスト' })).not.toBeInTheDocument()
   })
 })

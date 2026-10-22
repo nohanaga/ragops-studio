@@ -32,6 +32,17 @@ export function AgenticActivityDetails({ nodes, selectedId, onSelect, t, languag
         <>
           {!inline && <h4>{selected.title}</h4>}
           <div className={`actGraph__state actGraph__state--${selected.status}`}>{t(activityStatusKeys[selected.status])}</div>
+          {(selected.kind === 'request' || selected.kind === 'result') && (
+            <section className="actGraph__textSection" aria-label={t(selected.kind === 'request' ? 'actGraphRequestText' : 'actGraphResultText')}>
+              <h5>{t(selected.kind === 'request' ? 'actGraphRequestText' : 'actGraphResultText')}</h5>
+              {selected.textBlocks && selected.textBlocks.length > 0 ? selected.textBlocks.map((block, index) => (
+                <div className="actGraph__textBlock" key={index}>
+                  {block.label && <div className="actGraph__textLabel">{block.label}</div>}
+                  <div className="actGraph__textBody">{block.text}</div>
+                </div>
+              )) : <div className="notice notice--info">{t('actGraphNoText')}</div>}
+            </section>
+          )}
           {selected.item && renderActivity(selected.item)}
           {isActivityObject(selected.item?.raw.queryHintProcessing) && (
             <div className="actGraph__parameters">
