@@ -126,7 +126,7 @@ export function buildActivityGraph({
   const body = isActivityObject(response?.body) ? response.body : null
   const sourceParams = Array.isArray(request?.knowledgeSourceParams) ? request.knowledgeSourceParams.filter(isActivityObject) : []
   const running = new Set(response?.streamState?.runningActivityIds)
-  const failed = Boolean(body?.error) || (response !== undefined && response.status >= 400)
+  const failed = response?.runStatus === 'error' || Boolean(body?.error) || (response !== undefined && response.status >= 400)
   const incomplete = response?.runStatus === 'canceled' || response?.status === 0 || (!streaming && response?.responseFormat === 'sse' && response.streamState?.lastEvent !== 'response.completed')
   const outcome: ActivityGraphStatus = streaming ? 'running' : failed ? 'error' : incomplete ? 'incomplete' : response?.status === 206 ? 'warning' : response ? 'completed' : 'unknown'
   const add = (node: ActivityGraphNode) => { nodes.push(node); return node.id }
