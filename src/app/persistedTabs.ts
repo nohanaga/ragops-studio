@@ -29,6 +29,11 @@ export function normalizeCenterTab(raw: unknown, ids: string[]): CenterTab {
   
   // Direct valid tabs
   if (value === 'builder' || value === 'latest' || value === 'portal') return value
+  if (value === 'activity:latest') return 'latest'
+  if (value.startsWith('activity:run:')) {
+    const runId = value.slice('activity:run:'.length)
+    return ids.includes(runId) ? `run:${runId}` : ids.length > 0 ? `run:${ids[0]}` : 'builder'
+  }
   
   // Tool tabs are valid active tabs and should survive browser refreshes.
   if (

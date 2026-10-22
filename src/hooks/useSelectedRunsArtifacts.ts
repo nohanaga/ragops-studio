@@ -4,6 +4,7 @@ import { getRun, listArtifactsByRun } from '../lib/db'
 import type { Run } from '../lib/model'
 import type { LatestResponse } from '../types'
 import { safeJsonParse } from '../utils'
+import { restoreRunResponse } from '../app/restoreRunResponse'
 
 export function useSelectedRunsArtifacts(params: {
   selectedRunIds: string[]
@@ -73,19 +74,7 @@ export function useSelectedRunsArtifacts(params: {
 
           nextMap[runId] = {
             run,
-            response: {
-              at: run.startedAt,
-              runId: run.runId,
-              requestId: run.metrics.serviceRequestId ?? '',
-              clientRequestId: run.metrics.clientRequestId,
-              url: '',
-              status: run.metrics.httpStatus ?? 200,
-              body: responseBody,
-              requestBody,
-              runType: run.runType,
-              latencyMs: run.metrics.latencyMs,
-              elapsedTimeMs: run.metrics.elapsedTimeMs,
-            },
+            response: restoreRunResponse(run, requestBody, responseBody),
           }
         } catch (e) {
           console.error('Failed to load run artifacts', e)

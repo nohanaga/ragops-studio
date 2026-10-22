@@ -6,7 +6,7 @@
  */
 
 import { useRef, useState } from 'react'
-import type { ConnectionProfile, Run, SearchApiVersion } from '../lib/model'
+import type { ConnectionProfile, Run, RunResponseMetadata, SearchApiVersion } from '../lib/model'
 import type { AgenticFormState, CenterTab, LabMode, LatestResponse, SearchFormState, UiLogEntry } from '../types'
 import { translations, type Language } from '../lib/translations'
 import type { JsonValue } from '../lib/aiSearchRest'
@@ -158,6 +158,7 @@ export function useApiOperations(args: {
     let requestBytes = 0
     let streamSnapshot: AgenticStreamSnapshot = { response: [], activity: [], references: [] }
     let streamEventCount = 0
+    let streamLastEvent = ''
     let streamRequestId = ''
     const runningActivityIds = new Set<string>()
     const ctxApiVersion = labMode === 'agentic'
@@ -219,6 +220,7 @@ export function useApiOperations(args: {
                 onEvent: (item) => {
                   streamSnapshot = applyAgenticStreamEvent(streamSnapshot, item)
                   streamEventCount += 1
+                  streamLastEvent = item.event
                   const eventData = isJsonObject(item.data) ? item.data : null
                   if (typeof eventData?.requestId === 'string') streamRequestId = eventData.requestId
                   if ((typeof eventData?.id === 'string' || typeof eventData?.id === 'number')) {
@@ -236,6 +238,7 @@ export function useApiOperations(args: {
                     runId: run.runId,
                     runType,
                     latencyMs: Math.round(performance.now() - t0),
+                    responseFormat: 'sse',
                     streamState: {
                       eventCount: streamEventCount,
                       lastEvent: item.event,
@@ -286,6 +289,14 @@ export function useApiOperations(args: {
             setIsStreamingResponse(false)
       const latencyMs = Math.round(performance.now() - t0)
       const endedAt = new Date().toISOString()
+      const responseMetadata: RunResponseMetadata | undefined = labMode === 'agentic'
+        ? {
+            responseFormat: useAgenticStreaming ? 'sse' : 'json',
+            streamState: useAgenticStreaming
+              ? { eventCount: streamEventCount, lastEvent: streamLastEvent, runningActivityIds: [...runningActivityIds] }
+              : undefined,
+          }
+        : undefined
 
       if (!result.ok) {
         // Failure path: persist response artifact, update Run metrics/status, show a detailed UI log.
@@ -295,6 +306,7 @@ export function useApiOperations(args: {
         await updateRun(run.runId, {
           status: 'error',
           endedAt,
+          responseMetadata,
           metrics: {
             latencyMs,
             elapsedTimeMs: result.elapsedTimeMs,
@@ -311,19 +323,23 @@ export function useApiOperations(args: {
             ? t('networkError')
             : `${t('apiError')}: HTTP ${result.status}`
 
-        if (useAgenticStreaming) {
+        if (labMode === 'agentic') {
           setLatestResponse({
             at: endedAt,
             requestId: result.requestId || streamRequestId,
             clientRequestId: result.clientRequestId,
             url: result.url,
             status: result.status,
-            body: { ...streamSnapshot },
+            body: useAgenticStreaming
+              ? { ...streamSnapshot, error: result.error.response ?? { message: result.error.message } }
+              : result.error.response ?? { error: { message: result.error.message } },
             requestBody: body,
             runId: run.runId,
             runType,
+            runStatus: 'error',
             latencyMs,
             elapsedTimeMs: result.elapsedTimeMs,
+            ...responseMetadata,
           })
           setCenterTab('latest')
         }
@@ -358,8 +374,10 @@ export function useApiOperations(args: {
           requestBody: body,
           runId: run.runId,
           runType,
+          runStatus: 'success',
           latencyMs,
           elapsedTimeMs: result.elapsedTimeMs,
+          ...responseMetadata,
         }
 
         setLatestResponse(latestPayload)
@@ -393,6 +411,7 @@ export function useApiOperations(args: {
         await updateRun(run.runId, {
           status: 'success',
           endedAt,
+          responseMetadata,
           metrics: {
             latencyMs,
             elapsedTimeMs: result.elapsedTimeMs,
@@ -415,11 +434,18 @@ export function useApiOperations(args: {
       if (executeAbortController?.signal.aborted && createdRun) {
         const endedAt = new Date().toISOString()
         const responsePretty = JSON.stringify(streamSnapshot, null, 2)
+        const responseMetadata: RunResponseMetadata = {
+          responseFormat: 'sse',
+          streamState: { eventCount: streamEventCount, lastEvent: streamLastEvent, runningActivityIds: [...runningActivityIds] },
+        }
         await addArtifact({ runId: createdRun.runId, type: 'response_json', content: responsePretty })
         await updateRun(createdRun.runId, {
           status: 'canceled',
           endedAt,
+          responseMetadata,
           metrics: {
+            httpStatus: 0,
+            serviceRequestId: streamRequestId,
             bytesIn: requestBytes,
             bytesOut: new TextEncoder().encode(responsePretty).byteLength,
           },
@@ -433,6 +459,8 @@ export function useApiOperations(args: {
           requestBody: body,
           runId: createdRun.runId,
           runType: createdRun.runType,
+          runStatus: 'canceled',
+          ...responseMetadata,
         })
         setCenterTab('latest')
         setUiLog({

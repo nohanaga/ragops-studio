@@ -52,4 +52,21 @@ describe('AgenticActivityTimeline', () => {
     expect(screen.getAllByText('120')).toHaveLength(2)
     expect(screen.getAllByText('40')).toHaveLength(2)
   })
+
+  it('keeps unfinished legacy canceled actions incomplete while completed actions remain completed', () => {
+    render(<AgenticActivityTimeline
+      activity={[
+        { type: 'modelQueryPlanning', id: 1, completedAt: '2026-10-22T00:00:00.100Z' },
+        { type: 'searchIndex', id: 2, startedAt: '2026-10-22T00:00:00.100Z' },
+      ]}
+      response={{
+        at: undefined, requestId: '', url: '', status: 0, runType: 'agentic_retrieve', runStatus: 'canceled',
+        body: {}, requestBody: {},
+      }}
+      streaming={false}
+      t={(key) => translations.ja[key]}
+    />)
+    expect(screen.getByText('modelQueryPlanning').closest('.actTimeline__step')).toHaveTextContent('完了')
+    expect(screen.getByText('searchIndex').closest('.actTimeline__step')).toHaveTextContent('未完了')
+  })
 })

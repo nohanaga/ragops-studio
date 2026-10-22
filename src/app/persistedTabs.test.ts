@@ -23,6 +23,13 @@ describe('app/persistedTabs', () => {
     expect(normalizeCenterTab('run:missing', [])).toBe('builder')
   })
 
+  it('migrates old Activity Flow main tabs back to their Results source', () => {
+    expect(normalizeCenterTab('activity:latest', [])).toBe('latest')
+    expect(normalizeCenterTab('activity:run:a', ['a'])).toBe('run:a')
+    expect(normalizeCenterTab('activity:run:missing', ['a'])).toBe('run:a')
+    expect(normalizeCenterTab('activity:run:missing', [])).toBe('builder')
+  })
+
   it('loadPersistedTabs restores stored tool centerTab', () => {
     localStorage.setItem(
       'tabs:exp1',

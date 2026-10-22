@@ -134,6 +134,8 @@ const LazyDetails = memo(function LazyDetails(props: { className?: string; summa
 
 type ResultViewPanelProps = {
   view: ResultView
+  displayMode?: 'results' | 'activity'
+  onDisplayModeChange?: (mode: 'results' | 'activity') => void
   currentPage: number
   onPageChange: (page: number) => void
   t: (key: TranslationKey) => string
@@ -274,6 +276,8 @@ function getTypeaheadTitle(mode: LabMode, item: JsonValue): string {
 
 export function ResultViewPanel({
   view,
+  displayMode = 'results',
+  onDisplayModeChange,
   currentPage,
   onPageChange,
   t,
@@ -523,6 +527,17 @@ export function ResultViewPanel({
     </span>
   ) : null
 
+  const viewHeading = view.runType === 'agentic_retrieve' && onDisplayModeChange ? (
+    <div className="actTimeline__viewToggle" role="group" aria-label={t('actCardView')}>
+      <button type="button" className="btn btn--tab" aria-pressed={displayMode === 'results'} onClick={() => onDisplayModeChange('results')}>
+        {view.label}
+      </button>
+      <button type="button" className="btn btn--tab" aria-pressed={displayMode === 'activity'} onClick={() => onDisplayModeChange('activity')}>
+        <i className="bi bi-activity" aria-hidden="true" /> {t('actTimelineTitle')}
+      </button>
+    </div>
+  ) : <span>{view.label}</span>
+
   if (!latestResponse) {
     return (
       <div className="section resultViewPanel">
@@ -530,7 +545,7 @@ export function ResultViewPanel({
           className="section__title resultViewPanel__header"
         >
           <div className="resultViewPanel__headerLeft">
-            <span>{view.label}</span>
+            {viewHeading}
             {streamBadge}
           </div>
           <label className="resultViewPanel__compareLabel">
@@ -547,6 +562,29 @@ export function ResultViewPanel({
     )
   }
 
+  if (displayMode === 'activity') {
+    const { activity } = extractAgenticResponse(latestResponse.body)
+    return (
+      <div className="section resultViewPanel">
+        <div className="section__title resultViewPanel__header">
+          <div className="resultViewPanel__headerLeft">
+            {viewHeading}
+            {streamBadge}
+          </div>
+        </div>
+        {renderStreamStatus()}
+        <AgenticActivityTimeline
+          activity={activity ?? []}
+          t={t}
+          runningActivityIds={latestResponse.streamState?.runningActivityIds}
+          response={latestResponse}
+          streaming={isStreamingResponse}
+          language={language}
+        />
+      </div>
+    )
+  }
+
   const requestBody = latestResponse.requestBody
   const requestObj = isJsonObject(requestBody) ? requestBody : null
   const searchText = typeof requestObj?.search === 'string' ? requestObj.search : ''
@@ -557,7 +595,7 @@ export function ResultViewPanel({
         className="section__title resultViewPanel__header"
       >
         <div className="resultViewPanel__headerLeft">
-          <span>{view.label}</span>
+          {viewHeading}
           <span className={`run__type run__type--${view.runType}`}>{view.runType}</span>
           {streamBadge}
         </div>
@@ -703,7 +741,7 @@ export function ResultViewPanel({
         {labMode === 'agentic' && (
           <>
             {(() => {
-              const { response, references, activity, extractedChunks, groundingJsonText } = extractAgenticResponse(latestResponse.body)
+              const { response, references, extractedChunks, groundingJsonText } = extractAgenticResponse(latestResponse.body)
               
               // Check if there's actual answer text (not just grounding data)
               const hasActualAnswer = response && response.some((msg) => {
@@ -981,16 +1019,6 @@ export function ResultViewPanel({
                     </div>
                   )}
                   
-                  {/* Activity Array (hierarchical timeline) */}
-                  {activity && activity.length > 0 && (
-                    <div className="section">
-                      <AgenticActivityTimeline
-                        activity={activity}
-                        t={t}
-                        runningActivityIds={latestResponse.streamState?.runningActivityIds}
-                      />
-                    </div>
-                  )}
                 </>
               )
             })()}

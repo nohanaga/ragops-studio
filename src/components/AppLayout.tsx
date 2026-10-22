@@ -196,7 +196,7 @@ export function AppLayout(props: {
   jsonViewerFacets: Record<string, unknown[]> | null
 
   resultViews: ResultView[]
-  renderResultView: (view: ResultView) => ReactElement
+  renderResultView: (view: ResultView, displayMode?: 'results' | 'activity', onDisplayModeChange?: (mode: 'results' | 'activity') => void) => ReactElement
   closeRunTab: (runId: string) => void
 
   // Tool tabs state
@@ -438,6 +438,11 @@ export function AppLayout(props: {
 
   const [isLlmSettingsOpen, setIsLlmSettingsOpen] = useState(false)
   const [isSearchTableCompareOpen, setIsSearchTableCompareOpen] = useState(false)
+  const [resultCardViews, setResultCardViews] = useState<Partial<Record<ResultView['id'], 'results' | 'activity'>>>({})
+  const isActivityFlowActive = activeResultView.runType === 'agentic_retrieve' && resultCardViews[activeResultView.id] === 'activity'
+  function setResultCardView(viewId: ResultView['id'], mode: 'results' | 'activity') {
+    setResultCardViews((previous) => ({ ...previous, [viewId]: mode }))
+  }
   const searchComparisonViewCount = useMemo(
     () => resultViews.filter((view) => isTableComparableRunType(view.runType) && view.response).length,
     [resultViews],
@@ -1415,6 +1420,17 @@ export function AppLayout(props: {
                 ) : (
                   <>
                     <div className="resultComparisonToolbar">
+                      {activeResultView.runType === 'agentic_retrieve' && (
+                        <button
+                          type="button"
+                          className="btn"
+                          aria-pressed={isActivityFlowActive}
+                          onClick={() => setResultCardView(activeResultView.id, isActivityFlowActive ? 'results' : 'activity')}
+                        >
+                          <i className="bi bi-activity icon--mr6" aria-hidden="true" />
+                          {t('actTimelineTitle')}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn"
@@ -1435,7 +1451,11 @@ export function AppLayout(props: {
                           className={'resultCard' + (centerTab === view.id ? ' resultCard--active' : '')}
                           onClick={() => setCenterTab(view.id)}
                         >
-                          {renderResultView(view)}
+                          {renderResultView(
+                            view,
+                            view.runType === 'agentic_retrieve' ? resultCardViews[view.id] ?? 'results' : 'results',
+                            (mode) => setResultCardView(view.id, mode),
+                          )}
                         </div>
                       ))}
                     </div>
