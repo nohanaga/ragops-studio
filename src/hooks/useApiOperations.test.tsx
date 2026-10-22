@@ -70,6 +70,9 @@ describe('hooks/useApiOperations', () => {
     }
     if (failed) expect(latest?.body).toMatchObject({ error: expect.any(Object) })
     else expect(latest?.body).toMatchObject({ activity: [{ startedAt: activity.startedAt, completedAt: completedActivity.completedAt }] })
+    const { getRun } = await import('../lib/db')
+    const saved = latest?.runId ? await getRun(latest.runId) : undefined
+    expect(saved?.responseMetadata).toEqual({ responseFormat: latest?.responseFormat, streamState: latest?.streamState })
   })
 
   it('onExecute succeeds and sets LatestResponse (searchDocuments)', async () => {

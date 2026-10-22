@@ -121,6 +121,15 @@ export interface RunMetrics {
   bytesOut?: number;
 }
 
+export interface RunResponseMetadata {
+  responseFormat?: 'json' | 'sse';
+  streamState?: {
+    eventCount: number;
+    lastEvent: string;
+    runningActivityIds: string[];
+  };
+}
+
 export interface Run {
   runId: string;
   experimentId: string;
@@ -131,6 +140,7 @@ export interface Run {
   context: RunContext;
   params: unknown;
   metrics: RunMetrics;
+  responseMetadata?: RunResponseMetadata;
   artifactIds: string[];
   note?: string;
 }

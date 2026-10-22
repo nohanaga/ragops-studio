@@ -1,7 +1,7 @@
 import type { JsonValue } from './aiSearchRest'
 import type { LatestResponse } from '../types'
 import type { TranslationKey } from './translations'
-import { buildActivityTiming } from './agenticActivityTiming'
+import { buildActivityTiming, parseActivityTimestamps } from './agenticActivityTiming'
 
 export type ActivityTranslator = (key: TranslationKey) => string
 
@@ -90,6 +90,13 @@ export type ActivityGraphNode = {
 export type ActivityGraphEdge = { id: string; source: string; target: string; uncertain: boolean }
 export type ActivityGraph = { nodes: ActivityGraphNode[]; edges: ActivityGraphEdge[] }
 
+export function isUnfinishedCanceledActivity(item: ActivityItem, response: LatestResponse | undefined): boolean {
+  if (response?.runStatus !== 'canceled') return false
+  if (response.streamState) return response.streamState.runningActivityIds.includes(String(item.id))
+  const timestamps = parseActivityTimestamps(item)
+  return timestamps.invalidTimes || timestamps.endMs === null
+}
+
 function messageTextBlocks(messages: JsonValue | undefined): NonNullable<ActivityGraphNode['textBlocks']> {
   if (!Array.isArray(messages)) return []
   return messages.filter(isActivityObject).flatMap((message) => {
@@ -120,7 +127,7 @@ export function buildActivityGraph({
   const sourceParams = Array.isArray(request?.knowledgeSourceParams) ? request.knowledgeSourceParams.filter(isActivityObject) : []
   const running = new Set(response?.streamState?.runningActivityIds)
   const failed = Boolean(body?.error) || (response !== undefined && response.status >= 400)
-  const incomplete = response?.status === 0 || (!streaming && response?.responseFormat === 'sse' && response.streamState?.lastEvent !== 'response.completed')
+  const incomplete = response?.runStatus === 'canceled' || response?.status === 0 || (!streaming && response?.responseFormat === 'sse' && response.streamState?.lastEvent !== 'response.completed')
   const outcome: ActivityGraphStatus = streaming ? 'running' : failed ? 'error' : incomplete ? 'incomplete' : response?.status === 206 ? 'warning' : response ? 'completed' : 'unknown'
   const add = (node: ActivityGraphNode) => { nodes.push(node); return node.id }
   const connect = (sources: string[], target: string, uncertain = false) => {
@@ -164,7 +171,7 @@ export function buildActivityGraph({
     const id = add({
       id: `activity-${index}`, kind: 'activity', title: item.type || t('actGraphUnknown'),
       subtitle: [item.knowledgeSourceName, item.search].filter(Boolean).join(' · '),
-      status: item.raw.error ? 'error' : item.raw.warning ? 'warning' : running.has(String(item.id)) ? streaming ? 'running' : 'incomplete' : outcome === 'unknown' ? 'unknown' : 'completed',
+      status: item.raw.error ? 'error' : item.raw.warning ? 'warning' : isUnfinishedCanceledActivity(item, response) ? 'incomplete' : running.has(String(item.id)) ? streaming ? 'running' : 'incomplete' : outcome === 'unknown' ? 'unknown' : 'completed',
       raw: item.raw, item, parameters,
     })
     return id

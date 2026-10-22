@@ -5,7 +5,7 @@
  * components, persistence, and REST execution.
  */
 
-import type { Run, RunType } from '../lib/model'
+import type { Run, RunResponseMetadata, RunType } from '../lib/model'
 import type { JsonValue } from '../lib/aiSearchRest'
 
 export type LabMode = 'query' | 'semantic-vector' | 'agentic' | 'analyze' | 'autocomplete' | 'suggest'
@@ -257,12 +257,9 @@ export type LatestResponse = {
   body: JsonValue
   requestBody: JsonValue
   runType: Run['runType']
+  runStatus?: Run['status']
   latencyMs?: number
   elapsedTimeMs?: number
-  responseFormat?: 'json' | 'sse'
-  streamState?: {
-    eventCount: number
-    lastEvent: string
-    runningActivityIds: string[]
-  }
+  responseFormat?: RunResponseMetadata['responseFormat']
+  streamState?: RunResponseMetadata['streamState']
 }

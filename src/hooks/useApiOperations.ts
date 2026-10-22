@@ -6,7 +6,7 @@
  */
 
 import { useRef, useState } from 'react'
-import type { ConnectionProfile, Run, SearchApiVersion } from '../lib/model'
+import type { ConnectionProfile, Run, RunResponseMetadata, SearchApiVersion } from '../lib/model'
 import type { AgenticFormState, CenterTab, LabMode, LatestResponse, SearchFormState, UiLogEntry } from '../types'
 import { translations, type Language } from '../lib/translations'
 import type { JsonValue } from '../lib/aiSearchRest'
@@ -289,6 +289,14 @@ export function useApiOperations(args: {
             setIsStreamingResponse(false)
       const latencyMs = Math.round(performance.now() - t0)
       const endedAt = new Date().toISOString()
+      const responseMetadata: RunResponseMetadata | undefined = labMode === 'agentic'
+        ? {
+            responseFormat: useAgenticStreaming ? 'sse' : 'json',
+            streamState: useAgenticStreaming
+              ? { eventCount: streamEventCount, lastEvent: streamLastEvent, runningActivityIds: [...runningActivityIds] }
+              : undefined,
+          }
+        : undefined
 
       if (!result.ok) {
         // Failure path: persist response artifact, update Run metrics/status, show a detailed UI log.
@@ -298,6 +306,7 @@ export function useApiOperations(args: {
         await updateRun(run.runId, {
           status: 'error',
           endedAt,
+          responseMetadata,
           metrics: {
             latencyMs,
             elapsedTimeMs: result.elapsedTimeMs,
@@ -327,12 +336,10 @@ export function useApiOperations(args: {
             requestBody: body,
             runId: run.runId,
             runType,
+            runStatus: 'error',
             latencyMs,
             elapsedTimeMs: result.elapsedTimeMs,
-            responseFormat: useAgenticStreaming ? 'sse' : 'json',
-            streamState: useAgenticStreaming
-              ? { eventCount: streamEventCount, lastEvent: streamLastEvent, runningActivityIds: [...runningActivityIds] }
-              : undefined,
+            ...responseMetadata,
           })
           setCenterTab('latest')
         }
@@ -367,12 +374,10 @@ export function useApiOperations(args: {
           requestBody: body,
           runId: run.runId,
           runType,
+          runStatus: 'success',
           latencyMs,
           elapsedTimeMs: result.elapsedTimeMs,
-          responseFormat: labMode === 'agentic' ? useAgenticStreaming ? 'sse' : 'json' : undefined,
-          streamState: useAgenticStreaming
-            ? { eventCount: streamEventCount, lastEvent: streamLastEvent, runningActivityIds: [...runningActivityIds] }
-            : undefined,
+          ...responseMetadata,
         }
 
         setLatestResponse(latestPayload)
@@ -406,6 +411,7 @@ export function useApiOperations(args: {
         await updateRun(run.runId, {
           status: 'success',
           endedAt,
+          responseMetadata,
           metrics: {
             latencyMs,
             elapsedTimeMs: result.elapsedTimeMs,
@@ -428,11 +434,18 @@ export function useApiOperations(args: {
       if (executeAbortController?.signal.aborted && createdRun) {
         const endedAt = new Date().toISOString()
         const responsePretty = JSON.stringify(streamSnapshot, null, 2)
+        const responseMetadata: RunResponseMetadata = {
+          responseFormat: 'sse',
+          streamState: { eventCount: streamEventCount, lastEvent: streamLastEvent, runningActivityIds: [...runningActivityIds] },
+        }
         await addArtifact({ runId: createdRun.runId, type: 'response_json', content: responsePretty })
         await updateRun(createdRun.runId, {
           status: 'canceled',
           endedAt,
+          responseMetadata,
           metrics: {
+            httpStatus: 0,
+            serviceRequestId: streamRequestId,
             bytesIn: requestBytes,
             bytesOut: new TextEncoder().encode(responsePretty).byteLength,
           },
@@ -446,8 +459,8 @@ export function useApiOperations(args: {
           requestBody: body,
           runId: createdRun.runId,
           runType: createdRun.runType,
-          responseFormat: 'sse',
-          streamState: { eventCount: streamEventCount, lastEvent: streamLastEvent, runningActivityIds: [...runningActivityIds] },
+          runStatus: 'canceled',
+          ...responseMetadata,
         })
         setCenterTab('latest')
         setUiLog({

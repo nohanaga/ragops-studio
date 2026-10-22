@@ -3,6 +3,7 @@ import { getRun, listArtifactsByRun } from '../lib/db'
 import type { LatestResponse } from '../types'
 import { safeJsonParse } from '../utils'
 import { loadLastViewedRunId } from '../app/persistedLatestRun'
+import { restoreRunResponse } from '../app/restoreRunResponse'
 
 /**
  * Restores the `latest` tab content after a page refresh.
@@ -42,19 +43,7 @@ export function useLatestResponseRestore(params: {
         const requestBody = safeJsonParse(requestArtifact?.content ?? '{}')
         const responseBody = safeJsonParse(responseArtifact?.content ?? '{}')
 
-        const restoredResponse: LatestResponse = {
-          at: run.startedAt,
-          runId: run.runId,
-          requestId: run.metrics.serviceRequestId ?? '',
-          clientRequestId: run.metrics.clientRequestId,
-          url: '',
-          status: run.metrics.httpStatus ?? 200,
-          body: responseBody,
-          requestBody,
-          runType: run.runType,
-          latencyMs: run.metrics.latencyMs,
-          elapsedTimeMs: run.metrics.elapsedTimeMs,
-        }
+        const restoredResponse = restoreRunResponse(run, requestBody, responseBody)
 
         if (abortController.signal.aborted) return
 

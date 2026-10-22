@@ -15,7 +15,7 @@ import { JsonViewer } from './JsonViewer'
 import { JSON_VIEWER_MAX_STRING_LENGTH } from '../../app/constants'
 import type { Language } from '../../lib/translations'
 import type { LatestResponse } from '../../types'
-import { parseActivity, typeCategory, type ActivityItem } from '../../lib/agenticActivityGraph'
+import { isUnfinishedCanceledActivity, parseActivity, typeCategory, type ActivityItem } from '../../lib/agenticActivityGraph'
 import { AgenticActivityGraph } from './AgenticActivityGraph'
 import { AgenticActivityTrace } from './AgenticActivityTrace'
 
@@ -225,8 +225,8 @@ export function AgenticActivityTimeline({ activity, t, runningActivityIds, respo
   const items = activity.map(parseActivity).filter((x): x is ActivityItem => x !== null)
   const runningActivityIdSet = new Set(runningActivityIds)
   const getStatus = (item: ActivityItem): StepStatus | undefined => (
-    item.raw.error ? 'error' : runningActivityIds === undefined
-      ? undefined
+    item.raw.error ? 'error' : isUnfinishedCanceledActivity(item, response) ? 'incomplete' : runningActivityIds === undefined
+      ? response?.runStatus === 'canceled' ? 'completed' : undefined
       : runningActivityIdSet.has(String(item.id)) ? streaming === false ? 'incomplete' : 'running' : 'completed'
   )
 

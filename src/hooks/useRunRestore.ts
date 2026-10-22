@@ -6,6 +6,7 @@ import type { AgenticFormState, AnalyzeFormState, AutocompleteFormState, CenterT
 import { isJsonObject, type JsonObject } from '../app/json'
 import type { TranslationKey } from '../lib/translations'
 import { DEFAULT_AUTOCOMPLETE_FORM, DEFAULT_SUGGEST_FORM } from '../app/defaults'
+import { restoreRunResponse } from '../app/restoreRunResponse'
 
 type TFunction = (key: TranslationKey) => string
 
@@ -577,19 +578,7 @@ export function useRunRestore(params: {
       }
 
       // Restore latest response
-      const restoredResponse: LatestResponse = {
-        at: run.startedAt,
-        runId: run.runId,
-        requestId: run.metrics.serviceRequestId ?? '',
-        clientRequestId: run.metrics.clientRequestId,
-        url: '', // URL is not stored in run
-        status: run.metrics.httpStatus ?? 200,
-        body: responseBody ?? {},
-        requestBody: requestBody,
-        runType: run.runType,
-        latencyMs: run.metrics.latencyMs,
-        elapsedTimeMs: run.metrics.elapsedTimeMs,
-      }
+      const restoredResponse = restoreRunResponse(run, requestBody, responseBody ?? {})
 
       // Set response and result map FIRST, then switch tab
       // This ensures latestResponse is set before centerTab changes to 'latest'
