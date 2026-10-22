@@ -121,7 +121,7 @@ export function useResultViewRenderer(params: {
   )
 
   const renderResultView = useCallback(
-    (view: ResultView) => {
+    (view: ResultView, displayMode: 'results' | 'activity' = 'results', onDisplayModeChange?: (mode: 'results' | 'activity') => void) => {
       const currentPage = resultPages[view.id] ?? 1
       const setCurrentPage = (page: number) =>
         setResultPages((prev) => ({
@@ -140,6 +140,8 @@ export function useResultViewRenderer(params: {
       return (
         <ResultViewPanel
           view={view}
+          displayMode={displayMode}
+          onDisplayModeChange={onDisplayModeChange}
           currentPage={currentPage}
           onPageChange={setCurrentPage}
           t={t}

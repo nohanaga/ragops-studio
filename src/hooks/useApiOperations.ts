@@ -158,6 +158,7 @@ export function useApiOperations(args: {
     let requestBytes = 0
     let streamSnapshot: AgenticStreamSnapshot = { response: [], activity: [], references: [] }
     let streamEventCount = 0
+    let streamLastEvent = ''
     let streamRequestId = ''
     const runningActivityIds = new Set<string>()
     const ctxApiVersion = labMode === 'agentic'
@@ -219,6 +220,7 @@ export function useApiOperations(args: {
                 onEvent: (item) => {
                   streamSnapshot = applyAgenticStreamEvent(streamSnapshot, item)
                   streamEventCount += 1
+                  streamLastEvent = item.event
                   const eventData = isJsonObject(item.data) ? item.data : null
                   if (typeof eventData?.requestId === 'string') streamRequestId = eventData.requestId
                   if ((typeof eventData?.id === 'string' || typeof eventData?.id === 'number')) {
@@ -236,6 +238,7 @@ export function useApiOperations(args: {
                     runId: run.runId,
                     runType,
                     latencyMs: Math.round(performance.now() - t0),
+                    responseFormat: 'sse',
                     streamState: {
                       eventCount: streamEventCount,
                       lastEvent: item.event,
@@ -311,19 +314,25 @@ export function useApiOperations(args: {
             ? t('networkError')
             : `${t('apiError')}: HTTP ${result.status}`
 
-        if (useAgenticStreaming) {
+        if (labMode === 'agentic') {
           setLatestResponse({
             at: endedAt,
             requestId: result.requestId || streamRequestId,
             clientRequestId: result.clientRequestId,
             url: result.url,
             status: result.status,
-            body: { ...streamSnapshot },
+            body: useAgenticStreaming
+              ? { ...streamSnapshot, error: result.error.response ?? { message: result.error.message } }
+              : result.error.response ?? { error: { message: result.error.message } },
             requestBody: body,
             runId: run.runId,
             runType,
             latencyMs,
             elapsedTimeMs: result.elapsedTimeMs,
+            responseFormat: useAgenticStreaming ? 'sse' : 'json',
+            streamState: useAgenticStreaming
+              ? { eventCount: streamEventCount, lastEvent: streamLastEvent, runningActivityIds: [...runningActivityIds] }
+              : undefined,
           })
           setCenterTab('latest')
         }
@@ -360,6 +369,10 @@ export function useApiOperations(args: {
           runType,
           latencyMs,
           elapsedTimeMs: result.elapsedTimeMs,
+          responseFormat: labMode === 'agentic' ? useAgenticStreaming ? 'sse' : 'json' : undefined,
+          streamState: useAgenticStreaming
+            ? { eventCount: streamEventCount, lastEvent: streamLastEvent, runningActivityIds: [...runningActivityIds] }
+            : undefined,
         }
 
         setLatestResponse(latestPayload)
@@ -433,6 +446,8 @@ export function useApiOperations(args: {
           requestBody: body,
           runId: createdRun.runId,
           runType: createdRun.runType,
+          responseFormat: 'sse',
+          streamState: { eventCount: streamEventCount, lastEvent: streamLastEvent, runningActivityIds: [...runningActivityIds] },
         })
         setCenterTab('latest')
         setUiLog({

@@ -13,56 +13,22 @@ import type { TranslationKey } from '../../lib/translations'
 import type { JsonValue } from '../../lib/aiSearchRest'
 import { JsonViewer } from './JsonViewer'
 import { JSON_VIEWER_MAX_STRING_LENGTH } from '../../app/constants'
+import type { Language } from '../../lib/translations'
+import type { LatestResponse } from '../../types'
+import { parseActivity, typeCategory, type ActivityItem } from '../../lib/agenticActivityGraph'
+import { AgenticActivityGraph } from './AgenticActivityGraph'
+import { AgenticActivityTrace } from './AgenticActivityTrace'
 
 type TFunction = (key: TranslationKey) => string
+type StepStatus = 'running' | 'completed' | 'error' | 'incomplete'
+const stepStatusLabels: Record<StepStatus, TranslationKey> = {
+  running: 'agenticActivityRunning',
+  completed: 'agenticActivityCompleted',
+  error: 'actGraphError',
+  incomplete: 'actGraphIncomplete',
+}
 
 /* ── helpers ────────────────────────────────────────────────── */
-
-function isJsonObject(value: unknown): value is Record<string, JsonValue> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-type ActivityType =
-  | 'modelQueryPlanning'
-  | 'searchIndex'
-  | 'web'
-  | 'indexedSharePoint'
-  | 'azureBlob'
-  | 'modelWebSummarization'
-  | 'agenticReasoning'
-  | 'modelAnswerSynthesis'
-  | string
-
-interface ActivityItem {
-  type: ActivityType
-  id: number | string
-  raw: Record<string, JsonValue>
-
-  /* optional fields pulled for display */
-  elapsedMs?: number
-  inputTokens?: number
-  outputTokens?: number
-  reasoningTokens?: number
-  count?: number
-  knowledgeSourceName?: string
-  search?: string
-  logicalReasoningEffort?: string
-  retrievalReasoningEffort?: string
-  queryTime?: string
-  modelName?: string
-  deploymentId?: string
-}
-
-/** Classify a type string into a visual category. */
-function typeCategory(type: string): 'planning' | 'source' | 'reasoning' | 'synthesis' | 'unknown' {
-  if (type === 'modelQueryPlanning') return 'planning'
-  if (type === 'agenticReasoning') return 'reasoning'
-  if (type === 'modelAnswerSynthesis') return 'synthesis'
-  if (['searchIndex', 'web', 'indexedSharePoint', 'azureBlob', 'modelWebSummarization'].includes(type)) return 'source'
-  // Treat unknown knowledge-source types as source
-  if (type !== 'modelQueryPlanning' && type !== 'agenticReasoning' && type !== 'modelAnswerSynthesis') return 'source'
-  return 'unknown'
-}
 
 type Round = {
   planning: ActivityItem | null
@@ -102,42 +68,6 @@ function buildRounds(items: ActivityItem[]): {
   }
 
   return { rounds, reasoning, synthesis }
-}
-
-function parseActivity(raw: JsonValue): ActivityItem | null {
-  if (!isJsonObject(raw)) return null
-  const type = typeof raw.type === 'string' ? raw.type : ''
-  const id = typeof raw.id === 'number' ? raw.id : typeof raw.id === 'string' ? raw.id : 0
-
-  const elapsedMs = typeof raw.elapsedMs === 'number' ? raw.elapsedMs : undefined
-  const inputTokens = typeof raw.inputTokens === 'number' ? raw.inputTokens : undefined
-  const outputTokens = typeof raw.outputTokens === 'number' ? raw.outputTokens : undefined
-  const reasoningTokens = typeof raw.reasoningTokens === 'number' ? raw.reasoningTokens : undefined
-  const count = typeof raw.count === 'number' ? raw.count : undefined
-  const knowledgeSourceName = typeof raw.knowledgeSourceName === 'string' ? raw.knowledgeSourceName : undefined
-
-  const retrievalReasoningEffortObj = isJsonObject(raw.retrievalReasoningEffort) ? raw.retrievalReasoningEffort : null
-  const retrievalReasoningEffort = typeof retrievalReasoningEffortObj?.kind === 'string' ? retrievalReasoningEffortObj.kind : undefined
-  const logicalReasoningEffortObj = isJsonObject(raw.logicalReasoningEffort) ? raw.logicalReasoningEffort : null
-  const logicalReasoningEffort = typeof logicalReasoningEffortObj?.kind === 'string' ? logicalReasoningEffortObj.kind : undefined
-
-  // Extract search string from various argument objects
-  let search: string | undefined
-  for (const argKey of ['searchIndexArguments', 'webArguments', 'indexedSharePointArguments', 'azureBlobArguments']) {
-    const args = isJsonObject(raw[argKey]) ? raw[argKey] : null
-    if (args && typeof args.search === 'string') { search = args.search; break }
-  }
-
-  const queryTime = typeof raw.queryTime === 'string' ? raw.queryTime : undefined
-  const model = isJsonObject(raw.model) ? raw.model : null
-  const modelName = typeof model?.modelName === 'string'
-    ? model.modelName
-    : typeof raw.modelName === 'string' ? raw.modelName : undefined
-  const deploymentId = typeof model?.deploymentId === 'string'
-    ? model.deploymentId
-    : typeof raw.deploymentId === 'string' ? raw.deploymentId : undefined
-
-  return { type, id, raw: raw as Record<string, JsonValue>, elapsedMs, inputTokens, outputTokens, reasoningTokens, count, knowledgeSourceName, search, logicalReasoningEffort, retrievalReasoningEffort, queryTime, modelName, deploymentId }
 }
 
 /* ── badge colours ──────────────────────────────────────────── */
@@ -181,11 +111,12 @@ function MetricPill({ label, value, unit }: { label: string; value: number | str
 
 /* ── Step card ──────────────────────────────────────────────── */
 
-function StepCard({ item, t, indent, status }: {
+function StepCard({ item, t, indent, status, timestampMetrics = false }: {
   item: ActivityItem
   t: TFunction
   indent?: boolean
-  status?: 'running' | 'completed'
+  status?: StepStatus
+  timestampMetrics?: boolean
 }) {
   const [rawOpen, setRawOpen] = useState(false)
 
@@ -196,14 +127,16 @@ function StepCard({ item, t, indent, status }: {
         <span className="actTimeline__stepId">id: {item.id}</span>
         {status && (
           <span className={`actTimeline__status actTimeline__status--${status}`}>
-            <i className={`bi ${status === 'running' ? 'bi-arrow-repeat spin' : 'bi-check-circle-fill'}`} aria-hidden="true"></i>
-            {status === 'running' ? t('agenticActivityRunning') : t('agenticActivityCompleted')}
+            <i className={`bi ${status === 'running' ? 'bi-arrow-repeat spin' : status === 'completed' ? 'bi-check-circle-fill' : 'bi-exclamation-circle'}`} aria-hidden="true"></i>
+            {t(stepStatusLabels[status])}
           </span>
         )}
       </div>
 
       <div className="actTimeline__metrics">
-        {item.elapsedMs !== undefined && <MetricPill label={t('actTimelineElapsed')} value={item.elapsedMs} unit="ms" />}
+        {!timestampMetrics && item.elapsedMs !== undefined && <MetricPill label={t('actTimelineElapsed')} value={item.elapsedMs} unit="ms" />}
+        {timestampMetrics && item.startedAt && <MetricPill label={t('actTraceStartedAt')} value={item.startedAt} />}
+        {timestampMetrics && item.completedAt && <MetricPill label={t('actTraceCompletedAt')} value={item.completedAt} />}
         {item.inputTokens !== undefined && <MetricPill label={t('actTimelineInputTokens')} value={item.inputTokens} />}
         {item.outputTokens !== undefined && <MetricPill label={t('actTimelineOutputTokens')} value={item.outputTokens} />}
         {item.reasoningTokens !== undefined && <MetricPill label={t('actTimelineReasoningTokens')} value={item.reasoningTokens} />}
@@ -254,7 +187,7 @@ function StepCard({ item, t, indent, status }: {
 function ParallelLane({ sources, t, getStatus }: {
   sources: ActivityItem[]
   t: TFunction
-  getStatus: (item: ActivityItem) => 'running' | 'completed' | undefined
+  getStatus: (item: ActivityItem) => StepStatus | undefined
 }) {
   if (sources.length === 0) return null
   const isMultiple = sources.length > 1
@@ -282,18 +215,22 @@ export interface AgenticActivityTimelineProps {
   activity: JsonValue[]
   t: TFunction
   runningActivityIds?: string[]
+  response?: LatestResponse
+  streaming?: boolean
+  language?: Language
 }
 
-export function AgenticActivityTimeline({ activity, t, runningActivityIds }: AgenticActivityTimelineProps) {
+export function AgenticActivityTimeline({ activity, t, runningActivityIds, response, streaming, language = 'en' }: AgenticActivityTimelineProps) {
+  const [view, setView] = useState<'timeline' | 'graph' | 'trace'>('timeline')
   const items = activity.map(parseActivity).filter((x): x is ActivityItem => x !== null)
   const runningActivityIdSet = new Set(runningActivityIds)
-  const getStatus = (item: ActivityItem): 'running' | 'completed' | undefined => (
-    runningActivityIds === undefined
+  const getStatus = (item: ActivityItem): StepStatus | undefined => (
+    item.raw.error ? 'error' : runningActivityIds === undefined
       ? undefined
-      : runningActivityIdSet.has(String(item.id)) ? 'running' : 'completed'
+      : runningActivityIdSet.has(String(item.id)) ? streaming === false ? 'incomplete' : 'running' : 'completed'
   )
 
-  if (items.length === 0) return null
+  if (items.length === 0 && !response) return null
 
   const { rounds, reasoning, synthesis } = buildRounds(items)
 
@@ -311,9 +248,20 @@ export function AgenticActivityTimeline({ activity, t, runningActivityIds }: Age
           <i className="bi bi-activity" style={{ marginRight: 4 }} />
           {t('actTimelineTitle')}
         </span>
+        <div className="actTimeline__viewToggle" role="group" aria-label={t('actGraphViewMode')}>
+          <button type="button" className={`btn btn--tab${view === 'timeline' ? ' is-active' : ''}`} aria-pressed={view === 'timeline'} onClick={() => setView('timeline')}>
+            <i className="bi bi-list-ul" aria-hidden="true" /> {t('actGraphTimeline')}
+          </button>
+          <button type="button" className={`btn btn--tab${view === 'graph' ? ' is-active' : ''}`} aria-pressed={view === 'graph'} onClick={() => setView('graph')}>
+            <i className="bi bi-diagram-3" aria-hidden="true" /> {t('actGraphView')}
+          </button>
+          <button type="button" className={`btn btn--tab${view === 'trace' ? ' is-active' : ''}`} aria-pressed={view === 'trace'} onClick={() => setView('trace')}>
+            <i className="bi bi-activity" aria-hidden="true" /> {t('actTraceView')}
+          </button>
+        </div>
         <div className="actTimeline__summaryMetrics">
           <MetricPill label={t('actTimelineSteps')} value={items.length} />
-          {totalElapsed > 0 && <MetricPill label={t('actTimelineTotalElapsed')} value={totalElapsed} unit="ms" />}
+          {view !== 'trace' && totalElapsed > 0 && <MetricPill label={t('actTimelineTotalElapsed')} value={totalElapsed} unit="ms" />}
           {totalInputTokens > 0 && <MetricPill label={t('actTimelineInputTokens')} value={totalInputTokens} />}
           {totalOutputTokens > 0 && <MetricPill label={t('actTimelineOutputTokens')} value={totalOutputTokens} />}
           {totalReasoningTokens > 0 && <MetricPill label={t('actTimelineReasoningTokens')} value={totalReasoningTokens} />}
@@ -321,7 +269,26 @@ export function AgenticActivityTimeline({ activity, t, runningActivityIds }: Age
       </div>
 
       {/* Timeline */}
-      <div className="actTimeline__flow">
+      {view === 'graph' ? (
+        <AgenticActivityGraph
+          items={items}
+          response={response}
+          streaming={streaming}
+          t={t}
+          language={language}
+          renderActivity={(item) => <StepCard key={String(item.id)} item={item} t={t} status={getStatus(item)} />}
+        />
+      ) : view === 'trace' ? (
+        <AgenticActivityTrace
+          items={items}
+          response={response}
+          streaming={streaming}
+          t={t}
+          language={language}
+          renderActivity={(item) => <StepCard key={String(item.id)} item={item} t={t} status={getStatus(item)} timestampMetrics />}
+        />
+      ) : <div className="actTimeline__flow">
+        {items.length === 0 && <div className="notice notice--info">{t('actGraphNoActivity')}</div>}
         {rounds.map((round, ri) => (
           <React.Fragment key={ri}>
             {/* Round header (if multiple rounds) */}
@@ -360,7 +327,7 @@ export function AgenticActivityTimeline({ activity, t, runningActivityIds }: Age
             <StepCard item={synthesis} t={t} status={getStatus(synthesis)} />
           </>
         )}
-      </div>
+      </div>}
     </div>
   )
 }

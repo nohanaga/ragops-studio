@@ -259,6 +259,7 @@ export type LatestResponse = {
   runType: Run['runType']
   latencyMs?: number
   elapsedTimeMs?: number
+  responseFormat?: 'json' | 'sse'
   streamState?: {
     eventCount: number
     lastEvent: string

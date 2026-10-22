@@ -19,7 +19,7 @@ export type RunsExportBundleV1 = {
 };
 
 const DB_NAME = 'ragops-studio';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 interface LabDbSchema extends DBSchema {
   experiments: {

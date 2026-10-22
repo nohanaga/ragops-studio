@@ -49,14 +49,12 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
 - **Output control**: `outputMode`, `maxRuntimeInSeconds`, `maxOutputSize`
 - **Search efficiency**: `retrievalReasoningEffort` (`low` / `medium` / `minimal`)
 - **Activity log**: Visualize process with `includeActivity`
-- **Agentic Activity Timeline**: Hierarchical flow visualization of agentic retrieval activity
-  - Round-based grouping: `modelQueryPlanning` → source searches (parallel) → `agenticReasoning` → `modelAnswerSynthesis`
-  - Color-coded type badges for each activity type (planning, source search, reasoning, synthesis)
-  - Key metrics display per step: elapsed time (ms), input/output/reasoning tokens, hit count
-  - Parallel lane display for concurrent source searches within a round
-  - Inline display of search queries and Knowledge Source names
-  - Expandable raw JSON view for each step
-  - Summary bar: total steps, total elapsed time, total tokens
+- **Activity Flow**: Explore agentic retrieval activity in the latest and saved results
+  - **Trace**: Inspect query planning, source searches, reasoning, and answer synthesis as round-based activity cards
+  - **Graph**: Visualize actions, source branches, references, and final output as connected nodes, with pan and zoom
+  - **Timeline**: View execution durations and overlapping activity on a shared time axis using recorded start and completion timestamps
+  - **Activity details**: Inspect queries, models, token usage, hit counts, generated filters/boosts, references, and raw JSON
+  - **Execution status**: Track running, completed, failed, and incomplete activity, including streaming responses
 - **API version**: Automatically uses `2025-11-01-preview`
 
 ![](./docs/images/screenshot4_en.png)
