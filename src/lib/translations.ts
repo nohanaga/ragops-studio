@@ -2183,6 +2183,8 @@ export const translations = {
     sceConnectionLegendTestMissing: 'テストデータに不足',
     // DB seed
     dbFirstExperimentDescription: '最初のExperiment（自動作成）',
+    dbUpgradeBlocked: '別のタブがデータベースの更新を妨げています。このアプリを開いているほかのタブを閉じてから再読み込みしてください。保存済みデータを削除する必要はありません。',
+    dbSchemaIncompatible: '保存済みデータベースの構造に互換性がありません。データは削除せず、このデータベースを作成したバージョンのアプリで開いてください。',
     // Portal
     portalTab: 'Portal',
     applyFacetToFilter: 'この facet を Request Builder の filter に追加',
@@ -4361,6 +4363,8 @@ export const translations = {
     sceConnectionLegendTestMissing: 'Not in test data',
     // DB seed
     dbFirstExperimentDescription: 'First Experiment (auto-created)',
+    dbUpgradeBlocked: 'Another tab is blocking the database update. Close other tabs running this app, then reload. You do not need to delete saved data.',
+    dbSchemaIncompatible: 'The saved database schema is incompatible. Do not delete the data; open it with the app version that created this database.',
     // Portal
     portalTab: 'Portal',
     applyFacetToFilter: 'Add this facet to the Request Builder filter',
