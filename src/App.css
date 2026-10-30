@@ -9552,6 +9552,10 @@ html[data-theme='light'] .rawJsonViewer {
   border-top: 1px solid var(--border);
 }
 
+.actGraph__workspace--collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 html:is([data-theme='dark'], [data-theme='midnight'], [data-theme='forest']) .react-flow {
   --xy-background-color: color-mix(in srgb, var(--bg) 92%, white 8%);
 }
@@ -9679,14 +9683,26 @@ html:is([data-theme='dark'], [data-theme='midnight'], [data-theme='forest']) .re
   background: var(--panel-2);
 }
 
-.actGraph__selectLabel {
+.actGraph__inspectorHeader {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.actGraph__inspectorHeader > .btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+}
+
+.actGraph__selectLabel {
+  flex: 1;
+  min-width: 0;
   font-size: 12px;
 }
 
-.actGraph__selectLabel select {
+.actGraph__nodeSelect {
   width: 100%;
 }
 

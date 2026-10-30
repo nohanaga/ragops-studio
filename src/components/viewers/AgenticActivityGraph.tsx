@@ -76,7 +76,7 @@ export function AgenticActivityGraph({ items, response, streaming, t, language, 
   language: Language
   renderActivity: (item: ActivityItem) => ReactNode
 }) {
-  const [selectedId, setSelectedId] = useState('result')
+  const [selectedId, setSelectedId] = useState<string | null>('result')
   const [canvasError, setCanvasError] = useState<string | null>(null)
   const graph = useMemo(() => buildActivityGraph({ items, response, streaming, t }), [items, response, streaming, t])
   const { nodes, edges } = useMemo(() => {
@@ -110,13 +110,14 @@ export function AgenticActivityGraph({ items, response, streaming, t, language, 
     <div className="actGraph">
       <div className="actGraph__legend">{t('actGraphEvidence')}</div>
       {canvasError && <div className="notice notice--error" role="alert">{canvasError}</div>}
-      <div className="actGraph__workspace">
+      <div className={`actGraph__workspace${selectedId === null ? ' actGraph__workspace--collapsed' : ''}`}>
         <div className="actGraph__canvas" aria-label={t('actGraphView')}>
           <ReactFlow<FlowNode>
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
             onNodeClick={(_, node) => setSelectedId(node.id)}
+            onPaneClick={() => setSelectedId(null)}
             onError={(code, message) => setCanvasError(`${code}: ${message}`)}
             nodesDraggable={false}
             nodesConnectable={false}
@@ -134,7 +135,9 @@ export function AgenticActivityGraph({ items, response, streaming, t, language, 
             <GraphControls t={t} />
           </ReactFlow>
         </div>
-        <AgenticActivityDetails nodes={graph.nodes} selectedId={selectedId} onSelect={setSelectedId} t={t} language={language} renderActivity={renderActivity} />
+        {selectedId !== null && (
+          <AgenticActivityDetails nodes={graph.nodes} selectedId={selectedId} onSelect={setSelectedId} onClose={() => setSelectedId(null)} t={t} language={language} renderActivity={renderActivity} />
+        )}
       </div>
     </div>
   )

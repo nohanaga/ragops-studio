@@ -937,8 +937,10 @@ function App() {
   if (bootError) {
     return (
       <div className="app app--error">
-        <h1>{t('bootErrorTitle')}</h1>
-        <pre className="mono">{bootError}</pre>
+        <div className="notice notice--error" role="alert">
+          <h1 className="notice__title">{t('bootErrorTitle')}</h1>
+          <pre className="mono notice__pre">{bootError}</pre>
+        </div>
       </div>
     )
   }
