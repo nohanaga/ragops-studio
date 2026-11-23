@@ -7,8 +7,10 @@
 
 import type { JsonValue } from '../lib/aiSearchRest'
 import type { SearchApiVersion } from '../lib/model'
+import { isJsonObject } from '../app/json'
 import { getSearchApiCapabilities } from '../lib/searchApiCapabilities'
 import { translations, type Language } from '../lib/translations'
+import { buildDirectAgenticSearch, buildTopicGraph, NOVEMBER_AGENTIC_API, NOVEMBER_KB_MODELS, validateKnowledgeBaseTools } from './agenticPreview'
 import type { LabMode, SearchFormState, AgenticFormState, AnalyzeFormState, AutocompleteFormState, SuggestFormState, KnowledgeBase } from '../types'
 
 function csvToArray(raw: string): string[] {
@@ -53,7 +55,12 @@ export function buildSearchBodyFromForm(
   s: SearchFormState,
   language: Language,
   isPreviewApiVersion: boolean,
+  apiVersion?: SearchApiVersion,
 ): JsonValue {
+  if (s.queryType === 'agentic') {
+    if (!getSearchApiCapabilities(apiVersion).novemberAgentic) throw new Error(`Direct agentic search requires ${NOVEMBER_AGENTIC_API}.`)
+    return buildDirectAgenticSearch(s)
+  }
   const toVectorQuery = (d: SearchFormState['vectorQueries'][number]): Record<string, unknown> => {
     const v: Record<string, unknown> = {
       kind: d.vectorKind,
@@ -175,7 +182,12 @@ export function buildSearchBodyFromForm(
 
 export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: SearchApiVersion): JsonValue {
   const capabilities = getSearchApiCapabilities(apiVersion)
-  if (s.retrievalReasoningEffort === 'auto' && !capabilities.reasoningAuto) {
+  const toolName = s.toolName?.trim()
+  const useToolDefaults = !!toolName && s.useToolDefaults !== false
+  if (!capabilities.novemberAgentic && (toolName || s.knowledgeSourceParams.some((source) => source.topicGraph || source.graphParameters))) {
+    throw new Error(`Named tools and graph retrieval settings require ${NOVEMBER_AGENTIC_API}.`)
+  }
+  if (!useToolDefaults && s.retrievalReasoningEffort === 'auto' && !capabilities.reasoningAuto) {
     throw new Error('retrievalReasoningEffort=auto requires API version 2026-08-01-preview.')
   }
 
@@ -190,6 +202,15 @@ export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: Searc
       includeReferences: ks.includeReferences,
       includeReferenceSourceData: ks.includeReferenceSourceData,
     }
+    if ((kind === 'searchIndex' || kind === 'azureBlob') && ks.topicGraph) base.topicGraph = buildTopicGraph(ks.topicGraph)
+    if (capabilities.novemberAgentic && (kind === 'searchIndex' || kind === 'azureBlob') && ks.filterAddOn?.trim()) base.filterAddOn = ks.filterAddOn.trim()
+    if (kind === 'azureBlob' && ks.graphParameters) {
+      const top = ks.graphParameters.provenance?.hydrateDocuments?.top
+      if (top !== undefined && (!Number.isInteger(top) || top < 1 || top > 100)) {
+        throw new Error('graphParameters.provenance.hydrateDocuments.top must be an integer from 1 to 100.')
+      }
+      base.graphParameters = ks.graphParameters
+    }
     if (typeof ks.maxOutputDocuments === 'number') {
       if (!Number.isFinite(ks.maxOutputDocuments) || !Number.isInteger(ks.maxOutputDocuments) || ks.maxOutputDocuments < 1) {
         throw new Error(`maxOutputDocuments must be a positive integer for '${ks.knowledgeSourceName}'.`)
@@ -200,10 +221,10 @@ export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: Searc
       && ks.alwaysQuerySource && ks.neverQuerySource) {
       throw new Error(`alwaysQuerySource and neverQuerySource cannot both be true for '${ks.knowledgeSourceName}'.`)
     }
-    if (capabilities.alwaysQuerySource) base.alwaysQuerySource = ks.alwaysQuerySource
+    if (capabilities.alwaysQuerySource && typeof ks.alwaysQuerySource === 'boolean') base.alwaysQuerySource = ks.alwaysQuerySource
     if (capabilities.perSourceResultsProcessing) {
       if (ks.neverQuerySource) base.neverQuerySource = true
-      base.resultsProcessing = ks.resultsProcessing === 'none' ? 'none' : 'rerank'
+      if (ks.resultsProcessing) base.resultsProcessing = ks.resultsProcessing
       const queryHintOverrides = kind === 'searchIndex' && typeof ks.queryHintOverrides === 'string'
         ? ks.queryHintOverrides.trim()
         : ''
@@ -220,8 +241,9 @@ export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: Searc
 
   const body: Record<string, JsonValue> = {
     includeActivity: s.includeActivity,
-    maxRuntimeInSeconds: s.maxRuntimeInSeconds,
   }
+  if (toolName) body.toolName = toolName
+  if (!useToolDefaults) body.maxRuntimeInSeconds = s.maxRuntimeInSeconds
   if (knowledgeSourceParams.length > 0) body.knowledgeSourceParams = knowledgeSourceParams
 
   if (!capabilities.agenticResponseSynthesis || s.retrievalReasoningEffort === 'minimal') {
@@ -238,22 +260,59 @@ export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: Searc
     return body
   }
 
+  if (useToolDefaults) return body
   body.outputMode = s.outputMode
-  body.maxOutputSize = s.maxOutputSize
+  if (capabilities.novemberAgentic && typeof s.maxOutputSizeInTokens === 'number') {
+    body.maxOutputSizeInTokens = s.maxOutputSizeInTokens
+  } else {
+    body.maxOutputSize = s.maxOutputSize
+  }
+  if (capabilities.novemberAgentic && typeof s.maxOutputDocuments === 'number') body.maxOutputDocuments = s.maxOutputDocuments
+  for (const key of ['maxOutputDocuments', 'maxOutputSizeInTokens'] as const) {
+    const value = body[key]
+    if (typeof value === 'number' && (!Number.isInteger(value) || value < 1 || value > 2147483647)) {
+      throw new Error(`${key} must be a positive int32.`)
+    }
+  }
   body.retrievalReasoningEffort = { kind: s.retrievalReasoningEffort }
   return body
+}
+
+export function isKnowledgeBaseModelKind(model: JsonValue, kind: string): boolean {
+  return isJsonObject(model) && model.kind === kind
+}
+
+export function isMicrosoftRetriever1Only(models: JsonValue[]): boolean {
+  return models.length > 0 && models.every((model) => isKnowledgeBaseModelKind(model, 'microsoftRetriever1'))
 }
 
 export function buildKnowledgeBaseBodyForApiVersion(
   s: Partial<KnowledgeBase>,
   apiVersion?: SearchApiVersion,
+  language: Language = 'en',
 ): JsonValue {
   const capabilities = getSearchApiCapabilities(apiVersion)
+  const models = s.models ?? []
+  if (!capabilities.microsoftRetriever1 && models.some((model) => isKnowledgeBaseModelKind(model, 'microsoftRetriever1'))) {
+    throw new Error(translations[language].knowledgeBaseMicrosoftRetriever1Preview)
+  }
+  const retrieverOnly = isMicrosoftRetriever1Only(models)
+  const hasNovemberModels = models.some((model) => {
+    if (!isJsonObject(model)) return false
+    if (model.kind === 'openAICompatible') return true
+    const params = model.azureOpenAIParameters
+    return params !== undefined && isJsonObject(params) && NOVEMBER_KB_MODELS.some((name) => name === params.modelName)
+  })
+  if (!capabilities.novemberAgentic && (hasNovemberModels || s.tools?.length)) {
+    throw new Error(`Named tools and GPT-6 / OpenAI-compatible models require ${NOVEMBER_AGENTIC_API}.`)
+  }
+  if (capabilities.novemberAgentic && s.tools) validateKnowledgeBaseTools(s.tools, (s.knowledgeSources ?? []).map(({ name }) => name))
   const base: Record<string, JsonValue> = {
     name: s.name || '',
     description: s.description || null,
     knowledgeSources: s.knowledgeSources || [],
-    models: s.models || [],
+    models,
+    ...(capabilities.novemberAgentic && s.tools !== undefined ? { tools: s.tools } : {}),
     encryptionKey: s.encryptionKey ?? null,
   }
 
@@ -272,15 +331,17 @@ export function buildKnowledgeBaseBodyForApiVersion(
           : {}),
       }
     : undefined
-  const retrievalReasoningEffort = s.retrievalReasoningEffort?.kind === 'auto' && !capabilities.reasoningAuto
-    ? { kind: 'low' }
-    : s.retrievalReasoningEffort || { kind: 'low' }
+  const retrievalReasoningEffort = retrieverOnly
+    ? { kind: 'minimal' }
+    : s.retrievalReasoningEffort?.kind === 'auto' && !capabilities.reasoningAuto
+      ? { kind: 'low' }
+      : s.retrievalReasoningEffort || { kind: 'low' }
 
   return {
     ...base,
     retrievalInstructions: s.retrievalInstructions || null,
-    answerInstructions: s.answerInstructions || null,
-    outputMode: s.outputMode || 'answerSynthesis',
+    answerInstructions: retrieverOnly ? null : s.answerInstructions || null,
+    outputMode: retrieverOnly ? 'extractiveData' : s.outputMode || 'answerSynthesis',
     retrievalReasoningEffort,
     ...(retrieveDefaults && Object.keys(retrieveDefaults).length > 0 ? { retrieveDefaults } : {}),
   } as JsonValue

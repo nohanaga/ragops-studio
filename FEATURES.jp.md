@@ -26,6 +26,7 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 
 #### Query モード（クラシック検索）
 - **フルテキスト検索**: `simple` / `full` クエリタイプ
+- **[Microsoft Retriever 1](https://learn.microsoft.com/ja-jp/azure/search/agentic-retrieval-how-to-use-microsoft-retriever#search-directly-with-microsoft-retriever-1)**: `queryType: agentic` でナレッジベースを経由せずインデックスを検索（`2026-11-01-preview`）
 - **基本パラメータ**: `search`, `top`, `skip`, `count`, `select`, `filter`, `orderby`, `searchMode`, `searchFields`, `facets`, `highlight`
 - **スコアリング**: `scoringProfile`, `scoringParameters`
 - **高度なオプション**: `minimumCoverage`, `scoringStatistics`, `sessionId`
@@ -57,8 +58,12 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
   - **グラフ**: 各アクション、ソースへの分岐、参照、最終結果をノードで表示。移動・拡大縮小に対応
   - **タイムライン**: 記録された開始・完了時刻を共通の時間軸に表示し、処理時間と並列実行を確認
   - **処理の詳細**: 検索要求・最終結果の本文、検索クエリ、モデル、トークン数、ヒット数、生成フィルター・ブースト、参照、RAW JSON を確認
+  - **グラフ検索**: `graphSearch` の生成 GQL、結果行、根拠文書を表示
   - **実行状態**: ストリーミング応答を含め、実行中・完了・エラー・未完了を表示
-- **API バージョン**: `2025-11-01-preview` を自動使用
+- **名前付きツール**: ツールを選択し、既定値を使用または実行ごとに取得設定を上書き
+- **エンティティグラフ検索**: グラフ対応の Blob ソースで生成 GQL と根拠文書の取得を設定
+- **トピックグラフ検索**: 対応ソースでトピック取得方式を継承または上書き
+- **API バージョン**: 最低 `2025-11-01-preview`。ツール選択とグラフ取得設定には `2026-11-01-preview` が必要
 
 ![](./docs/images/screenshot4_jp.png)
 
@@ -106,6 +111,7 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 - **ナレッジソース作成/更新**: 
   - `name`, `kind='searchIndex'`, `description`
   - `searchIndexParameters`: `searchIndexName`, `semanticConfigurationName`, `sourceDataFields`, `searchFields`
+- **トピック取得の既定値**: 検索インデックス型ソースで `none` / `balanced` / `diverse` を設定（`2026-11-01-preview`）
 - **ナレッジソース削除**: 既存ナレッジソースの削除
 
 ![](./docs/images/screenshot8_jp.png)
@@ -114,6 +120,8 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 #### Knowledge Base Builder（ナレッジベースビルダー）
 - **ナレッジベース一覧**: 既存のナレッジベースを表示
 - **ナレッジベース作成/更新**: `name`, `description`, `knowledgeSources` の配列
+- **検索モデル**: Microsoft Retriever 1、GPT-6 系、OpenAI 互換モデルの設定（`2026-11-01-preview`）
+- **[名前付きツール](https://learn.microsoft.com/en-us/azure/search/agentic-retrieval-how-to-configure-tools?pivots=rest)**: 対象ソース、フィルター、取得の既定値を設定（`2026-11-01-preview`）
 - **ナレッジベース削除**: 既存ナレッジベースの削除
 
 ![](./docs/images/screenshot7_jp.png)
@@ -263,6 +271,12 @@ RAGOps Studio を離れることなく、Azure AI Search の Custom Skill をブ
 - **可視化データと Meta JSON の永続化**: `.ragvis.json` は座標やグラフ構造、`.ragmeta.json` は LLM 要約、Trace、token usage、再利用可能な Meta 状態として保存
 
 
+#### Knowledge Graph Playground / Ontology Editor
+- **グラフの閲覧**: [エンティティグラフ](https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-entity-graph)と[トピックグラフ](https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-topic-graph)を可視化し、属性やトピックのタイトルを確認（`2026-11-01-preview`）
+- **GQL 検索**: クエリを実行し、結果グラフ、表、根拠文書、診断を表示
+- **グラフ文書の編集**: フォームや JSON で修正・プレビューし、差分確認後に管理対象外のインデックスへ保存
+- **オントロジー編集**: JSON-LD の型と関係を編集し、既存の Blob ソースに適用（再処理キャッシュが必要）
+
 ### Eval Dataset Generator（評価データセットジェネレーター）
 - **LLM による評価データセット自動生成**: Azure AI Search インデックス内の実ドキュメントから、Search Parameter AutoTuning 互換の JSONL 評価データセットを自動生成
 - **2つの生成モード**:
@@ -365,6 +379,8 @@ RAGOps Studio を離れることなく、Azure AI Search の Custom Skill をブ
 - **ラン選択**: 複数ラン（最大10件）を選択して結果を並べて比較
 - **表比較**: `query` / `semantic` / `vector` / `hybrid` / `semantic_hybrid` / `agentic_retrieve` の順位付き結果を列単位で比較
   - 同一文書の順位変化、検索スコア、リランカースコア、応答時間、RAW 結果を表示
+  - **Agentic Retrieval の多様性比較**: Agentic の Run を 2 件以上選ぶと、ソース別の `kind`、`diversityFactor`、`minDiversityPoolSize` を基準 Run と比較できます。表示するのはリクエストに記録された値です。上書きがない場合、実行当時の実効値は表示しません。
+  - **上位文書の差分**: 上位 K 件（5、10、20、50）をソース名と文書キー（または Blob URL）で照合し、重複を除いて共通・追加・脱落を集計します。同じ質問と KB で `extractiveData` を使い、Activity と参照を含めて実行してください。照合情報や順位付きデータがない場合は集計しません。文書の差分はトピックの網羅率を示すものではありません。
   - スコア尺度は検索モードごとに異なるため、異種モード間では順位と同一文書の移動を中心に比較
 - **ラン削除**: 個別ランの削除
 - **クエリフィルター**: クエリテキストでランを絞り込み
@@ -593,7 +609,7 @@ ragops-studio/
 1. **API Key 認証**（推奨）
    - Endpoint: Azure AI Search サービスのエンドポイント URL（例: `https://your-service.search.windows.net`）
    - API Key: 管理者キーまたはクエリキー
-   - APIバージョン: データプレーンREST APIバージョン（新規接続の既定値: `2026-05-01-preview`。Agenticモードでは選択値を使用し、`2025-11-01-preview`未満の場合のみ最低版へ補正）
+   - API バージョン: データプレーン REST API バージョン（新規接続の既定値: `2026-08-01-preview`。グラフ検索では `2026-11-01-preview` を選択）
 
 2. **Bearer Token 認証**
    - Endpoint: Azure AI Search サービスのエンドポイント URL

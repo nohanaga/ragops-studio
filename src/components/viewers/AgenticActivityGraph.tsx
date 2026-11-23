@@ -22,7 +22,7 @@ function ActivityNode({ data, selected }: NodeProps<FlowNode>) {
   return (
     <div className={`actGraph__node actGraph__node--${data.kind}${selected ? ' actGraph__node--selected' : ''}`}>
       <Handle type="target" position={Position.Top} isConnectable={false} />
-      <div className="actGraph__nodeTitle"><i className={`bi ${icons[data.kind]}`} aria-hidden="true" /> {data.title}</div>
+      <div className="actGraph__nodeTitle"><i className={`bi ${data.item?.type === 'graphSearch' ? 'bi-diagram-3' : icons[data.kind]}`} aria-hidden="true" /> {data.title}</div>
       <div className="actGraph__nodeSubtitle">
         {data.item ? (
           <>

@@ -64,6 +64,20 @@ export const CATEGORY_META: Record<CardCategory, { labelJa: string; labelEn: str
 }
 
 export const PORTAL_CARDS: PortalCard[] = [
+  {
+    id: 'knowledge-graph-playground', icon: 'diagram-3', category: 'devtool',
+    titleJa: 'Knowledge Graph Playground', titleEn: 'Knowledge Graph Playground',
+    descJa: 'トピック / エンティティグラフの取得、草案編集、可視化、GQL 検索。Ontology Editor と連携します。',
+    descEn: 'Retrieve, draft-edit, visualize and query topic / entity graphs with the linked Ontology Editor.',
+    action: 'openKnowledgeGraph',
+  },
+  {
+    id: 'ontology-editor', icon: 'bezier2', category: 'builder',
+    titleJa: 'Ontology Editor', titleEn: 'Ontology Editor',
+    descJa: 'エンティティ型・関係を JSON-LD とキャンバスで編集し、Playground からオントロジーを適用します。',
+    descEn: 'Edit entity types and relationships as JSON-LD and on a canvas, then apply through the Playground.',
+    action: 'openOntologyEditor',
+  },
   // ── Search Modes ─────────────────────────────────────────────
   {
     id: 'fulltext-search',
@@ -496,7 +510,7 @@ export const PORTAL_CARDS: PortalCard[] = [
       steps: [
         { icon: 'box-arrow-in-right', titleJa: '開く', titleEn: 'Open', descJa: 'ツールメニューから Knowledge Base Builder を開きます。preview API で動作します。', descEn: 'Open Knowledge Base Builder from the Tools menu. Uses the preview API.' },
         { icon: 'plus-circle', titleJa: '基本情報を入力', titleEn: 'Enter basics', descJa: 'name (Agentic Retrieval クエリで指定される ID)、description (会話エージェントの用途説明) を入力します。', descEn: 'Set name (the ID specified by Agentic Retrieval queries) and description (high-level purpose of the agent).', targetSelector: '[data-guide-target="knowledge-base-form"]' },
-        { icon: 'cpu', titleJa: 'Knowledge Agent (LLM) を接続', titleEn: 'Bind a Knowledge Agent (LLM)', descJa: 'Azure OpenAI の endpoint / deployment ID / API キー またはマネージド ID 認証を設定します。サブクエリ計画と最終応答生成をこのデプロイメントが担当します。', descEn: 'Configure the Azure OpenAI endpoint / deployment ID / API key (or managed identity). This deployment plans subqueries and synthesizes the final response.' },
+        { icon: 'cpu', titleJa: '検索計画モデルを設定', titleEn: 'Configure the planning model', descJa: 'Azure OpenAI モデルを接続するか、2026-11-01-preview で Microsoft Retriever 1 を有効にします。単体利用では Azure OpenAI のデプロイは不要です。', descEn: 'Connect an Azure OpenAI model, or enable Microsoft Retriever 1 with 2026-11-01-preview. Standalone use requires no Azure OpenAI deployment.', targetSelector: '[data-guide-target="knowledge-base-retriever"]' },
         { icon: 'collection', titleJa: 'knowledgeSources を追加', titleEn: 'Add knowledgeSources', descJa: '事前に公開した Knowledge Source を配列に追加。複数追加すると Agent がクエリごとに「どれを使うか」を自動選択します。選択ロジックは各 Source の description に依存します。', descEn: 'Add previously published Knowledge Sources to the array. With multiple sources, the Agent picks per query — selection logic depends on each source’s description.', targetSelector: '[data-guide-target="knowledge-base-sources"]' },
         { icon: 'cloud-upload', titleJa: '公開', titleEn: 'Publish', descJa: 'Save で PUT /knowledgeBases/{name} (preview) を送信。公開後は Lab Mode = Agentic でドロップダウンに表示され、Agentic Retrieval で使えるようになります。', descEn: 'Save sends PUT /knowledgeBases/{name} (preview). After publishing, it appears in the dropdown when Lab Mode = Agentic and is usable in Agentic Retrieval.', targetSelector: '[data-guide-target="knowledge-base-actions"]' },
       ],

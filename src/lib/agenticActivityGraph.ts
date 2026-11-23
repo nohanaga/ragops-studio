@@ -27,34 +27,67 @@ export interface ActivityItem {
   completedAt?: string
   modelName?: string
   deploymentId?: string
+  graphSearch?: {
+    indexName?: string
+    gql?: string
+    outcome?: string
+    attempts?: number
+    modelElapsedMs?: number
+  }
 }
 
 export function parseActivity(raw: JsonValue): ActivityItem | null {
   if (!isActivityObject(raw)) return null
+  const type = typeof raw.type === 'string' ? raw.type : ''
   const model = isActivityObject(raw.model) ? raw.model : raw
+  const graphArgs = type === 'graphSearch' && isActivityObject(raw.graphSearchArguments) ? raw.graphSearchArguments : null
+  const graphText = (key: string) => typeof graphArgs?.[key] === 'string' ? graphArgs[key] : undefined
+  const graphNumber = (key: string) => typeof graphArgs?.[key] === 'number' ? graphArgs[key] : undefined
   const effort = (value: JsonValue | undefined) => isActivityObject(value) && typeof value.kind === 'string' ? value.kind : undefined
   const number = (key: string) => typeof raw[key] === 'number' ? raw[key] : undefined
   const text = (key: string) => typeof raw[key] === 'string' ? raw[key] : undefined
   const args = Object.entries(raw).find(([key, value]) => key.endsWith('Arguments') && isActivityObject(value) && typeof value.search === 'string')?.[1]
   return {
-    type: text('type') ?? '',
+    type,
     id: typeof raw.id === 'number' || typeof raw.id === 'string' ? raw.id : 0,
     raw,
     elapsedMs: number('elapsedMs'),
-    inputTokens: number('inputTokens'),
-    outputTokens: number('outputTokens'),
+    inputTokens: number('inputTokens') ?? graphNumber('inputTokens'),
+    outputTokens: number('outputTokens') ?? graphNumber('outputTokens'),
     reasoningTokens: number('reasoningTokens'),
     count: number('count'),
     knowledgeSourceName: text('knowledgeSourceName'),
-    search: isActivityObject(args) && typeof args.search === 'string' ? args.search : undefined,
+    search: graphText('naturalLanguageQuery') ?? (isActivityObject(args) && typeof args.search === 'string' ? args.search : undefined),
     logicalReasoningEffort: effort(raw.logicalReasoningEffort),
     retrievalReasoningEffort: effort(raw.retrievalReasoningEffort),
     queryTime: text('queryTime'),
     startedAt: text('startedAt'),
     completedAt: text('completedAt'),
-    modelName: typeof model.modelName === 'string' ? model.modelName : text('modelName'),
+    modelName: (typeof model.modelName === 'string' ? model.modelName : text('modelName')) ?? graphText('modelName'),
     deploymentId: typeof model.deploymentId === 'string' ? model.deploymentId : text('deploymentId'),
+    graphSearch: graphArgs ? {
+      indexName: graphText('graphIndexName'),
+      gql: graphText('gql'),
+      outcome: graphText('outcome'),
+      attempts: graphNumber('attempts'),
+      modelElapsedMs: graphNumber('modelElapsedMs'),
+    } : undefined,
   }
+}
+
+export function indexGraphSearchReferences(body: JsonValue | undefined): Map<string, Record<string, JsonValue>[]> {
+  const byActivity = new Map<string, Record<string, JsonValue>[]>()
+  if (!isActivityObject(body) || !Array.isArray(body.references)) return byActivity
+  for (const reference of body.references) {
+    if (!isActivityObject(reference) || reference.type !== 'graphSearch') continue
+    const activityId = reference.activitySource
+    if (typeof activityId !== 'number' && typeof activityId !== 'string') continue
+    const key = String(activityId)
+    const entries = byActivity.get(key)
+    if (entries) entries.push(reference)
+    else byActivity.set(key, [reference])
+  }
+  return byActivity
 }
 
 export function typeCategory(type: string): 'planning' | 'source' | 'reasoning' | 'synthesis' {
@@ -64,7 +97,11 @@ export function typeCategory(type: string): 'planning' | 'source' | 'reasoning' 
   return 'source'
 }
 
-const sourceTypes = new Set(['searchIndex', 'web', 'indexedSharePoint', 'azureBlob', 'mcpServer', 'remoteSharePoint', 'indexedOneLake', 'remoteOneLake'])
+const sourceTypes = new Set(['searchIndex', 'web', 'indexedSharePoint', 'azureBlob', 'mcpServer', 'remoteSharePoint', 'indexedOneLake', 'remoteOneLake', 'graphSearch'])
+
+export function isSourceActivityType(type: string): boolean {
+  return sourceTypes.has(type)
+}
 
 export type ActivityGraphStatus = 'running' | 'completed' | 'error' | 'warning' | 'unknown' | 'configured' | 'incomplete'
 export const activityStatusKeys: Record<ActivityGraphStatus, TranslationKey> = {
@@ -178,7 +215,7 @@ export function buildActivityGraph({
   }
   for (let i = 0; i < items.length;) {
     const item = items[i]
-    if (!sourceTypes.has(item.type)) {
+    if (!isSourceActivityType(item.type)) {
       const id = addActivity(item, i)
       connect(previous, id)
       previous = [id]
@@ -187,7 +224,7 @@ export function buildActivityGraph({
     }
     const run: ActivityItem[] = []
     const start = i
-    while (i < items.length && sourceTypes.has(items[i].type)) run.push(items[i++])
+    while (i < items.length && isSourceActivityType(items[i].type)) run.push(items[i++])
     const sourceTiming = buildActivityTiming(run)
     const observedParallel = new Set(sourceTiming.rows.filter((row) => row.overlaps).map((row) => row.item))
     const ids = run.map((source, index) => {

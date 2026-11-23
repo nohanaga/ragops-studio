@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { AgenticFormState, SearchFormState } from '../types'
 import { buildAgenticBodyFromForm, buildAutocompleteBodyFromForm, buildKnowledgeBaseBodyForApiVersion, buildSearchBodyFromForm, buildSuggestBodyFromForm } from './appRequestBodies'
+import { getKnowledgeBaseTools, readGraphParameters, validatedCompatibleModel } from './agenticPreview'
 
 function asRecord(v: unknown): Record<string, unknown> {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return {}
@@ -87,6 +88,60 @@ function makeAgenticForm(kind: string): AgenticFormState {
 }
 
 describe('utils/appRequestBodies', () => {
+  it('sends direct Retriever 1 search options without classic or vector options', () => {
+    const form: SearchFormState = {
+      ...makeBaseForm(), queryType: 'agentic', search: 'Where is the policy?', top: 5, skip: 20, count: true,
+      filter: "region eq 'CA'", select: 'id,title', vectorEnabled: true, agenticMaxRuntime: 35, agenticDebug: 'agentic',
+    }
+    expect(buildSearchBodyFromForm('query', form, 'en', true, '2026-11-01-preview')).toEqual({
+      queryType: 'agentic', search: 'Where is the policy?', top: 5, filter: "region eq 'CA'", select: 'id,title',
+      agenticOptions: { maxRuntimeInSeconds: 35 }, debug: 'agentic',
+    })
+    expect(() => buildSearchBodyFromForm('query', form, 'en', true, '2026-08-01-preview')).toThrow('2026-11-01-preview')
+    expect(() => buildSearchBodyFromForm('query', { ...form, agenticMaxRuntime: 0 }, 'en', true, '2026-11-01-preview')).toThrow('positive int32')
+  })
+
+  it('inherits named tool defaults without suppressing model planning or sending limit overrides', () => {
+    const tools = [{ name: 'hr-tool', description: 'HR policies', knowledgeSources: [{ name: 'hr' }] }]
+    const [tool] = getKnowledgeBaseTools(tools, { kind: 'low' })
+    const form = { ...makeAgenticForm('searchIndex'), toolName: tool.name, retrievalReasoningEffort: tool.reasoningEffort, knowledgeSourceParams: [] }
+    expect(buildAgenticBodyFromForm(form, '2026-11-01-preview')).toEqual({
+      toolName: 'hr-tool', includeActivity: true,
+      messages: [{ role: 'user', content: [{ type: 'text', text: form.userMessage }] }],
+    })
+    expect(buildAgenticBodyFromForm({ ...form, useToolDefaults: false, maxOutputDocuments: 7 }, '2026-11-01-preview'))
+      .toMatchObject({ retrievalReasoningEffort: { kind: 'low' }, maxOutputDocuments: 7, outputMode: 'answerSynthesis' })
+    expect(buildKnowledgeBaseBodyForApiVersion({ knowledgeSources: [{ name: 'hr' }], tools }, '2026-11-01-preview')).toMatchObject({ tools })
+    expect(buildKnowledgeBaseBodyForApiVersion({ tools: [] }, '2026-11-01-preview')).toMatchObject({ tools: [] })
+    expect(() => buildKnowledgeBaseBodyForApiVersion({ knowledgeSources: [{ name: 'other' }], tools }, '2026-11-01-preview')).toThrow('belong to the knowledge base')
+  })
+
+  it('serializes independent topic sampling and entity graph settings', () => {
+    const form = makeAgenticForm('searchIndex')
+    const topicGraph = { kind: 'diverse', minDiversityPoolSize: 500, diversityFactor: 0.3 } as const
+    const graphParameters = { includeQuery: true, provenance: { kind: 'hydrate', hydrateDocuments: { top: 4, select: 'id,text' } } } as const
+    form.knowledgeSourceParams = [
+      { ...form.knowledgeSourceParams[0], topicGraph, resultsProcessing: '' },
+      { ...form.knowledgeSourceParams[0], kind: 'azureBlob', knowledgeSourceName: 'blob', graphParameters: readGraphParameters(graphParameters) },
+    ]
+    const params = asRecord(buildAgenticBodyFromForm(form, '2026-11-01-preview')).knowledgeSourceParams
+    expect(params).toMatchObject([{ topicGraph }, { graphParameters }])
+    expect(params).not.toMatchObject([{ resultsProcessing: 'rerank' }, {}])
+    expect(() => buildAgenticBodyFromForm(form, '2026-08-01-preview')).toThrow('2026-11-01-preview')
+  })
+
+  it('retains write-only gateway headers only by omission and gates new model kinds', () => {
+    const params = { uri: 'https://example.test/v1/responses', modelName: 'gpt-6-sol' }
+    expect(validatedCompatibleModel(params, '', true)).toEqual(params)
+    expect(() => validatedCompatibleModel(params, '', false)).toThrow('Enter authentication headers')
+    expect(validatedCompatibleModel(params, '{"x-test":"mock-value"}', false)).toEqual({ ...params, headers: { 'x-test': 'mock-value' } })
+    const models = [{ kind: 'openAICompatible', openAICompatibleParameters: params }]
+    expect(buildKnowledgeBaseBodyForApiVersion({ models }, '2026-11-01-preview')).toMatchObject({ models })
+    expect(() => buildKnowledgeBaseBodyForApiVersion({ models }, '2026-08-01-preview')).toThrow('2026-11-01-preview')
+    expect(() => buildKnowledgeBaseBodyForApiVersion({ models: [{ kind: 'azureOpenAI', azureOpenAIParameters: { modelName: 'gpt-6.1-sol' } }] }, '2026-08-01-preview'))
+      .toThrow('2026-11-01-preview')
+  })
+
   it('parses facets input and keeps option tokens attached', () => {
     const s = makeBaseForm()
     s.facets = 'category,count:10,sort:count, author'
@@ -319,6 +374,30 @@ describe('utils/appRequestBodies', () => {
     expect(legacyBody.retrievalReasoningEffort).toEqual({ kind: 'low' })
     expect(legacyBody.retrieveDefaults).toBeUndefined()
     expect(augustBody.retrieveDefaults).toEqual({ maxRuntimeInSeconds: 60 })
+  })
+
+  it('uses the standalone Retriever 1 settings even with a prior synthesis draft', () => {
+    const body = buildKnowledgeBaseBodyForApiVersion({
+      name: 'kb-retriever',
+      knowledgeSources: [{ name: 'ks-index' }],
+      models: [{ kind: 'microsoftRetriever1' }],
+      retrievalReasoningEffort: { kind: 'auto' },
+      outputMode: 'answerSynthesis',
+      answerInstructions: 'Answer briefly',
+    }, '2026-11-01-preview')
+
+    expect(body).toMatchObject({
+      models: [{ kind: 'microsoftRetriever1' }],
+      retrievalReasoningEffort: { kind: 'minimal' },
+      outputMode: 'extractiveData',
+      answerInstructions: null,
+    })
+  })
+
+  it('rejects Retriever 1 on the earlier preview rather than dropping it from the PUT body', () => {
+    expect(() => buildKnowledgeBaseBodyForApiVersion({
+      models: [{ kind: 'microsoftRetriever1' }],
+    }, '2026-08-01-preview')).toThrow('2026-11-01-preview')
   })
 
   it('rejects an agentic request when a knowledge source kind is unresolved', () => {

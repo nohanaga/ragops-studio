@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { translations } from '../../lib/translations'
 import { AgenticActivityTimeline } from './AgenticActivityTimeline'
 import type { ActivityGraphNode } from '../../lib/agenticActivityGraph'
+import type { JsonValue } from '../../lib/aiSearchRest'
+import type { LatestResponse } from '../../types'
 
 type TestNodeData = ActivityGraphNode & { statusLabel: string; countLabel: string }
 
@@ -45,6 +47,30 @@ const activity = [{
 }]
 
 describe('AgenticActivityGraph integration', () => {
+  it('shows graphSearch results in the Graph inspector and the expanded Timeline row', () => {
+    const activity: JsonValue[] = [
+      { type: 'modelQueryPlanning', id: 0 },
+      { type: 'graphSearch', id: 1, knowledgeSourceName: 'employees', graphSearchArguments: { naturalLanguageQuery: 'Who employs Rina?' } },
+      { type: 'searchIndex', id: 2, knowledgeSourceName: 'manuals' },
+    ]
+    const response: LatestResponse = {
+      at: undefined, requestId: 'graph', url: '', status: 200, runType: 'agentic_retrieve', requestBody: {},
+      body: { activity, references: [{ type: 'graphSearch', id: 'row', activitySource: 1, sourceData: { rows: [{ organization: 'Woodgrove' }] } }] },
+    }
+    render(<AgenticActivityTimeline activity={activity} response={response} t={(key) => translations.en[key]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }))
+    const graphSearch = screen.getByRole('button', { name: 'graphSearch: employees · Who employs Rina?' })
+    expect(graphSearch.dataset.y).toBe(screen.getByRole('button', { name: /^searchIndex:/ }).dataset.y)
+    fireEvent.click(graphSearch)
+    const details = within(screen.getByRole('region', { name: 'Node details' }))
+    expect(details.getByRole('table')).toHaveTextContent('Woodgrove')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Timeline' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Show details: graphSearch #1/ }))
+    expect(within(screen.getByRole('region', { name: 'Node details' })).getByRole('table')).toHaveTextContent('Woodgrove')
+  })
+
   it.each(['ja', 'en'] as const)('closes details with the close button or background and reopens them on node selection (%s)', (language) => {
     const localized = (key: keyof typeof translations.en) => translations[language][key]
     render(<AgenticActivityTimeline activity={activity} t={localized} language={language} />)

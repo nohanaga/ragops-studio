@@ -220,10 +220,12 @@ function App() {
     knowledgeBaseNamesError,
     knowledgeBaseNameOptions,
     availableKnowledgeSources,
+    availableKnowledgeTools,
   } = useKnowledgeBaseData({
     labMode,
     activeProfile,
     knowledgeBaseName,
+    editingKnowledgeBase: centerTab === 'knowledge-base-builder',
     language,
     setAgenticForm,
   })
@@ -647,6 +649,7 @@ function App() {
 
   const { isExecuting, isStreamingResponse, onExecute, onExecuteAllModes, onCancelExecute } = useApiOperations({
     labMode,
+    builderMode,
     activeProfile,
     indexName,
     knowledgeBaseName,
@@ -992,6 +995,7 @@ function App() {
       knowledgeBaseNamesError={knowledgeBaseNamesError}
       knowledgeBaseNameOptions={knowledgeBaseNameOptions}
       availableKnowledgeSources={availableKnowledgeSources}
+      availableKnowledgeTools={availableKnowledgeTools}
       isLoadingRequestBuilderSchema={isLoadingRequestBuilderSchema}
       requestBuilderFacetFieldInfos={requestBuilderFacetFieldInfos}
       requestBuilderIndexFieldNames={requestBuilderIndexFieldNames}

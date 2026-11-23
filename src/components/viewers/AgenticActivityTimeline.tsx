@@ -8,14 +8,14 @@
  * an expandable RAW JSON detail.
  */
 
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import type { TranslationKey } from '../../lib/translations'
 import type { JsonValue } from '../../lib/aiSearchRest'
 import { JsonViewer } from './JsonViewer'
 import { JSON_VIEWER_MAX_STRING_LENGTH } from '../../app/constants'
 import type { Language } from '../../lib/translations'
 import type { LatestResponse } from '../../types'
-import { isUnfinishedCanceledActivity, parseActivity, typeCategory, type ActivityItem } from '../../lib/agenticActivityGraph'
+import { indexGraphSearchReferences, isActivityObject, isUnfinishedCanceledActivity, parseActivity, typeCategory, type ActivityItem } from '../../lib/agenticActivityGraph'
 import { AgenticActivityGraph } from './AgenticActivityGraph'
 import { AgenticActivityTrace } from './AgenticActivityTrace'
 
@@ -75,6 +75,7 @@ function buildRounds(items: ActivityItem[]): {
 const badgeStyle: Record<string, { bg: string; color: string; icon: string }> = {
   modelQueryPlanning:  { bg: '#dbedff', color: '#0366d6', icon: 'bi-diagram-3' },
   searchIndex:         { bg: '#dcffe4', color: '#22863a', icon: 'bi-search' },
+  graphSearch:         { bg: '#e2f2ef', color: '#146c5a', icon: 'bi-diagram-3' },
   web:                 { bg: '#fff3cd', color: '#856404', icon: 'bi-globe' },
   modelWebSummarization:{ bg: '#fff1e6', color: '#9a4a00', icon: 'bi-file-text' },
   indexedSharePoint:   { bg: '#e8daef', color: '#6f42c1', icon: 'bi-file-earmark-richtext' },
@@ -111,14 +112,65 @@ function MetricPill({ label, value, unit }: { label: string; value: number | str
 
 /* ── Step card ──────────────────────────────────────────────── */
 
-function StepCard({ item, t, indent, status, timestampMetrics = false }: {
+function GraphSearchReference({ reference, t }: {
+  reference: Record<string, JsonValue>
+  t: TFunction
+}) {
+  const data = isActivityObject(reference.sourceData) ? reference.sourceData : null
+  const rows = Array.isArray(data?.rows) && data.rows.every(isActivityObject) ? data.rows : null
+  const name = typeof reference.id === 'string' ? ` · #${reference.id}` : ''
+  const label = `${t(rows ? 'actGraphSearchRows' : data ? 'actGraphSearchEvidence' : 'actGraphSearchReference')}${name}`
+  if (!rows) {
+    return (
+      <div>
+        <h6>{label}</h6>
+        {data ? (
+          <div className="mono jsonViewer__body rawJsonViewer">
+            <JsonViewer data={data} initialOpenDepth={2} maxStringLength={JSON_VIEWER_MAX_STRING_LENGTH} collapseArraysByDefault t={t} />
+          </div>
+        ) : <div className="field__hint">{t('actGraphSearchNoSourceData')}</div>}
+      </div>
+    )
+  }
+
+  const declaredColumns = Array.isArray(data?.columns) ? data.columns.filter((column): column is string => typeof column === 'string') : []
+  const columns = [...new Set([...declaredColumns, ...rows.flatMap((row) => Object.keys(row))])]
+  return (
+    <div>
+      <h6>{label}</h6>
+      {rows.length === 0 ? <div className="field__hint">{t('actGraphSearchNoRows')}</div> : columns.length === 0 ? (
+        <div className="mono jsonViewer__body rawJsonViewer">
+          <JsonViewer data={rows} initialOpenDepth={2} maxStringLength={JSON_VIEWER_MAX_STRING_LENGTH} t={t} />
+        </div>
+      ) : (
+        <div className="xt__wrap actTimeline__graphTable">
+          <table className="xt" aria-label={label}>
+            <thead><tr>{columns.map((column) => <th scope="col" key={column}>{column}</th>)}</tr></thead>
+            <tbody>{rows.map((row, index) => (
+              <tr key={index}>{columns.map((column) => {
+                const value = Object.hasOwn(row, column) ? row[column] : undefined
+                return <td key={column}>{typeof value === 'string' ? value : JSON.stringify(value)}</td>
+              })}</tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StepCard({ item, t, indent, status, graphReferences, timestampMetrics = false }: {
   item: ActivityItem
   t: TFunction
   indent?: boolean
   status?: StepStatus
+  graphReferences?: Record<string, JsonValue>[]
   timestampMetrics?: boolean
 }) {
   const [rawOpen, setRawOpen] = useState(false)
+  const graph = item.graphSearch
+  const referenceIndexName = graphReferences?.find((reference) => typeof reference.graphIndexName === 'string')?.graphIndexName
+  const graphIndexName = graph?.indexName ?? (typeof referenceIndexName === 'string' ? referenceIndexName : undefined)
 
   return (
     <div className={'actTimeline__step' + (indent ? ' actTimeline__step--indent' : '')}>
@@ -145,6 +197,10 @@ function StepCard({ item, t, indent, status, timestampMetrics = false }: {
         {item.retrievalReasoningEffort && <MetricPill label={t('actTimelineRetrievalEffort')} value={item.retrievalReasoningEffort} />}
         {item.modelName && <MetricPill label="model" value={item.modelName} />}
         {item.deploymentId && <MetricPill label="deployment" value={item.deploymentId} />}
+        {graphIndexName && <MetricPill label={t('actGraphSearchIndex')} value={graphIndexName} />}
+        {graph?.outcome && <MetricPill label={t('actGraphSearchOutcome')} value={graph.outcome} />}
+        {graph?.attempts !== undefined && <MetricPill label={t('actGraphSearchAttempts')} value={graph.attempts} />}
+        {graph?.modelElapsedMs !== undefined && <MetricPill label={t('actGraphSearchModelTime')} value={graph.modelElapsedMs} unit="ms" />}
       </div>
 
       {item.knowledgeSourceName && (
@@ -158,6 +214,18 @@ function StepCard({ item, t, indent, status, timestampMetrics = false }: {
           <i className="bi bi-search" style={{ marginRight: 4, fontSize: 11 }} />
           <code>{item.search}</code>
         </div>
+      )}
+      {graph?.gql && (
+        <div className="actTimeline__query actTimeline__query--gql">
+          <span>{t('actGraphSearchGql')}</span>
+          <code>{graph.gql}</code>
+        </div>
+      )}
+      {graphReferences && graphReferences.length > 0 && (
+        <section className="actTimeline__graphResults" aria-label={t('actGraphSearchResults')}>
+          <h5>{t('actGraphSearchResults')}</h5>
+          {graphReferences.map((reference, index) => <GraphSearchReference key={index} reference={reference} t={t} />)}
+        </section>
       )}
 
       <details className="resultCard__details" open={rawOpen} onToggle={(e) => setRawOpen((e.currentTarget as HTMLDetailsElement).open)}>
@@ -184,10 +252,10 @@ function StepCard({ item, t, indent, status, timestampMetrics = false }: {
 
 /* ── Parallel lane (for concurrent source queries) ──────────── */
 
-function ParallelLane({ sources, t, getStatus }: {
+function ParallelLane({ sources, t, renderActivity }: {
   sources: ActivityItem[]
   t: TFunction
-  getStatus: (item: ActivityItem) => StepStatus | undefined
+  renderActivity: (item: ActivityItem, indent: boolean) => React.ReactNode
 }) {
   if (sources.length === 0) return null
   const isMultiple = sources.length > 1
@@ -201,9 +269,7 @@ function ParallelLane({ sources, t, getStatus }: {
         </div>
       )}
       <div className={isMultiple ? 'actTimeline__parallelGrid' : ''}>
-        {sources.map((src) => (
-          <StepCard key={String(src.id)} item={src} t={t} indent={isMultiple} status={getStatus(src)} />
-        ))}
+        {sources.map((source) => renderActivity(source, isMultiple))}
       </div>
     </div>
   )
@@ -223,12 +289,21 @@ export interface AgenticActivityTimelineProps {
 export function AgenticActivityTimeline({ activity, t, runningActivityIds, response, streaming, language = 'en' }: AgenticActivityTimelineProps) {
   const [view, setView] = useState<'timeline' | 'graph' | 'trace'>('timeline')
   const items = activity.map(parseActivity).filter((x): x is ActivityItem => x !== null)
+  const body = response?.body
+  const graphReferences = useMemo(() => indexGraphSearchReferences(body), [body])
   const runningActivityIdSet = new Set(runningActivityIds)
   const getStatus = (item: ActivityItem): StepStatus | undefined => (
     item.raw.error ? 'error' : isUnfinishedCanceledActivity(item, response) ? 'incomplete' : runningActivityIds === undefined
       ? response?.runStatus === 'canceled' ? 'completed' : undefined
       : runningActivityIdSet.has(String(item.id)) ? streaming === false ? 'incomplete' : 'running' : 'completed'
   )
+  function renderActivity(item: ActivityItem, indent = false, timestampMetrics = false) {
+    const activityId = item.raw.id
+    const references = item.type === 'graphSearch' && (typeof activityId === 'number' || typeof activityId === 'string')
+      ? graphReferences.get(String(activityId))
+      : undefined
+    return <StepCard key={String(item.id)} item={item} t={t} status={getStatus(item)} indent={indent} timestampMetrics={timestampMetrics} graphReferences={references} />
+  }
 
   if (items.length === 0 && !response) return null
 
@@ -276,7 +351,7 @@ export function AgenticActivityTimeline({ activity, t, runningActivityIds, respo
           streaming={streaming}
           t={t}
           language={language}
-          renderActivity={(item) => <StepCard key={String(item.id)} item={item} t={t} status={getStatus(item)} />}
+          renderActivity={renderActivity}
         />
       ) : view === 'trace' ? (
         <AgenticActivityTrace
@@ -285,7 +360,7 @@ export function AgenticActivityTimeline({ activity, t, runningActivityIds, respo
           streaming={streaming}
           t={t}
           language={language}
-          renderActivity={(item) => <StepCard key={String(item.id)} item={item} t={t} status={getStatus(item)} timestampMetrics />}
+          renderActivity={(item) => renderActivity(item, false, true)}
         />
       ) : <div className="actTimeline__flow">
         {items.length === 0 && <div className="notice notice--info">{t('actGraphNoActivity')}</div>}
@@ -305,7 +380,7 @@ export function AgenticActivityTimeline({ activity, t, runningActivityIds, respo
             {round.planning && round.sources.length > 0 && <div className="actTimeline__arrow">↓</div>}
 
             {/* Source queries (parallel lane) */}
-            <ParallelLane sources={round.sources} t={t} getStatus={getStatus} />
+            <ParallelLane sources={round.sources} t={t} renderActivity={renderActivity} />
 
             {/* Connector to next round or to reasoning */}
             {ri < rounds.length - 1 && <div className="actTimeline__arrow">↓</div>}

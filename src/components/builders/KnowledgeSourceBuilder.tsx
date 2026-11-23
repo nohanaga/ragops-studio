@@ -17,6 +17,8 @@ import { InfoTooltip } from '../InfoTooltip'
 import { translations, type Language } from '../../lib/translations'
 import type { JsonValue } from '../../lib/aiSearchRest'
 import { getSearchApiCapabilities } from '../../lib/searchApiCapabilities'
+import { buildTopicGraph, readTopicGraph } from '../../utils/agenticPreview'
+import { TopicGraphFields } from './TopicGraphFields'
 import {
   buildMcpServerKnowledgeSourceBody,
   normalizeMcpServerParameters,
@@ -72,6 +74,7 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
       sourceDataFields: toNameArray(p.sourceDataFields),
       searchFields: toNameArray(p.searchFields),
       ...(isRecord(p.queryHints) && isJsonValue(p.queryHints) ? { queryHints: p.queryHints } : {}),
+      ...(isJsonValue(p.topicGraph) ? { topicGraph: readTopicGraph(p.topicGraph) } : {}),
     }
   }, [])
 
@@ -90,6 +93,7 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
       name: typeof ks.name === 'string' ? ks.name : '',
       kind: 'searchIndex',
       description: typeof ks.description === 'string' ? ks.description : null,
+      resultsProcessing: ks.resultsProcessing === 'none' ? 'none' : ks.resultsProcessing === 'rerank' ? 'rerank' : undefined,
       searchIndexParameters: normalizeSearchIndexParameters(ks.searchIndexParameters),
     }
   }, [normalizeSearchIndexParameters])
@@ -125,6 +129,24 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
     setQueryHintsJson('')
     setMcpServerJson('{\n  "serverURL": "",\n  "tools": []\n}')
   }, [])
+
+  function buildSearchIndexBody(queryHints: JsonValue | undefined): JsonValue {
+    const { topicGraph, ...parameters } = formData.searchIndexParameters
+    if (topicGraph && !capabilities.novemberAgentic) throw new Error(t('novemberAgenticRequired'))
+    return {
+      name: formData.name,
+      kind: 'searchIndex',
+      description: formData.description || null,
+      ...(capabilities.novemberAgentic && (topicGraph || formData.resultsProcessing === 'none')
+        ? { resultsProcessing: formData.resultsProcessing }
+        : {}),
+      searchIndexParameters: {
+        ...parameters,
+        ...(queryHints ? { queryHints } : {}),
+        ...(topicGraph ? { topicGraph: buildTopicGraph(topicGraph) } : {}),
+      },
+    }
+  }
 
   function parseQueryHints(): JsonValue | undefined {
     if (!capabilities.queryHints || !queryHintsJson.trim()) return undefined
@@ -184,15 +206,7 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
             mcpServerParameters: parseMcpServerParameters(),
             apiVersion: profile.apiVersion,
           })
-        : {
-            name: formData.name,
-            kind: 'searchIndex',
-            description: formData.description || null,
-            searchIndexParameters: {
-              ...normalizeSearchIndexParameters(formData.searchIndexParameters),
-              ...(queryHints ? { queryHints } : {}),
-            },
-          }
+        : buildSearchIndexBody(queryHints)
       const result = await createOrUpdateKnowledgeSource({
         profile,
         knowledgeSourceName: formData.name,
@@ -226,15 +240,7 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
             mcpServerParameters: parseMcpServerParameters(),
             apiVersion: profile.apiVersion,
           })
-        : {
-            name: formData.name,
-            kind: 'searchIndex',
-            description: formData.description || null,
-            searchIndexParameters: {
-              ...normalizeSearchIndexParameters(formData.searchIndexParameters),
-              ...(queryHints ? { queryHints } : {}),
-            },
-          }
+        : buildSearchIndexBody(queryHints)
       const result = await createOrUpdateKnowledgeSource({
         profile,
         knowledgeSourceName: formData.name,
@@ -290,7 +296,7 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
           searchIndexParameters: source.kind === 'searchIndex'
             ? source.searchIndexParameters
             : defaultSearchIndexParameters,
-          resultsProcessing: source.kind === 'mcpServer' ? source.resultsProcessing : 'rerank',
+          resultsProcessing: source.resultsProcessing ?? 'rerank',
         })
         setQueryHintsJson(source.kind === 'searchIndex' && source.searchIndexParameters.queryHints
           ? JSON.stringify(source.searchIndexParameters.queryHints, null, 2)
@@ -470,6 +476,26 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
                   placeholder={t('searchFieldsPlaceholder')}
                 />
               </label>
+              {capabilities.novemberAgentic && <>
+                <div className="field field--full field__hint">{t('topicGraphPrerequisite')}</div>
+                <TopicGraphFields stored disabled={loading} value={formData.searchIndexParameters.topicGraph} t={t} language={language} onChange={(topicGraph) => setFormData((previous) => ({
+                  ...previous, searchIndexParameters: { ...previous.searchIndexParameters, topicGraph },
+                  ...(topicGraph && topicGraph.kind !== 'none' ? { resultsProcessing: 'none' as const } : {}),
+                }))} />
+                <label className="field">
+                  <span className="field__label">
+                    {t('resultsProcessing')}
+                    <InfoTooltip tooltipKey="resultsProcessing" language={language} />
+                  </span>
+                  <select className="field__input" disabled={loading} value={formData.resultsProcessing} onChange={(event) => {
+                    const resultsProcessing = event.target.value === 'none' ? 'none' : 'rerank'
+                    setFormData((previous) => ({ ...previous, resultsProcessing }))
+                  }}>
+                    <option value="rerank">rerank</option>
+                    <option value="none">none</option>
+                  </select>
+                </label>
+              </>}
               <label className="field field--full">
                 <span className="field__label">
                   {t('queryHints')}

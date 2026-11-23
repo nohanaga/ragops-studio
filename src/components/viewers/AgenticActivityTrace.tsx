@@ -1,6 +1,6 @@
 import { useId, useMemo, useState, type ReactNode } from 'react'
 import {
-  activityStatusKeys, buildActivityGraph,
+  activityStatusKeys, buildActivityGraph, isSourceActivityType,
   type ActivityGraphStatus, type ActivityItem, type ActivityTranslator,
 } from '../../lib/agenticActivityGraph'
 import { buildActivityTiming, type ActivityTimingRow } from '../../lib/agenticActivityTiming'
@@ -32,7 +32,7 @@ function traceKind(item: ActivityItem): TraceKind {
   if (item.type === 'agenticReasoning') return 'reasoning'
   if (item.type === 'modelAnswerSynthesis') return 'synthesis'
   if (item.type.startsWith('model')) return 'model'
-  if (item.knowledgeSourceName || ['searchIndex', 'web', 'azureBlob', 'indexedSharePoint', 'mcpServer'].includes(item.type)) return 'source'
+  if (item.knowledgeSourceName || isSourceActivityType(item.type)) return 'source'
   return 'action'
 }
 

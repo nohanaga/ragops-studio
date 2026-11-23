@@ -439,7 +439,7 @@ async function postIndexDocumentsOperation(input: {
   body: JsonValue;
   language?: Language;
   signal?: AbortSignal;
-  operation: 'autocomplete' | 'suggest';
+  operation: 'autocomplete' | 'suggest' | 'search.graph';
 }): Promise<RestResult> {
   const lang = getLang(input.language);
   const endpoint = normalizeEndpoint(input.profile.endpoint);
@@ -549,6 +549,19 @@ async function postIndexDocumentsOperation(input: {
   };
 }
 
+export async function queryKnowledgeGraph(input: {
+  profile: ConnectionProfile;
+  indexName: string;
+  body: JsonValue;
+  language?: Language;
+  signal?: AbortSignal;
+}): Promise<RestResult> {
+  if (input.profile.apiVersion !== '2026-11-01-preview') {
+    throw new Error('Knowledge graph queries require API version 2026-11-01-preview.');
+  }
+  return postIndexDocumentsOperation({ ...input, apiVersion: input.profile.apiVersion, operation: 'search.graph' });
+}
+
 export async function autocompleteDocuments(input: {
   profile: ConnectionProfile;
   indexName: string;
@@ -653,6 +666,7 @@ export async function listIndexes(input: {
   profile: ConnectionProfile;
   apiVersion: SearchApiVersion;
   language?: Language;
+  signal?: AbortSignal;
 }): Promise<RestResult> {
   const lang = getLang(input.language);
   const endpoint = normalizeEndpoint(input.profile.endpoint);
@@ -676,13 +690,14 @@ export async function listIndexes(input: {
       profile: input.profile,
       initialUrl: url,
       language: lang,
+      signal: input.signal,
     });
   }
 
   async function requestPage(url: string): Promise<{ res?: Response; parsed?: { json?: JsonValue; text?: string }; networkError?: RestResult }> {
     let res: Response;
     try {
-      res = await fetch(url, { method: 'GET', headers });
+      res = await fetch(url, { method: 'GET', headers, signal: input.signal });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return { networkError: {
@@ -1517,6 +1532,7 @@ export async function getKnowledgeBase(input: {
 export async function listKnowledgeSources(input: {
   profile: ConnectionProfile;
   language?: Language;
+  signal?: AbortSignal;
 }): Promise<RestResult> {
   const lang = getLang(input.language);
   const endpoint = normalizeEndpoint(input.profile.endpoint);
@@ -1531,6 +1547,7 @@ export async function listKnowledgeSources(input: {
       profile: input.profile,
       initialUrl: `${collectionUrl}&pageSize=1000`,
       language: lang,
+      signal: input.signal,
     });
   }
 
@@ -1543,7 +1560,7 @@ export async function listKnowledgeSources(input: {
 
   let res: Response;
   try {
-    res = await fetch(url, { method: 'GET', headers });
+    res = await fetch(url, { method: 'GET', headers, signal: input.signal });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return {

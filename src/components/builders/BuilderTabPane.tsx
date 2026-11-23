@@ -65,6 +65,7 @@ export type BuilderTabPaneProps = {
   knowledgeBaseNameOptions: string[]
 
   availableKnowledgeSources: KnowledgeSourceInfo[]
+  availableKnowledgeTools?: import('../../utils/agenticPreview').KnowledgeBaseToolInfo[]
 
   // Forms
   searchForm: SearchFormState
@@ -175,6 +176,7 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
     buildRequestBuilderActiveSummary,
     isPreviewApiVersion,
     availableKnowledgeSources,
+    availableKnowledgeTools,
     searchForm,
     setSearchForm,
     agenticForm,
@@ -380,7 +382,10 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
               <select
                 className="field__input"
                 value={knowledgeBaseName}
-                onChange={(e) => setKnowledgeBaseName(e.target.value)}
+                onChange={(e) => {
+                  setKnowledgeBaseName(e.target.value)
+                  setAgenticForm((previous) => ({ ...previous, toolName: '', useToolDefaults: true, knowledgeSourceParams: [] }))
+                }}
                 disabled={!activeProfile || knowledgeBaseNamesLoading}
               >
                 <option value="">{t('placeholderUnset')}</option>
@@ -558,6 +563,7 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
           agenticForm={agenticForm}
           setAgenticForm={setAgenticForm}
           availableKnowledgeSources={availableKnowledgeSources}
+          availableKnowledgeTools={availableKnowledgeTools}
           effectiveApiVersion={effectiveApiVersion}
         />
         )}

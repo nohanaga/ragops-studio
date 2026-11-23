@@ -25,6 +25,7 @@ describe('SSE cancellation persistence', () => {
       labMode: 'agentic',
       activeProfile: { endpoint: 'https://example.search.windows.net', apiVersion: '2026-08-01-preview', authType: 'apiKey', apiKey: 'test-key' },
       indexName: '', knowledgeBaseName: 'kb', selectedExperimentId: experiment.experimentId,
+      builderMode: 'json',
       requestJson: JSON.stringify({ intents: [{ type: 'semantic', search: 'test' }], retrievalReasoningEffort: { kind: 'minimal' }, outputMode: 'extractiveData', includeActivity: true }),
       runNote: '', searchForm: DEFAULT_SEARCH_FORM,
       agenticForm: { userMessage: 'test', includeActivity: true, outputMode: 'extractiveData', maxRuntimeInSeconds: 60, maxOutputSize: 5000, retrievalReasoningEffort: 'minimal', streamResponse: true, knowledgeSourceParams: [] },

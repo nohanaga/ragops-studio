@@ -49,6 +49,7 @@ describe('hooks/useApiOperations', () => {
       labMode: 'agentic',
       activeProfile: { endpoint: 'https://example.search.windows.net', apiVersion: '2026-08-01-preview', authType: 'apiKey', apiKey: 'test-key' },
       indexName: '', knowledgeBaseName: 'kb', selectedExperimentId: experiments[0].experimentId,
+      builderMode: 'json',
       requestJson: JSON.stringify({ intents: [{ type: 'semantic', search: 'test' }], retrievalReasoningEffort: { kind: 'minimal' }, outputMode: 'extractiveData', includeActivity: true }),
       runNote: '',
       searchForm: DEFAULT_SEARCH_FORM,
@@ -141,6 +142,7 @@ describe('hooks/useApiOperations', () => {
         indexName: 'myindex',
         knowledgeBaseName: '',
         selectedExperimentId: exps[0].experimentId,
+        builderMode: 'json',
         requestJson: JSON.stringify({ search: 'hi', queryType: 'simple', top: 3, skip: 0, count: true }),
         runNote: 'saved note',
         agenticForm: {
