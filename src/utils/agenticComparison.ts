@@ -21,6 +21,20 @@ export function getAgenticComparisonSources(requestBody: JsonValue, activity: Js
   return { topicSettings, sourceByActivity }
 }
 
+/**
+ * The retrieval reasoning effort of a run. The `agenticReasoning` activity in the response holds the value the service
+ * applied, so it takes precedence over the request, which may omit the setting and inherit the knowledge base default.
+ */
+export function getAgenticReasoningEffort(requestBody: JsonValue, activity: JsonValue[] | null): string | undefined {
+  const kindOf = (value: JsonValue | undefined) => isJsonObject(value) && typeof value.kind === 'string' && value.kind ? value.kind : undefined
+  for (const step of activity ?? []) {
+    if (!isJsonObject(step) || step.type !== 'agenticReasoning') continue
+    const applied = kindOf(step.retrievalReasoningEffort)
+    if (applied) return applied
+  }
+  return isJsonObject(requestBody) ? kindOf(requestBody.retrievalReasoningEffort) : undefined
+}
+
 export function getAgenticDocumentIdentity(ref: Record<string, JsonValue> | null, sourceByActivity: ReadonlyMap<string, string>): string | undefined {
   if (!ref) return
   const { activitySource, docKey, blobUrl, knowledgeSourceName } = ref
@@ -30,6 +44,17 @@ export function getAgenticDocumentIdentity(ref: Record<string, JsonValue> | null
   if (!source) return
   if ((typeof docKey === 'string' && docKey.length > 0) || typeof docKey === 'number') return JSON.stringify([source, 'key', String(docKey)])
   if (ref.type === 'azureBlob' && typeof blobUrl === 'string' && blobUrl.trim()) return JSON.stringify([source, 'blob', blobUrl.trim()])
+}
+
+/** The index document key of a result identified by getAgenticDocumentIdentity, when it belongs to `sourceName`. */
+export function getDocumentKeyForSource(identity: string | undefined, sourceName: string): string | undefined {
+  if (!identity) return
+  try {
+    const parts: unknown = JSON.parse(identity)
+    if (Array.isArray(parts) && parts.length === 3 && parts[0] === sourceName && parts[1] === 'key' && typeof parts[2] === 'string') return parts[2]
+  } catch {
+    // Not an identity created from a document key.
+  }
 }
 
 export function getTopDocuments<T extends { documentIdentity?: string }>(items: readonly T[], limit: number) {

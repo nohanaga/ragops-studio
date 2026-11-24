@@ -119,6 +119,68 @@ describe('KnowledgeGraphPlayground controls', () => {
     expect(input).toHaveValue(custom)
   })
 
+  it('inserts a template generated from the loaded graph, announces it and restores the previous query on undo', async () => {
+    await openGraph()
+    const input = screen.getByRole('textbox', { name: 'GQL' })
+    const starter = (input as HTMLTextAreaElement).value
+    const card = screen.getByRole('heading', { name: 'Retrieve one relationship by node types' }).closest('article')!
+    expect(within(card).getByText('Values from this graph')).toBeVisible()
+    fireEvent.click(within(card).getByRole('button', { name: 'Insert into editor' }))
+    expect(input).toHaveValue([
+      'MATCH (a:Person)-[r]->(b:Person)',
+      "WHERE r.predicate = 'knows'",
+      'RETURN a.name AS subject, r.predicate AS predicate, b.name AS object',
+      'ORDER BY subject, object',
+      'LIMIT 25',
+    ].join('\n'))
+    expect(queryKnowledgeGraph).not.toHaveBeenCalled()
+    expect(screen.getByText('"Retrieve one relationship by node types" was put into the editor.')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(input).toHaveValue(starter)
+  })
+
+  it('runs a template immediately with its provenance setting and the required hydrateDocuments object', async () => {
+    vi.mocked(getIndexDefinition).mockImplementation(async ({ indexName }) =>
+      success({ name: indexName, ...definition, graphProfile: { ...definition.graphProfile, provenanceIndexName: 'chunks' } }))
+    vi.mocked(queryKnowledgeGraph).mockResolvedValue(success({ value: [] }))
+    await openGraph()
+    const card = screen.getByRole('heading', { name: 'See results with their evidence' }).closest('article')!
+    expect(within(card).getByText('Switches Provenance to hydrate.')).toBeVisible()
+    fireEvent.click(within(card).getByRole('button', { name: 'Insert and run' }))
+    await waitFor(() => expect(queryKnowledgeGraph).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(queryKnowledgeGraph).mock.calls[0][0].body).toMatchObject({
+      gql: expect.stringContaining("a.name = 'A' AND r.predicate = 'knows'"),
+      provenance: { kind: 'hydrate', hydrateDocuments: {} },
+    })
+    expect(screen.getByRole('combobox', { name: /Provenance/ })).toHaveValue('hydrate')
+  })
+
+  it('omits provenance from the request when none is selected', async () => {
+    vi.mocked(queryKnowledgeGraph).mockResolvedValue(success({ value: [] }))
+    await openGraph()
+    fireEvent.change(screen.getByRole('combobox', { name: /Provenance/ }), { target: { value: 'none' } })
+    fireEvent.click(screen.getByRole('button', { name: /Run query/ }))
+    await waitFor(() => expect(queryKnowledgeGraph).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(queryKnowledgeGraph).mock.calls[0][0].body).not.toHaveProperty('provenance')
+  })
+
+  it('suggests node types while typing and inserts the chosen suggestion', async () => {
+    await openGraph()
+    const input = screen.getByRole('textbox', { name: 'GQL' })
+    fireEvent.change(input, { target: { value: 'MATCH (a:Pe' } })
+    const suggestions = screen.getByRole('group', { name: 'Suggestions' })
+    fireEvent.click(within(suggestions).getByRole('button', { name: /^Person/ }))
+    expect(input).toHaveValue('MATCH (a:Person')
+  })
+
+  it('shows beginner hints for a query that is easy to get wrong', async () => {
+    await openGraph()
+    fireEvent.change(screen.getByRole('textbox', { name: 'GQL' }), { target: { value: "MATCH (a)-[r]->(b) WHERE a.name == 'A'" } })
+    const check = screen.getByRole('group', { name: 'Query check' })
+    expect(within(check).getByText(/"==" is not a GQL operator/)).toBeVisible()
+    expect(within(check).getByText(/RETURN is missing/)).toBeVisible()
+  })
+
   it('filters entity and topic candidates and shows graph-specific filter guidance', async () => {
     vi.mocked(listIndexes).mockResolvedValue(success({ value: [
       { name: 'graph-a', ...definition }, { name: 'graph-b', ...definition },

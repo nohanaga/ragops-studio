@@ -11,6 +11,8 @@ export type SearchApiCapabilities = {
   retrieveDefaults: boolean
   microsoftRetriever1: boolean
   novemberAgentic: boolean
+  /** Index schema additions: graphProfile, topicGraphProfiles, topicGraphProfile, openAICompatible vectorizer, random scoring. */
+  novemberIndexSchema: boolean
   perSourceResultsProcessing: boolean
   mcpServerKnowledgeSources: boolean
   mcpToolResultsProcessing: boolean
@@ -27,6 +29,7 @@ const LEGACY_CAPABILITIES: SearchApiCapabilities = {
   retrieveDefaults: false,
   microsoftRetriever1: false,
   novemberAgentic: false,
+  novemberIndexSchema: false,
   perSourceResultsProcessing: false,
   mcpServerKnowledgeSources: false,
   mcpToolResultsProcessing: false,
@@ -54,6 +57,7 @@ const PREVIEW_2026_08_CAPABILITIES: SearchApiCapabilities = {
   retrieveDefaults: true,
   microsoftRetriever1: false,
   novemberAgentic: false,
+  novemberIndexSchema: false,
   perSourceResultsProcessing: true,
   mcpServerKnowledgeSources: true,
   mcpToolResultsProcessing: true,
@@ -63,6 +67,7 @@ const PREVIEW_2026_11_CAPABILITIES: SearchApiCapabilities = {
   ...PREVIEW_2026_08_CAPABILITIES,
   microsoftRetriever1: true,
   novemberAgentic: true,
+  novemberIndexSchema: true,
 }
 
 export function getSearchApiCapabilities(apiVersion: SearchApiVersion | string | undefined): SearchApiCapabilities {

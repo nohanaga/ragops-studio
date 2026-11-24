@@ -442,6 +442,8 @@ export function AppLayout(props: {
   } = indexInspector
 
   const [isLlmSettingsOpen, setIsLlmSettingsOpen] = useState(false)
+  const [knowledgeBaseFocus, setKnowledgeBaseFocus] = useState<{ name: string; nonce: number } | null>(null)
+  const [knowledgeSourceFocus, setKnowledgeSourceFocus] = useState<{ name: string; nonce: number } | null>(null)
   const [isSearchTableCompareOpen, setIsSearchTableCompareOpen] = useState(false)
   const [graphToolTabs, setGraphToolTabs] = useState<Array<'knowledge-graph-playground' | 'ontology-editor'>>(
     () => centerTab === 'knowledge-graph-playground' || centerTab === 'ontology-editor' ? [centerTab] : [],
@@ -1313,13 +1315,13 @@ export function AppLayout(props: {
 
           {isKnowledgeSourceBuilderOpen && (
             <div className="tabPane" hidden={centerTab !== 'knowledge-source-builder'}>
-              <KnowledgeSourceBuilder profile={activeProfile} onClose={() => setCenterTab('builder')} language={language} />
+              <KnowledgeSourceBuilder profile={activeProfile} onClose={() => setCenterTab('builder')} language={language} focusRequest={knowledgeSourceFocus} />
             </div>
           )}
 
           {isKnowledgeBaseBuilderOpen && (
             <div className="tabPane" hidden={centerTab !== 'knowledge-base-builder'}>
-              <KnowledgeBaseBuilder profile={activeProfile} onClose={() => setCenterTab('builder')} language={language} />
+              <KnowledgeBaseBuilder profile={activeProfile} onClose={() => setCenterTab('builder')} language={language} focusRequest={knowledgeBaseFocus} />
             </div>
           )}
 
@@ -1352,6 +1354,16 @@ export function AppLayout(props: {
                 onOpenSynonymMapBuilder={() => {
                   setIsSynonymMapBuilderOpen(true)
                   setCenterTab('synonym-map-builder')
+                }}
+                onOpenKnowledgeSource={(name) => {
+                  setKnowledgeSourceFocus((previous) => ({ name, nonce: (previous?.nonce ?? 0) + 1 }))
+                  setIsKnowledgeSourceBuilderOpen(true)
+                  setCenterTab('knowledge-source-builder')
+                }}
+                onOpenKnowledgeBase={(name) => {
+                  setKnowledgeBaseFocus((previous) => ({ name, nonce: (previous?.nonce ?? 0) + 1 }))
+                  setIsKnowledgeBaseBuilderOpen(true)
+                  setCenterTab('knowledge-base-builder')
                 }}
                 copyToClipboard={copyToClipboard}
               />
@@ -1481,6 +1493,7 @@ export function AppLayout(props: {
                     views={resultViews}
                     language={language}
                     settings={settings}
+                    profile={activeProfile}
                     onClose={() => setIsSearchTableCompareOpen(false)}
                     onSelectView={(viewId) => setCenterTab(viewId)}
                   />

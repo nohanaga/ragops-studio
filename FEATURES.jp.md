@@ -85,7 +85,10 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 - **インデックス作成/更新**: JSON エディターでスキーマを編集して作成・更新
 - **Schema Workbench**: Field Matrix で `key`, `searchable`, `filterable`, `sortable`, `facetable`, `retrievable`、Lexical settings、Synonym maps、ベクトル dimensions / profile を編集
 - **インデックスレベル設定エディター**: Semantic、Scoring Profiles、Suggesters、Analyzers、Normalizers、Vector profiles をフォームで編集し、JSON に同期
+- **グラフプロファイル / トピックグラフエディター**: `graphProfile` のエッジリスト用 22 ロールへのフィールド割り当て、公式サンプルのグラフ用フィールドの追加、`vectorSearch.topicGraphProfiles` (`defaultKind`、`defaultDiversityFactor`、`defaultMinDiversityPoolSize`) の定義、`topicGraphProfile` によるベクトルフィールドとのリンクに対応し、公式ドキュメントの型・属性・範囲に沿って検証（`2026-11-01-preview`）
+- **`2026-11-01-preview` のその他のスキーマ追加**: `openAICompatible` ベクトライザーのパラメーターと `random` スコアリング関数 (`seedParameter`)。新しいエディターは他の API バージョンでは参照のみとなり、これらのプロパティを含むインデックスを古い API バージョンで保存しようとすると、サービスへ送信する前に停止
 - **差分確認付き公開**: 既存インデックスを更新する前に、セマンティック差分と正規化 JSON 差分を確認
+- **依存関係マップ**: 選択中のインデックスについて、ナレッジ ベース、ナレッジ ソース、トピック プロファイル、トピック用インデックスまでの参照関係を図で表示（矢印は参照する側から参照される側）。各リソースはそれぞれのビルダーで開け、インデックスにはドキュメント数を表示し、エディターの未保存の変更も保存前に反映
 - **Clone Assistant**: 既存インデックスから置き換え用の定義を作成し、破壊的なスキーマ変更が必要な再構築を支援
 - **インデックス削除**: 既存インデックスの削除
 - **統計情報取得**: `documentCount`, `storageSize`, `vectorIndexSize` の表示
@@ -274,6 +277,7 @@ RAGOps Studio を離れることなく、Azure AI Search の Custom Skill をブ
 #### Knowledge Graph Playground / Ontology Editor
 - **グラフの閲覧**: [エンティティグラフ](https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-entity-graph)と[トピックグラフ](https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-topic-graph)を可視化し、属性やトピックのタイトルを確認（`2026-11-01-preview`）
 - **GQL 検索**: クエリを実行し、結果グラフ、表、根拠文書、診断を表示
+- **GQL 入力ガイド（初心者向け）**: 取得したグラフの型・関係名・名前から作るテンプレート、実在するパターンを一覧できる「グラフの地図」、条件を選んで作るビルダーから始められます。入力中の候補表示、実行前の書き方チェック（全角記号、`==`、存在しない型名など）、クエリの各節の読み解きにも対応
 - **グラフ文書の編集**: フォームや JSON で修正・プレビューし、差分確認後に管理対象外のインデックスへ保存
 - **オントロジー編集**: JSON-LD の型と関係を編集し、既存の Blob ソースに適用（再処理キャッシュが必要）
 
@@ -379,8 +383,9 @@ RAGOps Studio を離れることなく、Azure AI Search の Custom Skill をブ
 - **ラン選択**: 複数ラン（最大10件）を選択して結果を並べて比較
 - **表比較**: `query` / `semantic` / `vector` / `hybrid` / `semantic_hybrid` / `agentic_retrieve` の順位付き結果を列単位で比較
   - 同一文書の順位変化、検索スコア、リランカースコア、応答時間、RAW 結果を表示
-  - **Agentic Retrieval の多様性比較**: Agentic の Run を 2 件以上選ぶと、ソース別の `kind`、`diversityFactor`、`minDiversityPoolSize` を基準 Run と比較できます。表示するのはリクエストに記録された値です。上書きがない場合、実行当時の実効値は表示しません。
+  - **Agentic Retrieval の多様性比較**: Agentic の Run を 2 件以上選ぶと、ソース別の `kind`、`diversityFactor`、`minDiversityPoolSize` を基準 Run と比較できます。表示するのはリクエストに記録された値です。上書きがない場合、実行当時の実効値は表示しません。各 Run のヘッダーには `retrievalReasoningEffort`(サービスが適用した値。応答の `agenticReasoning` アクティビティから読み取り、なければリクエストの値)も表示します。モデルによる計画を行う `low` 以上の Run と `minimal` の Run を取り違えないためです。モデルの計画で実行ごとに生成クエリが変わるため、比較には `minimal` を使ってください。
   - **上位文書の差分**: 上位 K 件（5、10、20、50）をソース名と文書キー（または Blob URL）で照合し、重複を除いて共通・追加・脱落を集計します。同じ質問と KB で `extractiveData` を使い、Activity と参照を含めて実行してください。照合情報や順位付きデータがない場合は集計しません。文書の差分はトピックの網羅率を示すものではありません。
+  - **トピックの網羅状況**: 「トピックを読み込む」で、ナレッジソースからコンテンツインデックス、ベクトルフィールドにリンクされたトピックグラフ プロファイル、トピックインデックスの順にたどります。トピックの階層と、比較対象の上位チャンクのベクトル(コンテンツインデックスの保存済みベクトル)を読み取り(書き込みなし)、各チャンクのベクトルでトピックインデックスをベクトル検索して、最も近い重心(`HasCentroidVector`)を持つ末端トピックに割り当てます。重心ベクトルを取得可能(retrievable)にする必要はありません。Run ごとに、トピックのツリーマップ(全 Run で同じ配置)、順位別のトピック色の帯、ヒットしたトピック数、実効トピック数(各トピックの割合 p から exp(−Σ p ln p))、カバー率(ヒットしたトピックのコーパス占有率の合計)を表示し、基準 Run との実効トピック数の差も確認できます。公開済みのトピックインデックスにはチャンクごとの所属が保存されていないため(公式ツールの `list-members` も重心への近さで判定します)、割り当ては構築時の分類と完全には一致しない推定値です。接続プロファイルの API バージョンは `2026-11-01-preview` が必要です。
   - スコア尺度は検索モードごとに異なるため、異種モード間では順位と同一文書の移動を中心に比較
 - **ラン削除**: 個別ランの削除
 - **クエリフィルター**: クエリテキストでランを絞り込み

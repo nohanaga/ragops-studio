@@ -18,6 +18,7 @@ import { useIndexPublishFlow } from '../../hooks/useIndexPublishFlow'
 import { PublishDiffModal } from './PublishDiffModal'
 import { IndexCloneAssistant } from './IndexCloneAssistant'
 import { IndexAliasManager } from './IndexAliasManager'
+import { IndexDependencyMap } from './IndexDependencyMap'
 import { IndexSchemaConfigurationEditorPanel, IndexSchemaOverview, type ConfigEditorTab } from './IndexSchemaOverview'
 import { applyIndexSchemaTemplate, type IndexSchemaTemplateKind } from './indexSchemaTemplates'
 
@@ -30,6 +31,8 @@ type IndexBuilderProps = {
   onClose: () => void
   onSearchIndex: (indexName: string) => void
   onOpenSynonymMapBuilder: () => void
+  onOpenKnowledgeSource?: (name: string) => void
+  onOpenKnowledgeBase?: (name: string) => void
   copyToClipboard: (text: string) => Promise<void>
 }
 
@@ -41,12 +44,13 @@ type IndexStats = {
   vectorIndexSize?: number
 }
 
-type IndexBuilderRightTab = 'schema' | 'config' | 'json' | 'clone' | 'aliases'
+type IndexBuilderRightTab = 'schema' | 'config' | 'json' | 'clone' | 'aliases' | 'dependencies'
 
 const indexBuilderRightTabs: Array<{ id: IndexBuilderRightTab; labelKey: keyof typeof translations.ja; icon: string }> = [
   { id: 'schema', labelKey: 'indexBuilderSchemaWorkbench', icon: 'bi-stars' },
   { id: 'config', labelKey: 'indexBuilderConfigEditors', icon: 'bi-ui-checks-grid' },
   { id: 'json', labelKey: 'indexBuilderJsonEditor', icon: 'bi-code-slash' },
+  { id: 'dependencies', labelKey: 'indexBuilderDependencies', icon: 'bi-bezier2' },
   { id: 'clone', labelKey: 'indexCloneAssistant', icon: 'bi-intersect' },
   { id: 'aliases', labelKey: 'indexBuilderAliases', icon: 'bi-signpost-split' },
 ]
@@ -55,6 +59,7 @@ const indexBuilderRightTabGuideTargets: Record<IndexBuilderRightTab, string> = {
   schema: 'index-builder-schema',
   config: 'index-builder-config',
   json: 'index-builder-editor',
+  dependencies: 'index-builder-dependencies',
   clone: 'index-builder-clone',
   aliases: 'index-builder-aliases',
 }
@@ -65,6 +70,8 @@ const indexTemplateLabelKeys: Record<IndexSchemaTemplateKind, keyof typeof trans
   scoringProfile: 'indexBuilderFeatureScoringProfiles',
   cors: 'indexBuilderFeatureCors',
   vectorSearch: 'indexBuilderFeatureVectorSearch',
+  graphProfile: 'indexBuilderFeatureGraphProfile',
+  topicGraph: 'indexBuilderFeatureTopicGraph',
 }
 
 const INDEX_BUILDER_SPLIT_STORAGE_KEY = 'ragops.indexBuilder.listPanePercent'
@@ -114,7 +121,7 @@ function formatCount(n: number | null | undefined, locale: string): string {
   }
 }
 
-export function IndexBuilder({ profile, apiVersion, activeIndexName, language, theme, onSearchIndex, onOpenSynonymMapBuilder, copyToClipboard }: IndexBuilderProps) {
+export function IndexBuilder({ profile, apiVersion, activeIndexName, language, theme, onSearchIndex, onOpenSynonymMapBuilder, onOpenKnowledgeSource, onOpenKnowledgeBase, copyToClipboard }: IndexBuilderProps) {
   const t = (key: keyof typeof translations.ja): string => String(translations[language][key] ?? '')
   const format = (key: keyof typeof translations.ja, params: Record<string, string | number>): string => {
     let text: string = t(key)
@@ -239,6 +246,35 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
   const confirmDiscardIfDirty = (): boolean => {
     if (!isDirty) return true
     return window.confirm(t('indexBuilderDiscardUnsavedConfirm'))
+  }
+
+  const draftIndexObject = useMemo<Record<string, unknown> | null>(() => {
+    const raw = editedJson.trim()
+    if (!raw) return null
+    try {
+      const parsed: unknown = JSON.parse(raw)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+      const name = (parsed as { name?: unknown }).name
+      return typeof name === 'string' && name.trim() ? (parsed as Record<string, unknown>) : null
+    } catch {
+      return null
+    }
+  }, [editedJson])
+  const dependencyFocusName = selectedName.trim() || (typeof draftIndexObject?.name === 'string' ? draftIndexObject.name.trim() : '')
+
+  const openDependencyIndex = (name: string) => {
+    if (name === selectedName.trim()) return
+    if (!confirmDiscardIfDirty()) return
+    setSelectedName(name)
+  }
+
+  const openTopicProfileEditor = (ownerIndexName: string) => {
+    if (ownerIndexName !== selectedName.trim()) {
+      if (!confirmDiscardIfDirty()) return
+      setSelectedName(ownerIndexName)
+    }
+    setActiveConfigEditorTab('topicGraph')
+    setRightTab('config')
   }
 
   const setEditorJson = (next: unknown) => {
@@ -849,6 +885,8 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
                   baselineJson={baselineJson}
                   isExistingIndex={isExistingSelectedIndex}
                   language={language}
+                  apiVersion={apiVersion}
+                  indexNames={indexNames}
                   onApplyTemplate={onApplySchemaTemplate}
                   onOpenConfigEditorTab={openConfigEditorTab}
                   onOpenSynonymMapBuilder={onOpenSynonymMapBuilder}
@@ -865,6 +903,8 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
                   baselineJson={baselineJson}
                   isExistingIndex={isExistingSelectedIndex}
                   language={language}
+                  apiVersion={apiVersion}
+                  indexNames={indexNames}
                   activeTab={activeConfigEditorTab}
                   onActiveTabChange={setActiveConfigEditorTab}
                   onChangeIndex={onChangeSchemaIndex}
@@ -898,6 +938,24 @@ export function IndexBuilder({ profile, apiVersion, activeIndexName, language, t
                     </div>
                   </div>
                 )}
+              </div>
+            ) : null}
+
+            {rightTab === 'dependencies' ? (
+              <div className="indexBuilderSubtabPanel" role="tabpanel">
+                <IndexDependencyMap
+                  profile={profile}
+                  apiVersion={apiVersion}
+                  language={language}
+                  focusIndexName={dependencyFocusName}
+                  draftIndex={draftIndexObject}
+                  draftDirty={isDirty}
+                  onOpenIndex={openDependencyIndex}
+                  onSearchIndex={onSearchIndex}
+                  onOpenTopicProfile={openTopicProfileEditor}
+                  onOpenKnowledgeSource={onOpenKnowledgeSource}
+                  onOpenKnowledgeBase={onOpenKnowledgeBase}
+                />
               </div>
             ) : null}
 

@@ -38,6 +38,8 @@ type KnowledgeSourceBuilderProps = {
   profile: ConnectionProfile | null
   onClose: () => void
   language: Language
+  /** Selects the named knowledge source when `nonce` changes, for example from the dependency map. */
+  focusRequest?: { name: string; nonce: number } | null
 }
 
 type KnowledgeSourceForm = {
@@ -48,7 +50,7 @@ type KnowledgeSourceForm = {
   resultsProcessing: 'rerank' | 'none'
 }
 
-export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBuilderProps) {
+export function KnowledgeSourceBuilder({ profile, language, focusRequest }: KnowledgeSourceBuilderProps) {
   const t = useCallback((key: keyof typeof translations.ja) => translations[language][key], [language])
   const capabilities = getSearchApiCapabilities(profile?.apiVersion)
 
@@ -312,6 +314,14 @@ export function KnowledgeSourceBuilder({ profile, language }: KnowledgeSourceBui
       setLoading(false)
     }
   }
+
+  const focusNonce = focusRequest?.nonce
+  useEffect(() => {
+    if (!profile || !focusRequest) return
+    void handleSelectSource(focusRequest.name)
+    // Only a new request (nonce) selects a knowledge source; later renders must not re-run it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, focusNonce])
 
   return (
     <div className="pane__centerContent">

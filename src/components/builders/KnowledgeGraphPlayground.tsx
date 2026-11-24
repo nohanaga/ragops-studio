@@ -5,10 +5,11 @@ import {
   listIndexes, listKnowledgeSources, queryKnowledgeGraph, searchDocuments, type JsonValue, type RestResult,
 } from '../../lib/aiSearchRest'
 import {
-  buildGraphDocumentBatch, buildGraphStarterQuery, buildKnowledgeGraph, buildOntologySourceUpdate, buildTopicTitleRows, getManagedGraphOwner, graphMappings, graphResultEvidenceIds,
-  classifyGraphIndexes, graphSourceIndex, isGraphBlobSource, type GraphIndexKind, type GraphIndexResource,
+  buildGraphDocumentBatch, buildGraphProvenanceRequest, buildGraphStarterQuery, buildKnowledgeGraph, buildOntologySourceUpdate, buildTopicTitleRows, getManagedGraphOwner, graphMappings, graphProvenanceIndexName, graphResultEvidenceIds,
+  classifyGraphIndexes, graphSourceIndex, isGraphBlobSource, type GraphIndexKind, type GraphIndexResource, type GraphProvenanceKind,
   KNOWLEDGE_GRAPH_API_VERSION, parseDocumentArray, parseOntology, requireObject, responseDocuments,
 } from '../../lib/knowledgeGraph'
+import { buildGqlVocabulary, EMPTY_GQL_VOCABULARY } from '../../lib/gqlAssist'
 import { translations, type Language } from '../../lib/translations'
 import type { ThemePreference } from '../../types'
 import type { JsonObject } from '../../app/json'
@@ -17,6 +18,8 @@ import { downloadText } from '../../utils/apiHelpers'
 import { getIndexKeyFieldName } from '../../utils/indexClone'
 import { GraphDocumentDialog, GraphDocumentEditor } from './GraphDocumentEditor'
 import { GraphJsonEditor } from './GraphJsonEditor'
+import { GqlAssistant, type GqlApplyRequest } from './GqlAssistant'
+import { GqlQueryCheck, GqlQueryExplain } from './GqlQueryHelper'
 import { GraphWorkspace } from './GraphWorkspace'
 import { KnowledgeGraphCanvas } from '../viewers/KnowledgeGraphCanvas'
 import { KnowledgeGraphResultPanel, ResultTable } from '../viewers/KnowledgeGraphResultPanel'
@@ -99,7 +102,12 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
   const editHintId = useId()
   const [editingDocuments, setEditingDocuments] = useState(false)
   const [query, setQuery] = useState({ text: '', automatic: true })
-  const [provenance, setProvenance] = useState<'none' | 'ids' | 'hydrate'>('ids')
+  const [provenance, setProvenance] = useState<GraphProvenanceKind>('ids')
+  const [caret, setCaret] = useState(0)
+  const [guideOpen, setGuideOpen] = useState(true)
+  const [applied, setApplied] = useState<{ title: string; previous: { text: string; automatic: boolean }; previousProvenance: GraphProvenanceKind } | null>(null)
+  const queryTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const guideId = useId()
   const [result, setResult] = useState<JsonValue | null>(null)
   const [resultRequestId, setResultRequestId] = useState('')
   const [resultEvidence, setResultEvidence] = useState<JsonObject[]>([])
@@ -145,6 +153,13 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
     } catch (e) { return { documents: [], graph: { nodes: [], edges: [] }, error: e instanceof Error ? e.message : String(e) } }
   }, [definition, draft])
   const selectedItem = parsed.graph.nodes.find((node) => node.id === selectedId) ?? parsed.graph.edges.find((edge) => edge.id === selectedId)
+  // GQL は Azure 上のデータを検索するため、編集中の草案ではなく取得時点の文書から入力候補を作ります。
+  const gqlVocabulary = useMemo(() => {
+    if (!definition || !loadedIndexName) return EMPTY_GQL_VOCABULARY
+    try {
+      return buildGqlVocabulary(buildKnowledgeGraph(definition, baseline), graphProvenanceIndexName(definition) !== undefined)
+    } catch { return EMPTY_GQL_VOCABULARY }
+  }, [definition, baseline, loadedIndexName])
   const dirty = draft !== JSON.stringify(baseline, null, 2)
   const owner = getManagedGraphOwner(sources, loadedIndexName)
   const documentReview = pending?.kind === 'documents' ? pending.body : null
@@ -279,15 +294,17 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
       }
     })
   }
-  async function runQuery() {
+  async function runQuery(override?: { text: string; provenance: GraphProvenanceKind }) {
     setQueryError(null)
     setResult(null)
     setResultEvidence([])
     setEvidenceWarning(null)
+    const gql = override?.text ?? query.text
+    const requestedProvenance = buildGraphProvenanceRequest(override?.provenance ?? provenance)
     await run(async (connection, signal) => {
       const response = await queryKnowledgeGraph({
         profile: connection, indexName: loadedIndexName, language, signal,
-        body: { gql: query.text, includeStatistics: true, includeDiagnostics: true, provenance: { kind: provenance }, ...(filter.trim() ? { filter } : {}) },
+        body: { gql, includeStatistics: true, includeDiagnostics: true, ...(requestedProvenance ? { provenance: requestedProvenance } : {}), ...(filter.trim() ? { filter } : {}) },
       })
       signal.throwIfAborted()
       if (!response.ok) {
@@ -324,6 +341,36 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
       setResultRequestId(response.requestId)
       setResult(response.response)
     }, 'query')
+  }
+  function applyGql(request: GqlApplyRequest) {
+    const nextProvenance = request.provenance ?? provenance
+    setApplied({ title: request.title, previous: query, previousProvenance: provenance })
+    setQuery({ text: request.gql, automatic: false })
+    setProvenance(nextProvenance)
+    setQueryError(null)
+    setCaret(request.gql.length)
+    if (request.run) void runQuery({ text: request.gql, provenance: nextProvenance })
+  }
+  function undoApplied() {
+    if (!applied) return
+    setQuery(applied.previous)
+    setProvenance(applied.previousProvenance)
+    setCaret(applied.previous.text.length)
+    setQueryError(null)
+    setApplied(null)
+  }
+  function applyCompletion(from: number, to: number, insertText: string) {
+    const position = from + insertText.length
+    setQuery({ text: query.text.slice(0, from) + insertText + query.text.slice(to), automatic: false })
+    setCaret(position)
+    setApplied(null)
+    setQueryError(null)
+    window.requestAnimationFrame(() => {
+      const area = queryTextareaRef.current
+      if (!area) return
+      area.focus()
+      area.setSelectionRange(position, position)
+    })
   }
   async function readOntology() {
     await run(async (connection, signal) => {
@@ -579,9 +626,28 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
         </div>
       </section>}
       <section className="section kgPanel kgQuerySection">
-        <div className="kgPanel__header"><h3 className="section__title"><i className="bi bi-terminal icon--mr6" />{t('kgQuery')}</h3><span className="kgBadge">GQL</span></div>
+        <div className="kgPanel__header"><h3 className="section__title"><i className="bi bi-terminal icon--mr6" />{t('kgQuery')}</h3><span className="kgBadge">GQL</span>
+          <button type="button" className="btn btn--secondary btn--sm" aria-expanded={guideOpen} aria-controls={guideId} onClick={() => setGuideOpen((open) => !open)}>
+            <i className="bi bi-mortarboard icon--mr6" aria-hidden="true" />{t(guideOpen ? 'kgGqlGuideHide' : 'kgGqlGuideShow')}
+          </button>
+        </div>
         <p className="field__hint">{t('kgQueryConstraintHint')} <a href="https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-entity-graph#query-the-graph-directly-with-gql" target="_blank" rel="noreferrer">{t('kgDocs')}</a></p>
-        <textarea className="field__textarea" aria-label="GQL" rows={4} value={query.text} placeholder={t('kgQueryPlaceholder')} onChange={(e) => { setQuery({ text: e.target.value, automatic: false }); setQueryError(null) }} />
+        <div id={guideId} className="kgGqlGuide" hidden={!guideOpen}>
+          <h4 className="kgGqlGuide__title"><i className="bi bi-mortarboard icon--mr6" aria-hidden="true" />{t('kgGqlGuide')}</h4>
+          <p className="field__hint">{t('kgGqlGuideHint')}</p>
+          <GqlAssistant language={language} vocabulary={gqlVocabulary} canRun={!busy && !!loadedIndexName} onApply={applyGql} />
+        </div>
+        {applied && <div className="notice notice--info kgGqlApplied" role="status">
+          <div>{t('kgGqlApplied').replace('{title}', applied.title)}</div>
+          <div className="notice__actions"><button type="button" className="btn btn--ghost btn--sm" onClick={undoApplied}>
+            <i className="bi bi-arrow-counterclockwise icon--mr6" aria-hidden="true" />{t('kgGqlUndo')}
+          </button></div>
+        </div>}
+        <div className="field__label kgGqlLabel">GQL <span aria-hidden="true">*</span> <InfoTooltip tooltipKey="graphGql" language={language} /></div>
+        <textarea ref={queryTextareaRef} className="field__textarea" aria-label="GQL" required spellCheck={false} rows={6} value={query.text} placeholder={t('kgQueryPlaceholder')}
+          onChange={(e) => { setQuery({ text: e.target.value, automatic: false }); setCaret(e.target.selectionStart); setApplied(null); setQueryError(null) }}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart)} />
+        <GqlQueryCheck text={query.text} caret={caret} vocabulary={gqlVocabulary} language={language} onComplete={applyCompletion} />
         {queryError && <div className="notice notice--error kgQueryError" role="alert">
           <div className="notice__title">{t('kgQueryError')}</div>
           <div>{queryError.message}</div>
@@ -591,11 +657,12 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
           </details>}
         </div>}
         <div className="kgQueryActions">
-          <label className="field"><span className="field__label">{t('kgProvenance')}</span><select className="field__input" value={provenance} onChange={(e) => setProvenance(e.target.value === 'hydrate' ? 'hydrate' : e.target.value === 'ids' ? 'ids' : 'none')}>
+          <label className="field"><span className="field__label">{t('kgProvenance')} <InfoTooltip tooltipKey="graphProvenance" language={language} /></span><select className="field__input" value={provenance} onChange={(e) => setProvenance(e.target.value === 'hydrate' ? 'hydrate' : e.target.value === 'ids' ? 'ids' : 'none')}>
             <option value="none">none</option><option value="ids">ids</option><option value="hydrate">hydrate</option>
           </select></label>
           <button className="btn btn--primary" disabled={busy || !loadedIndexName || !query.text.trim()} onClick={() => void runQuery()}><i className="bi bi-play-fill icon--mr6" />{t('kgRunQuery')}</button>
         </div>
+        {guideOpen && <GqlQueryExplain text={query.text} language={language} />}
         {result !== null && <KnowledgeGraphResultPanel key={resultRequestId} data={result} definition={definition}
           evidence={resultEvidence} evidenceWarning={evidenceWarning} language={language} theme={theme} />}
       </section>

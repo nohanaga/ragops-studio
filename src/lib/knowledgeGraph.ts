@@ -52,6 +52,31 @@ export function buildGraphStarterQuery(graph: WorkbenchGraph): string {
   return `MATCH (a)-[r:\`${predicate}\`]->(b) RETURN a.name AS subject, r.predicate AS predicate, b.name AS object LIMIT 25`
 }
 
+export type GraphProvenanceKind = 'none' | 'ids' | 'hydrate'
+
+// 直接 GQL の provenance は ids / hydrate のみ。hydrate には hydrateDocuments が必須で、none は省略で表す。
+export function buildGraphProvenanceRequest(kind: GraphProvenanceKind): JsonObject | undefined {
+  if (kind === 'ids') return { kind: 'ids' }
+  if (kind === 'hydrate') return { kind: 'hydrate', hydrateDocuments: {} }
+  return undefined
+}
+
+export function graphProvenanceIndexName(definition: JsonValue | null): string | undefined {
+  if (!isJsonObject(definition)) return undefined
+  const profile = definition.graphProfile ?? null
+  if (!isJsonObject(profile)) return undefined
+  const name = profile.provenanceIndexName
+  return typeof name === 'string' && name ? name : undefined
+}
+
+// buildKnowledgeGraph が値ノードに付ける ID は JSON.stringify([graph, 'literal', value]) 形式。
+export function isLiteralGraphNode(node: WorkbenchNode): boolean {
+  try {
+    const parts: unknown = JSON.parse(node.id)
+    return Array.isArray(parts) && parts[1] === 'literal'
+  } catch { return false }
+}
+
 export function requireObject(value: JsonValue, name: string): JsonObject {
   if (!isJsonObject(value)) throw new Error(`${name}: expected a JSON object.`)
   return value

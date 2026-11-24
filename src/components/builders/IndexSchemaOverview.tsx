@@ -8,15 +8,34 @@ import {
   ANALYZE_TOKENIZERS,
 } from '../../lib/analyzeCatalog'
 import { translations, type Language } from '../../lib/translations'
+import type { SearchApiVersion } from '../../lib/model'
+import { getSearchApiCapabilities } from '../../lib/searchApiCapabilities'
+import {
+  GRAPH_ROLE_COUNT,
+  collectVectorFieldLinks,
+  countMappedGraphRoles,
+  findNovemberIndexFeatures,
+  getTopicGraphProfiles,
+  readGraphProfile,
+  validateGraphProfile,
+  validateTopicGraphProfiles,
+  type GraphIssue,
+} from '../../lib/indexGraphProfiles'
+import { GraphProfileEditor, TopicGraphEditor } from './IndexGraphProfileEditor'
+import { InfoTooltip } from '../InfoTooltip'
 import type { IndexSchemaTemplateKind } from './indexSchemaTemplates'
 
 type TranslationKey = keyof typeof translations.ja
+
+const EMPTY_INDEX_NAMES: string[] = []
 
 type IndexSchemaOverviewProps = {
   editedJson: string
   baselineJson: string
   isExistingIndex: boolean
   language: Language
+  apiVersion?: SearchApiVersion | ''
+  indexNames?: string[]
   onApplyTemplate: (kind: IndexSchemaTemplateKind) => void
   onOpenConfigEditorTab: (tab: ConfigEditorTab) => void
   onOpenSynonymMapBuilder: () => void
@@ -29,13 +48,15 @@ type IndexSchemaConfigurationEditorPanelProps = {
   baselineJson: string
   isExistingIndex: boolean
   language: Language
+  apiVersion?: SearchApiVersion | ''
+  indexNames?: string[]
   activeTab: ConfigEditorTab
   onActiveTabChange: (tab: ConfigEditorTab) => void
   onChangeIndex: (nextIndex: Record<string, unknown>) => void
 }
 
 type FieldAttributeKey = 'key' | 'searchable' | 'filterable' | 'sortable' | 'facetable' | 'retrievable' | 'stored'
-type FieldTextSettingKey = 'analyzer' | 'indexAnalyzer' | 'searchAnalyzer' | 'normalizer' | 'synonymMaps' | 'dimensions' | 'vectorSearchProfile'
+type FieldTextSettingKey = 'analyzer' | 'indexAnalyzer' | 'searchAnalyzer' | 'normalizer' | 'synonymMaps' | 'dimensions' | 'vectorSearchProfile' | 'topicGraphProfile'
 type FieldEditorMode = 'lexical' | 'vector'
 type FieldUpdateability = 'safe' | 'rebuild' | 'review'
 
@@ -44,6 +65,8 @@ type FieldRule = {
   updateability: FieldUpdateability
   noteKey: TranslationKey
   required?: boolean
+  /** Editable on an existing index although the update impact still needs review. */
+  editableOnExisting?: boolean
 }
 
 type FieldSummary = {
@@ -67,6 +90,7 @@ type FieldSummary = {
   indexAnalyzer: string
   normalizer: string
   vectorSearchProfile: string
+  topicGraphProfile: string
   dimensions: string
   synonymMaps: string[]
   isVector: boolean
@@ -113,6 +137,15 @@ type SchemaAnalysis = {
   vectorProfileNames: string[]
   corsConfigured: boolean
   encryptionConfigured: boolean
+  novemberSchemaSupported: boolean
+  novemberFeatures: string[]
+  graphProfilePresent: boolean
+  graphMappedRoleCount: number
+  graphIssues: GraphIssue[]
+  topicGraphProfileNames: string[]
+  topicGraphProfileCount: number
+  topicGraphLinkedFieldCount: number
+  topicGraphIssues: GraphIssue[]
   healthIssues: HealthIssue[]
   impactItems: ImpactItem[]
   impactCounts: Record<ImpactSeverity, number>
@@ -199,6 +232,7 @@ function collectFieldSummaries(value: unknown, parentPath = '', depth = 0, paren
     const isComplex = isComplexFieldType(type)
     const isCollection = isCollectionFieldType(type)
     const vectorSearchProfile = asString(fieldValue.vectorSearchProfile)
+    const topicGraphProfile = asString(fieldValue.topicGraphProfile)
     const dimensions = asNumberOrString(fieldValue.dimensions)
     const synonymMaps = asArray(fieldValue.synonymMaps).map(asString).filter(Boolean)
     const isVector = isVectorFieldType(type) || !!dimensions || !!vectorSearchProfile
@@ -224,6 +258,7 @@ function collectFieldSummaries(value: unknown, parentPath = '', depth = 0, paren
       indexAnalyzer: asString(fieldValue.indexAnalyzer),
       normalizer: asString(fieldValue.normalizer),
       vectorSearchProfile,
+      topicGraphProfile,
       dimensions,
       synonymMaps,
       isVector,
@@ -280,6 +315,23 @@ function buildHealthIssues(analysis: Omit<SchemaAnalysis, 'healthIssues' | 'impa
   if (analysis.vectorFields.length > 0 && analysis.vectorProfileCount === 0) {
     issues.push({ severity: 'review', messageKey: 'indexBuilderSchemaIssueVectorSearchMissing' })
   }
+  if (analysis.graphIssues.length > 0) {
+    issues.push({
+      severity: analysis.graphIssues.some((issue) => issue.severity === 'error') ? 'rebuild' : 'review',
+      messageKey: 'indexBuilderSchemaIssueGraphProfile',
+      name: String(analysis.graphIssues.length),
+    })
+  }
+  if (analysis.topicGraphIssues.length > 0) {
+    issues.push({
+      severity: analysis.topicGraphIssues.some((issue) => issue.severity === 'error') ? 'rebuild' : 'review',
+      messageKey: 'indexBuilderSchemaIssueTopicGraph',
+      name: String(analysis.topicGraphIssues.length),
+    })
+  }
+  if (!analysis.novemberSchemaSupported && analysis.novemberFeatures.length > 0) {
+    issues.push({ severity: 'review', messageKey: 'indexBuilderSchemaIssueNovemberApi', name: analysis.novemberFeatures.join(', ') })
+  }
   return issues
 }
 
@@ -329,6 +381,9 @@ function buildImpactItems(rawBaselineJson: string, candidate: Record<string, unk
     if (stableJson(before.synonymMaps) !== stableJson(field.synonymMaps)) {
       items.push({ severity: 'safe', messageKey: 'indexBuilderSchemaImpactSynonymMaps', name: field.path })
     }
+    if (before.topicGraphProfile !== field.topicGraphProfile) {
+      items.push({ severity: 'review', messageKey: 'indexBuilderSchemaImpactTopicGraphLink', name: field.path })
+    }
   }
 
   for (const field of beforeFields) {
@@ -344,6 +399,7 @@ function buildImpactItems(rawBaselineJson: string, candidate: Record<string, unk
     { key: 'corsOptions', severity: 'safe', messageKey: 'indexBuilderSchemaImpactCors', name: 'corsOptions' },
     { key: 'encryptionKey', severity: 'safe', messageKey: 'indexBuilderSchemaImpactEncryption', name: 'encryptionKey' },
     { key: 'vectorSearch', severity: 'review', messageKey: 'indexBuilderSchemaImpactVectorSearch', name: 'vectorSearch' },
+    { key: 'graphProfile', severity: 'review', messageKey: 'indexBuilderSchemaImpactGraphProfile', name: 'graphProfile' },
     { key: 'analyzers', severity: 'review', messageKey: 'indexBuilderSchemaImpactAnalyzers', name: 'analyzers' },
     { key: 'normalizers', severity: 'review', messageKey: 'indexBuilderSchemaImpactNormalizers', name: 'normalizers' },
   ]
@@ -358,7 +414,13 @@ function buildImpactItems(rawBaselineJson: string, candidate: Record<string, unk
   return items.slice(0, 12)
 }
 
-function analyzeSchema(rawJson: string, rawBaselineJson: string, isExistingIndex: boolean): SchemaParseResult {
+function analyzeSchema(
+  rawJson: string,
+  rawBaselineJson: string,
+  isExistingIndex: boolean,
+  apiVersion: SearchApiVersion | '' | undefined,
+  indexNames: string[],
+): SchemaParseResult {
   const trimmed = rawJson.trim()
   if (!trimmed) return { ok: false, empty: true, error: '' }
 
@@ -377,6 +439,8 @@ function analyzeSchema(rawJson: string, rawBaselineJson: string, isExistingIndex
     .filter(isRecord)
     .map((profile) => asString(profile.name))
     .filter(Boolean)
+  const relatedIndexNames = indexNames.filter((name) => name !== asString(index.name))
+  const topicGraphProfileNames = getTopicGraphProfiles(index).map((profile) => asString(profile.name)).filter(Boolean)
   const analysisBase = {
     ok: true as const,
     index,
@@ -395,6 +459,15 @@ function analyzeSchema(rawJson: string, rawBaselineJson: string, isExistingIndex
     vectorProfileNames,
     corsConfigured: hasConfiguredObject(index.corsOptions),
     encryptionConfigured: hasConfiguredObject(index.encryptionKey),
+    novemberSchemaSupported: getSearchApiCapabilities(apiVersion).novemberIndexSchema,
+    novemberFeatures: findNovemberIndexFeatures(index),
+    graphProfilePresent: readGraphProfile(index).present,
+    graphMappedRoleCount: countMappedGraphRoles(index),
+    graphIssues: validateGraphProfile(index, { indexNames: relatedIndexNames }),
+    topicGraphProfileNames,
+    topicGraphProfileCount: getTopicGraphProfiles(index).length,
+    topicGraphLinkedFieldCount: collectVectorFieldLinks(index).filter((link) => link.topicGraphProfile).length,
+    topicGraphIssues: validateTopicGraphProfiles(index, { indexNames: relatedIndexNames }),
   }
   const impactItems = buildImpactItems(rawBaselineJson, index, isExistingIndex)
   const impactCounts = impactItems.reduce<Record<ImpactSeverity, number>>((counts, item) => {
@@ -530,6 +603,12 @@ function getAttributeRule(field: FieldSummary, attribute: FieldAttributeKey): Fi
 }
 
 function getTextSettingRule(field: FieldSummary, setting: FieldTextSettingKey): FieldRule {
+  if (setting === 'topicGraphProfile') {
+    return field.isVector
+      ? { supported: true, updateability: 'review', editableOnExisting: true, noteKey: 'indexBuilderFieldRuleTopicGraph' }
+      : { supported: false, updateability: 'review', noteKey: 'indexBuilderFieldRuleTopicGraph' }
+  }
+
   if (setting === 'dimensions' || setting === 'vectorSearchProfile') {
     return field.isVector
       ? { supported: true, updateability: 'rebuild', noteKey: 'indexBuilderFieldRuleVectorOnly' }
@@ -595,13 +674,14 @@ function fieldRuleSeverity(rule: FieldRule, isExistingIndex: boolean): ImpactSev
 }
 
 function canEditRule(rule: FieldRule, isExistingIndex: boolean): boolean {
-  return rule.supported && (!isExistingIndex || rule.updateability === 'safe')
+  return rule.supported && (!isExistingIndex || rule.updateability === 'safe' || rule.editableOnExisting === true)
 }
 
 function getTextSettingValue(field: FieldSummary, setting: FieldTextSettingKey): string {
   if (setting === 'synonymMaps') return field.synonymMaps.join(', ')
   if (setting === 'dimensions') return field.dimensions
   if (setting === 'vectorSearchProfile') return field.vectorSearchProfile
+  if (setting === 'topicGraphProfile') return field.topicGraphProfile
   return field[setting]
 }
 
@@ -632,6 +712,24 @@ function buildFeatureCards(analysis: SchemaAnalysis): FeatureCard[] {
       status: vectorStatus,
       templateKind: vectorStatus === 'configured' ? undefined : 'vectorSearch',
       configTab: 'vectorProfiles',
+    },
+    {
+      id: 'graphProfile',
+      icon: 'bi-share',
+      labelKey: 'indexBuilderFeatureGraphProfile',
+      countLabel: analysis.graphProfilePresent ? `${analysis.graphMappedRoleCount}/${GRAPH_ROLE_COUNT}` : '0',
+      status: !analysis.graphProfilePresent ? 'missing' : analysis.graphIssues.length === 0 ? 'configured' : 'partial',
+      templateKind: analysis.graphProfilePresent || !analysis.novemberSchemaSupported ? undefined : 'graphProfile',
+      configTab: 'graphProfile',
+    },
+    {
+      id: 'topicGraph',
+      icon: 'bi-diagram-2',
+      labelKey: 'indexBuilderFeatureTopicGraph',
+      countLabel: `${analysis.topicGraphLinkedFieldCount}/${analysis.topicGraphProfileCount}`,
+      status: analysis.topicGraphProfileCount === 0 ? 'missing' : analysis.topicGraphIssues.length === 0 ? 'configured' : 'partial',
+      templateKind: analysis.topicGraphProfileCount > 0 || analysis.vectorFields.length === 0 || !analysis.novemberSchemaSupported ? undefined : 'topicGraph',
+      configTab: 'topicGraph',
     },
     {
       id: 'semantic',
@@ -811,10 +909,11 @@ const lexicalSettingListIds: Partial<Record<FieldTextSettingKey, string>> = {
 const vectorSettingControls: Array<{ key: FieldTextSettingKey; labelKey: TranslationKey; icon: string }> = [
   { key: 'dimensions', labelKey: 'indexBuilderAttrDimensions', icon: 'bi-rulers' },
   { key: 'vectorSearchProfile', labelKey: 'indexBuilderAttrVectorProfile', icon: 'bi-diagram-3' },
+  { key: 'topicGraphProfile', labelKey: 'indexBuilderAttrTopicGraphProfile', icon: 'bi-diagram-2' },
 ]
 
-export type ConfigEditorTab = 'semantic' | 'scoringProfiles' | 'suggesters' | 'analyzers' | 'normalizers' | 'vectorProfiles'
-type ScoringFunctionType = 'magnitude' | 'freshness' | 'distance' | 'tag'
+export type ConfigEditorTab = 'semantic' | 'scoringProfiles' | 'suggesters' | 'analyzers' | 'normalizers' | 'vectorProfiles' | 'graphProfile' | 'topicGraph'
+type ScoringFunctionType = 'magnitude' | 'freshness' | 'distance' | 'tag' | 'random'
 type ScoringInterpolation = 'constant' | 'linear' | 'quadratic' | 'logarithmic'
 type ConfigInputKind = 'text' | 'number' | 'boolean' | 'multiline' | 'select'
 
@@ -834,9 +933,11 @@ const configEditorTabs: Array<{ id: ConfigEditorTab; labelKey: TranslationKey; i
   { id: 'analyzers', labelKey: 'indexBuilderEditorAnalyzers', icon: 'bi-braces' },
   { id: 'normalizers', labelKey: 'indexBuilderEditorNormalizers', icon: 'bi-filter-square' },
   { id: 'vectorProfiles', labelKey: 'indexBuilderEditorVectorProfiles', icon: 'bi-diagram-3' },
+  { id: 'graphProfile', labelKey: 'indexBuilderEditorGraphProfile', icon: 'bi-share' },
+  { id: 'topicGraph', labelKey: 'indexBuilderEditorTopicGraph', icon: 'bi-diagram-2' },
 ]
 
-const scoringFunctionTypes: ScoringFunctionType[] = ['magnitude', 'freshness', 'distance', 'tag']
+const scoringFunctionTypes: ScoringFunctionType[] = ['magnitude', 'freshness', 'distance', 'tag', 'random']
 const scoringInterpolations: ScoringInterpolation[] = ['constant', 'linear', 'quadratic', 'logarithmic']
 
 const indexConfigTooltips = {
@@ -852,7 +953,7 @@ const indexConfigTooltips = {
     defaultScoringProfile: 'query が scoringProfile を指定しない場合に適用される既定 profile です。',
     functionAggregation: '複数の scoring function の boost を sum/average/minimum/maximum/firstMatching/product などで結合します。',
     textWeights: 'searchable string field の一致に正の倍率を掛け、同じ語でも field によって重みを変えます。',
-    functionType: 'magnitude/freshness/distance/tag のいずれかです。function type は小文字で指定します。',
+    functionType: 'magnitude/freshness/distance/tag/random のいずれかです。function type は小文字で指定します。random は 2026-11-01-preview で追加されました。',
     scoringFieldName: 'scoring function の入力 field です。function は filterable field にのみ適用できます。',
     boost: 'raw score に掛ける正の倍率です。1.0 以外の正数を指定します。',
     interpolation: 'boost が範囲内でどう減衰するかを決める曲線です。linear が既定です。',
@@ -917,7 +1018,7 @@ const indexConfigTooltips = {
     hnswM: 'HNSW の双方向リンク数です。既定 4、範囲 4-10。低いほど noise が少なくなりやすい設定です。',
     hnswEfConstruction: 'index 作成時に使う近傍候補数です。既定 400、範囲 100-1000。',
     hnswEfSearch: '検索時に使う近傍候補数です。既定 500、範囲 100-1000。',
-    vectorizerKind: 'Azure OpenAI、AI Services Vision、Custom Web API など query time vectorization の方式です。',
+    vectorizerKind: 'Azure OpenAI、OpenAI 互換 (openAICompatible)、AI Services Vision、Custom Web API など query time vectorization の方式です。',
     resourceUri: 'vectorizer が呼び出す Azure OpenAI / AI Services などの resource URI です。',
     deploymentId: 'Azure OpenAI vectorizer が使用する embedding model deployment 名です。',
     modelName: 'vectorizer が使用する embedding model 名です。field dimensions と整合させます。',
@@ -932,6 +1033,11 @@ const indexConfigTooltips = {
     defaultOversampling: 'quantization の情報損失を補うため内部候補数を k 倍で増やします。既定は 4 です。',
     quantizedDataType: 'scalar quantization のデータ型です。現在は int8 のみサポートされます。',
     truncationDimension: 'Matryoshka 対応 embedding を短い次元に切り詰める設定です。',
+    seedParameter: 'シードとなる符号付き 64 ビット整数を、クエリ時に渡す scoring parameter の名前です。省略すると、リクエスト単位のランダムな順序になります。',
+    openAICompatibleUri: 'OpenAI 互換の埋め込みエンドポイントの完全な HTTPS POST URL です。パスやクエリパラメーターも含めて指定します。URL はそのまま送信され、パスや API バージョンは付加されず、リダイレクトにも従いません。',
+    openAICompatibleModelName: '埋め込みプロファイルです。実行時に使用できるのは text-embedding-ada-002、text-embedding-3-small、text-embedding-3-large のみです。送信本文には model が含まれないため、実際のモデルは URI またはゲートウェイ側で選択します。',
+    openAICompatibleDimensions: '出力次元数で、対象のベクトルフィールドの dimensions と一致させる必要があります。1 以上の整数です。省略すると、text-embedding-ada-002 と text-embedding-3-small では 1536、text-embedding-3-large では 3072 になります。',
+    openAICompatibleAudience: 'マネージド ID 認証に使用する、お客様のサードパーティ Microsoft Entra アプリケーションの GUID です。api:// のプレフィックスや /.default のサフィックスは付けません。headers とは同時に指定できません。新規作成時は headers (JSON エディターで指定) とこの値のどちらか一方が必要です。',
   },
   en: {
     configName: 'A configuration name. It must be unique within the same collection in an index and is referenced by fields or queries.',
@@ -945,7 +1051,7 @@ const indexConfigTooltips = {
     defaultScoringProfile: 'The default scoring profile applied when a query does not specify scoringProfile.',
     functionAggregation: 'Combines boosts from multiple scoring functions using sum, average, minimum, maximum, firstMatching, product, and related modes.',
     textWeights: 'Positive multipliers for searchable string fields so the same term can matter more in one field than another.',
-    functionType: 'One of magnitude, freshness, distance, or tag. Function type values must be lowercase.',
+    functionType: 'One of magnitude, freshness, distance, tag, or random. Function type values must be lowercase. random was added in 2026-11-01-preview.',
     scoringFieldName: 'The input field for the scoring function. Functions only apply to filterable fields.',
     boost: 'A positive multiplier for the raw score. It must be positive and not equal to 1.0.',
     interpolation: 'The curve controlling how boost decays across the range. Linear is the default.',
@@ -1010,7 +1116,7 @@ const indexConfigTooltips = {
     hnswM: 'HNSW bidirectional link count. Default 4, range 4-10; lower values can reduce noise.',
     hnswEfConstruction: 'Number of nearest neighbors used during indexing. Default 400, range 100-1000.',
     hnswEfSearch: 'Number of nearest neighbors used during search. Default 500, range 100-1000.',
-    vectorizerKind: 'Query-time vectorization kind such as Azure OpenAI, AI Services Vision, or Custom Web API.',
+    vectorizerKind: 'Query-time vectorization kind such as Azure OpenAI, OpenAI-compatible (openAICompatible), AI Services Vision, or Custom Web API.',
     resourceUri: 'Resource URI for Azure OpenAI, AI Services, or related vectorizer resources.',
     deploymentId: 'Azure OpenAI embedding model deployment used by the vectorizer.',
     modelName: 'Embedding model name used by the vectorizer. Keep it aligned with field dimensions.',
@@ -1025,6 +1131,11 @@ const indexConfigTooltips = {
     defaultOversampling: 'Increases internal candidate count by a multiplier to offset quantization loss. Default is 4.',
     quantizedDataType: 'Scalar quantization data type. int8 is currently supported.',
     truncationDimension: 'Truncates Matryoshka-capable embeddings to a shorter dimension.',
+    seedParameter: 'Name of the scoring parameter that supplies a signed 64-bit seed at query time. Omit it for request-scoped random ordering.',
+    openAICompatibleUri: 'The complete HTTPS embeddings POST URL, including any path and query parameters. It is sent unchanged without appending a path or API version, and redirects are not followed.',
+    openAICompatibleModelName: 'The embedding profile. Only text-embedding-ada-002, text-embedding-3-small, and text-embedding-3-large are supported at runtime. The outbound body omits model, so the URI or gateway must select the actual model.',
+    openAICompatibleDimensions: 'Output dimensions, which must match the target vector field. Integer of 1 or more. Defaults to 1536 for text-embedding-ada-002 and text-embedding-3-small, or 3072 for text-embedding-3-large.',
+    openAICompatibleAudience: 'GUID of your third-party Microsoft Entra application for managed identity authentication. Do not include an api:// prefix or /.default suffix. Mutually exclusive with headers. Creation requires either headers (set in the JSON editor) or this value.',
   },
 } as const
 
@@ -1066,6 +1177,10 @@ const scoringFunctionGuides = {
       title: 'Tag: query 側の tag と一致した document を押し上げる',
       desc: 'Edm.String / Collection(Edm.String) の tag field と scoringParameters の tag が一致したときに boost します。',
     },
+    random: {
+      title: 'Random: 結果をランダムな順序にする',
+      desc: '擬似乱数のスコアを割り当て、ハイブリッドクエリを含めてクエリのスコアとベクトル類似度のスコアを置き換えます。boost は指定しません。text weights や他の種類の関数とは併用できず、1 つのプロファイルに定義できるのは 1 つだけです。シードを固定する場合は seedParameter を指定します (2026-11-01-preview)。',
+    },
     curveTitle: 'Boost curve preview',
     yAxis: 'boost',
     xAxis: 'distance / age / range',
@@ -1087,6 +1202,10 @@ const scoringFunctionGuides = {
     tag: {
       title: 'Tag: boost matching tags',
       desc: 'Boosts documents when Edm.String or Collection(Edm.String) tag fields match tags passed through scoringParameters.',
+    },
+    random: {
+      title: 'Random: return results in random order',
+      desc: 'Assigns pseudo-random scores that replace the query and vector similarity scores, including for hybrid queries. It takes no boost, cannot be combined with text weights or other function types, and a profile can contain only one. Set seedParameter for a repeatable seed (2026-11-01-preview).',
     },
     curveTitle: 'Boost curve preview',
     yAxis: 'boost',
@@ -1118,24 +1237,26 @@ function ScoringFunctionGuide({ functionType, interpolation, boost, language }: 
         <div className="indexSchemaConfigEditor__guideDesc">{current.desc}</div>
         <div className="indexSchemaConfigEditor__guideHint">{guide.productHint}</div>
       </div>
-      <div className="indexSchemaConfigEditor__curve" aria-label={guide.curveTitle}>
-        <div className="indexSchemaConfigEditor__curveMeta">
-          <span>{guide.curveTitle}</span>
-          <strong>{normalizedInterpolation}</strong>
+      {functionType === 'random' ? null : (
+        <div className="indexSchemaConfigEditor__curve" aria-label={guide.curveTitle}>
+          <div className="indexSchemaConfigEditor__curveMeta">
+            <span>{guide.curveTitle}</span>
+            <strong>{normalizedInterpolation}</strong>
+          </div>
+          <svg viewBox="0 0 160 110" role="img" aria-label={`${normalizedInterpolation} ${guide.curveTitle}`}>
+            <line x1="12" y1="96" x2="150" y2="96" />
+            <line x1="12" y1="12" x2="12" y2="96" />
+            <path d={getInterpolationPath(normalizedInterpolation)} />
+            <circle cx="12" cy="20" r="3" />
+            <circle cx="148" cy="92" r="3" />
+          </svg>
+          <div className="indexSchemaConfigEditor__curveAxes">
+            <span>{guide.yAxis}</span>
+            <span>{guide.xAxis}</span>
+          </div>
+          <div className="indexSchemaConfigEditor__curveBoost">boost × {boost || '2'}</div>
         </div>
-        <svg viewBox="0 0 160 110" role="img" aria-label={`${normalizedInterpolation} ${guide.curveTitle}`}>
-          <line x1="12" y1="96" x2="150" y2="96" />
-          <line x1="12" y1="12" x2="12" y2="96" />
-          <path d={getInterpolationPath(normalizedInterpolation)} />
-          <circle cx="12" cy="20" r="3" />
-          <circle cx="148" cy="92" r="3" />
-        </svg>
-        <div className="indexSchemaConfigEditor__curveAxes">
-          <span>{guide.yAxis}</span>
-          <span>{guide.xAxis}</span>
-        </div>
-        <div className="indexSchemaConfigEditor__curveBoost">boost × {boost || '2'}</div>
-      </div>
+      )}
     </div>
   )
 }
@@ -1451,7 +1572,13 @@ function setScoringFunctionType(scoringFunction: Record<string, unknown>, type: 
   for (const functionType of scoringFunctionTypes) {
     if (functionType !== type) delete next[functionType]
   }
-  if (!isRecord(next[type])) next[type] = {}
+  if (type === 'random') {
+    // A random function takes neither a field nor a boost, and its parameters are optional.
+    delete next.fieldName
+    delete next.boost
+  } else if (!isRecord(next[type])) {
+    next[type] = {}
+  }
   return next
 }
 
@@ -1817,27 +1944,31 @@ function ScoringProfilesEditor({ analysis, t, language, onChangeIndex }: {
                             value={functionType}
                             onChange={(event) => onChangeIndex(updateTopLevelCollectionItem(analysis.index, 'scoringProfiles', profileIndex, (nextProfile) => updateScoringFunction(nextProfile, functionIndex, (nextFunction) => setScoringFunctionType(nextFunction, event.currentTarget.value as ScoringFunctionType))))}
                           >
-                            {scoringFunctionTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                            {scoringFunctionTypes.map((type) => <option key={type} value={type} disabled={type === 'random' && functionType !== 'random' && !analysis.novemberSchemaSupported}>{type}</option>)}
                           </select>
                         </label>
-                        <label className="field">
-                          <ConfigLabel label={t('indexBuilderFieldName')} tooltipKey="scoringFieldName" language={language} />
-                          <input
-                            className="field__input"
-                            list="indexBuilderScoringFunctionFieldOptions"
-                            value={asString(scoringFunction.fieldName)}
-                            onChange={(event) => onChangeIndex(updateTopLevelCollectionItem(analysis.index, 'scoringProfiles', profileIndex, (nextProfile) => updateScoringFunction(nextProfile, functionIndex, (nextFunction) => setOptionalRecordValue(nextFunction, 'fieldName', event.currentTarget.value))))}
-                          />
-                        </label>
-                        <label className="field">
-                          <ConfigLabel label={t('indexBuilderBoost')} tooltipKey="boost" language={language} />
-                          <input
-                            className="field__input"
-                            type="number"
-                            value={asNumberOrString(scoringFunction.boost)}
-                            onChange={(event) => onChangeIndex(updateTopLevelCollectionItem(analysis.index, 'scoringProfiles', profileIndex, (nextProfile) => updateScoringFunction(nextProfile, functionIndex, (nextFunction) => setOptionalRecordValue(nextFunction, 'boost', parseOptionalNumber(event.currentTarget.value)))))}
-                          />
-                        </label>
+                        {functionType !== 'random' ? (
+                          <>
+                            <label className="field">
+                              <ConfigLabel label={t('indexBuilderFieldName')} tooltipKey="scoringFieldName" language={language} />
+                              <input
+                                className="field__input"
+                                list="indexBuilderScoringFunctionFieldOptions"
+                                value={asString(scoringFunction.fieldName)}
+                                onChange={(event) => onChangeIndex(updateTopLevelCollectionItem(analysis.index, 'scoringProfiles', profileIndex, (nextProfile) => updateScoringFunction(nextProfile, functionIndex, (nextFunction) => setOptionalRecordValue(nextFunction, 'fieldName', event.currentTarget.value))))}
+                              />
+                            </label>
+                            <label className="field">
+                              <ConfigLabel label={t('indexBuilderBoost')} tooltipKey="boost" language={language} />
+                              <input
+                                className="field__input"
+                                type="number"
+                                value={asNumberOrString(scoringFunction.boost)}
+                                onChange={(event) => onChangeIndex(updateTopLevelCollectionItem(analysis.index, 'scoringProfiles', profileIndex, (nextProfile) => updateScoringFunction(nextProfile, functionIndex, (nextFunction) => setOptionalRecordValue(nextFunction, 'boost', parseOptionalNumber(event.currentTarget.value)))))}
+                              />
+                            </label>
+                          </>
+                        ) : null}
                         <label className="field">
                           <ConfigLabel label={t('indexBuilderInterpolation')} tooltipKey="interpolation" language={language} />
                           <select
@@ -1922,6 +2053,18 @@ function ScoringProfilesEditor({ analysis, t, language, onChangeIndex }: {
                               className="field__input"
                               value={asString(parameters.tagsParameter)}
                               onChange={(event) => onChangeIndex(updateTopLevelCollectionItem(analysis.index, 'scoringProfiles', profileIndex, (nextProfile) => updateScoringFunction(nextProfile, functionIndex, (nextFunction) => setScoringFunctionParameter(nextFunction, functionType, 'tagsParameter', event.currentTarget.value))))}
+                            />
+                          </label>
+                        ) : null}
+
+                        {functionType === 'random' ? (
+                          <label className="field">
+                            <ConfigLabel label={t('indexBuilderSeedParameter')} tooltipKey="seedParameter" language={language} />
+                            <input
+                              className="field__input"
+                              value={asString(parameters.seedParameter)}
+                              disabled={!analysis.novemberSchemaSupported}
+                              onChange={(event) => onChangeIndex(updateTopLevelCollectionItem(analysis.index, 'scoringProfiles', profileIndex, (nextProfile) => updateScoringFunction(nextProfile, functionIndex, (nextFunction) => setScoringFunctionParameter(nextFunction, functionType, 'seedParameter', event.currentTarget.value))))}
                             />
                           </label>
                         ) : null}
@@ -2214,7 +2357,13 @@ function VectorizerOptionsEditor({ item, language, onApply }: {
   onApply: (nextItem: Record<string, unknown>) => void
 }) {
   const kind = asString(item.kind)
-  const parameterGroup = kind === 'customWebApi' ? 'customWebApiParameters' : kind === 'aiServicesVision' ? 'aiServicesVisionParameters' : 'azureOpenAIParameters'
+  const parameterGroup = kind === 'customWebApi'
+    ? 'customWebApiParameters'
+    : kind === 'aiServicesVision'
+      ? 'aiServicesVisionParameters'
+      : kind === 'openAICompatible'
+        ? 'openAICompatibleParameters'
+        : 'azureOpenAIParameters'
   const options: ConfigInputOption[] = kind === 'customWebApi'
     ? [
         { key: 'uri', label: 'uri', tooltipKey: 'vectorizerUri', kind: 'text' },
@@ -2223,13 +2372,20 @@ function VectorizerOptionsEditor({ item, language, onApply }: {
         { key: 'authResourceId', label: 'authResourceId', tooltipKey: 'authResourceId', kind: 'text' },
         { key: 'authIdentity', label: 'authIdentity', tooltipKey: 'authIdentity', kind: 'text' },
       ]
-    : [
-        { key: 'resourceUri', label: 'resourceUri', tooltipKey: 'resourceUri', kind: 'text' },
-        { key: 'deploymentId', label: 'deploymentId', tooltipKey: 'deploymentId', kind: 'text' },
-        { key: 'modelName', label: 'modelName', tooltipKey: 'modelName', kind: 'text' },
-        { key: 'apiKey', label: 'apiKey', tooltipKey: 'apiKey', kind: 'text' },
-        { key: 'authIdentity', label: 'authIdentity', tooltipKey: 'authIdentity', kind: 'text' },
-      ]
+    : kind === 'openAICompatible'
+      ? [
+          { key: 'uri', label: 'uri', tooltipKey: 'openAICompatibleUri', kind: 'text', placeholder: 'https://' },
+          { key: 'modelName', label: 'modelName', tooltipKey: 'openAICompatibleModelName', kind: 'select', values: ['text-embedding-ada-002', 'text-embedding-3-small', 'text-embedding-3-large'] },
+          { key: 'dimensions', label: 'dimensions', tooltipKey: 'openAICompatibleDimensions', kind: 'number' },
+          { key: 'managedIdentityAudience', label: 'managedIdentityAudience', tooltipKey: 'openAICompatibleAudience', kind: 'text' },
+        ]
+      : [
+          { key: 'resourceUri', label: 'resourceUri', tooltipKey: 'resourceUri', kind: 'text' },
+          { key: 'deploymentId', label: 'deploymentId', tooltipKey: 'deploymentId', kind: 'text' },
+          { key: 'modelName', label: 'modelName', tooltipKey: 'modelName', kind: 'text' },
+          { key: 'apiKey', label: 'apiKey', tooltipKey: 'apiKey', kind: 'text' },
+          { key: 'authIdentity', label: 'authIdentity', tooltipKey: 'authIdentity', kind: 'text' },
+        ]
 
   return (
     <div className="indexSchemaConfigEditor__grid indexSchemaConfigEditor__grid--compact">
@@ -2584,7 +2740,7 @@ function VectorProfilesEditor({ analysis, t, language, onChangeIndex }: {
                   <div key={`${section.propertyName}-${itemIndex}`} className={`indexSchemaConfigEditor__nestedCard ${section.propertyName === 'vectorizers' ? 'indexSchemaConfigEditor__nestedCard--vectorizer' : 'indexSchemaConfigEditor__nestedCard--vectorCompression'}`}>
                     <div className="indexSchemaConfigEditor__grid indexSchemaConfigEditor__grid--compact">
                       <label className={`field ${section.propertyName === 'vectorizers' ? 'field--vectorizer' : 'field--vectorCompression'}`}><ConfigLabel label={t('indexBuilderConfigName')} tooltipKey="configName" language={language} /><input className="field__input" value={asString(item.name)} onChange={(event) => onChangeIndex(updateVectorSearchCollectionItem(analysis.index, section.propertyName, itemIndex, (nextItem) => setOptionalRecordValue(nextItem, 'name', event.currentTarget.value)))} /></label>
-                      <label className={`field ${section.propertyName === 'vectorizers' ? 'field--vectorizer' : 'field--vectorCompression'}`}><ConfigLabel label={t('indexBuilderKind')} tooltipKey={section.propertyName === 'vectorizers' ? 'vectorizerKind' : 'compressionKind'} language={language} /><input className="field__input" value={asString(item.kind)} onChange={(event) => onChangeIndex(updateVectorSearchCollectionItem(analysis.index, section.propertyName, itemIndex, (nextItem) => setOptionalRecordValue(nextItem, 'kind', event.currentTarget.value)))} /></label>
+                      <label className={`field ${section.propertyName === 'vectorizers' ? 'field--vectorizer' : 'field--vectorCompression'}`}><ConfigLabel label={t('indexBuilderKind')} tooltipKey={section.propertyName === 'vectorizers' ? 'vectorizerKind' : 'compressionKind'} language={language} /><input className="field__input" list={section.propertyName === 'vectorizers' ? 'indexBuilderVectorizerKinds' : undefined} value={asString(item.kind)} onChange={(event) => onChangeIndex(updateVectorSearchCollectionItem(analysis.index, section.propertyName, itemIndex, (nextItem) => setOptionalRecordValue(nextItem, 'kind', event.currentTarget.value)))} /></label>
                       {section.propertyName === 'vectorizers' ? (
                         <VectorizerOptionsEditor item={item} language={language} onApply={(nextItem) => onChangeIndex(updateVectorSearchCollectionItem(analysis.index, section.propertyName, itemIndex, () => nextItem))} />
                       ) : (
@@ -2602,13 +2758,15 @@ function VectorProfilesEditor({ analysis, t, language, onChangeIndex }: {
       <FieldOptionsDatalist id="indexBuilderVectorAlgorithmNames" options={algorithmNames} />
       <FieldOptionsDatalist id="indexBuilderVectorizerNames" options={vectorizerNames} />
       <FieldOptionsDatalist id="indexBuilderCompressionNames" options={compressionNames} />
+      <FieldOptionsDatalist id="indexBuilderVectorizerKinds" options={['azureOpenAI', 'openAICompatible', 'customWebApi', 'aiServicesVision']} />
     </section>
   )
 }
 
-function IndexSchemaConfigurationEditors({ analysis, isExistingIndex, t, language, activeTab, onActiveTabChange, onChangeIndex }: {
+function IndexSchemaConfigurationEditors({ analysis, isExistingIndex, indexNames, t, language, activeTab, onActiveTabChange, onChangeIndex }: {
   analysis: SchemaAnalysis
   isExistingIndex: boolean
+  indexNames: string[]
   t: (key: TranslationKey) => string
   language: Language
   activeTab: ConfigEditorTab
@@ -2646,14 +2804,20 @@ function IndexSchemaConfigurationEditors({ analysis, isExistingIndex, t, languag
         {activeTab === 'analyzers' ? <AnalyzersEditor analysis={analysis} t={t} language={language} onChangeIndex={onChangeIndex} /> : null}
         {activeTab === 'normalizers' ? <NormalizersEditor analysis={analysis} t={t} language={language} onChangeIndex={onChangeIndex} /> : null}
         {activeTab === 'vectorProfiles' ? <VectorProfilesEditor analysis={analysis} t={t} language={language} onChangeIndex={onChangeIndex} /> : null}
+        {activeTab === 'graphProfile' ? (
+          <GraphProfileEditor index={analysis.index} language={language} t={t} onChangeIndex={onChangeIndex} indexNames={indexNames} readOnly={!analysis.novemberSchemaSupported} />
+        ) : null}
+        {activeTab === 'topicGraph' ? (
+          <TopicGraphEditor index={analysis.index} language={language} t={t} onChangeIndex={onChangeIndex} indexNames={indexNames} readOnly={!analysis.novemberSchemaSupported} />
+        ) : null}
       </div>
     </section>
   )
 }
 
-export function IndexSchemaConfigurationEditorPanel({ editedJson, baselineJson, isExistingIndex, language, activeTab, onActiveTabChange, onChangeIndex }: IndexSchemaConfigurationEditorPanelProps) {
+export function IndexSchemaConfigurationEditorPanel({ editedJson, baselineJson, isExistingIndex, language, apiVersion, indexNames = EMPTY_INDEX_NAMES, activeTab, onActiveTabChange, onChangeIndex }: IndexSchemaConfigurationEditorPanelProps) {
   const t = (key: TranslationKey): string => String(translations[language][key] ?? '')
-  const analysis = useMemo(() => analyzeSchema(editedJson, baselineJson, isExistingIndex), [editedJson, baselineJson, isExistingIndex])
+  const analysis = useMemo(() => analyzeSchema(editedJson, baselineJson, isExistingIndex, apiVersion, indexNames), [editedJson, baselineJson, isExistingIndex, apiVersion, indexNames])
 
   if (!analysis.ok) {
     return (
@@ -2678,6 +2842,7 @@ export function IndexSchemaConfigurationEditorPanel({ editedJson, baselineJson, 
       <IndexSchemaConfigurationEditors
         analysis={analysis}
         isExistingIndex={isExistingIndex}
+        indexNames={indexNames}
         t={t}
         language={language}
         activeTab={activeTab}
@@ -2688,9 +2853,9 @@ export function IndexSchemaConfigurationEditorPanel({ editedJson, baselineJson, 
   )
 }
 
-export function IndexSchemaOverview({ editedJson, baselineJson, isExistingIndex, language, onApplyTemplate, onOpenConfigEditorTab, onOpenSynonymMapBuilder, synonymMapNames, onChangeIndex }: IndexSchemaOverviewProps) {
+export function IndexSchemaOverview({ editedJson, baselineJson, isExistingIndex, language, apiVersion, indexNames = EMPTY_INDEX_NAMES, onApplyTemplate, onOpenConfigEditorTab, onOpenSynonymMapBuilder, synonymMapNames, onChangeIndex }: IndexSchemaOverviewProps) {
   const t = (key: TranslationKey): string => String(translations[language][key] ?? '')
-  const analysis = useMemo(() => analyzeSchema(editedJson, baselineJson, isExistingIndex), [editedJson, baselineJson, isExistingIndex])
+  const analysis = useMemo(() => analyzeSchema(editedJson, baselineJson, isExistingIndex, apiVersion, indexNames), [editedJson, baselineJson, isExistingIndex, apiVersion, indexNames])
   const lexicalSettingOptions = useMemo(() => {
     if (!analysis.ok) return { analyzers: [...ANALYZE_ANALYZERS], normalizers: [...ANALYZE_NORMALIZERS], synonymMaps: synonymMapNames }
     const customAnalyzerNames = asArray(analysis.index.analyzers).filter(isRecord).map((analyzer) => asString(analyzer.name))
@@ -3079,24 +3244,25 @@ export function IndexSchemaOverview({ editedJson, baselineJson, isExistingIndex,
                       <div className="indexSchemaFieldSettings__formGrid indexSchemaFieldSettings__formGrid--compact">
                         {vectorSettingControls.map((control) => {
                           const rule = getTextSettingRule(selectedField, control.key)
-                          const disabled = !canEditRule(rule, isExistingIndex)
+                          const disabled = !canEditRule(rule, isExistingIndex) || (control.key === 'topicGraphProfile' && !analysis.novemberSchemaSupported)
                           const severity = fieldRuleSeverity(rule, isExistingIndex)
                           return (
                             <label key={control.key} className="indexSchemaFieldSettings__inputField">
                               <span className="indexSchemaFieldSettings__inputLabel">
                                 <i className={`bi ${control.icon} icon--mr6`}></i>
                                 {t(control.labelKey)}
+                                {control.key === 'topicGraphProfile' ? <InfoTooltip tooltipKey="indexFieldTopicGraphProfile" language={language} /> : null}
                               </span>
                               <input
                                 className="field__input"
                                 type={control.key === 'dimensions' ? 'number' : 'text'}
                                 min={control.key === 'dimensions' ? 2 : undefined}
                                 max={control.key === 'dimensions' ? 4096 : undefined}
-                                list={control.key === 'vectorSearchProfile' ? 'indexBuilderVectorProfiles' : undefined}
+                                list={control.key === 'vectorSearchProfile' ? 'indexBuilderVectorProfiles' : control.key === 'topicGraphProfile' ? 'indexBuilderTopicGraphProfileNames' : undefined}
                                 value={getTextSettingValue(selectedField, control.key)}
                                 onChange={(event) => applyTextSetting(selectedField, control.key, event.currentTarget.value)}
                                 disabled={disabled}
-                                placeholder={control.key === 'dimensions' ? t('indexBuilderFieldDimensionPlaceholder') : t('indexBuilderFieldVectorProfilePlaceholder')}
+                                placeholder={control.key === 'dimensions' ? t('indexBuilderFieldDimensionPlaceholder') : control.key === 'topicGraphProfile' ? t('indexBuilderFieldTopicGraphPlaceholder') : t('indexBuilderFieldVectorProfilePlaceholder')}
                               />
                               <span className={`indexSchemaFieldSettings__status indexSchemaFieldSettings__status--${severity}`}>
                                 <i className={`bi ${rule.supported ? updateabilityIcon(rule.updateability) : 'bi-ban'} icon--mr6`}></i>
@@ -3108,6 +3274,9 @@ export function IndexSchemaOverview({ editedJson, baselineJson, isExistingIndex,
                         })}
                         <datalist id="indexBuilderVectorProfiles">
                           {analysis.vectorProfileNames.map((name) => <option key={name} value={name} />)}
+                        </datalist>
+                        <datalist id="indexBuilderTopicGraphProfileNames">
+                          {analysis.topicGraphProfileNames.map((name) => <option key={name} value={name} />)}
                         </datalist>
                       </div>
                     </div>

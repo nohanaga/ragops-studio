@@ -166,6 +166,35 @@ describe('utils/indexDiff', () => {
     expect(result.normalizedBeforeJson).toBe(result.normalizedAfterJson)
   })
 
+  // ─── 2026-11-01-preview graph properties ───────────────────────────────
+
+  it('detects graphProfile and topicGraphProfiles changes of a 2026-11-01-preview index', () => {
+    const before = {
+      name: 'docs',
+      fields: [{ name: 'embedding', type: 'Collection(Edm.Single)', dimensions: 8, vectorSearchProfile: 'vp' }],
+      vectorSearch: { profiles: [{ name: 'vp', algorithm: 'hnsw' }] },
+      graphProfile: { kind: 'edgeList', fields: { subjectField: 'subject' } },
+    }
+    const after = {
+      name: 'docs',
+      fields: [{ name: 'embedding', type: 'Collection(Edm.Single)', dimensions: 8, vectorSearchProfile: 'vp', topicGraphProfile: 'topics' }],
+      vectorSearch: {
+        profiles: [{ name: 'vp', algorithm: 'hnsw' }],
+        topicGraphProfiles: [{ name: 'topics', indexName: 'docs-topics', defaultKind: 'balanced' }],
+      },
+      graphProfile: { kind: 'edgeList', fields: { subjectField: 'subject_name' }, provenanceIndexName: 'chunks' },
+    }
+
+    const result = computeIndexDiff(before, after)
+
+    expect(result.identical).toBe(false)
+    const fieldChange = result.changes.find((c) => c.kind === 'item-changed' && c.skillName === 'embedding')
+    expect(fieldChange?.children?.some((c) => c.path.includes('topicGraphProfile') && c.kind === 'added')).toBe(true)
+    expect(result.changes.some((c) => c.path.startsWith('vectorSearch') && c.kind === 'added')).toBe(true)
+    expect(result.changes.some((c) => c.path.startsWith('graphProfile') && c.kind === 'changed')).toBe(true)
+    expect(result.changes.some((c) => c.path.startsWith('graphProfile') && c.kind === 'added')).toBe(true)
+  })
+
   // ─── Real-world index scenario ─────────────────────────────────────────
 
   it('handles a realistic index with multiple changes', () => {

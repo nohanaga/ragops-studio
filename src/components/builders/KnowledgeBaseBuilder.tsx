@@ -65,9 +65,11 @@ type KnowledgeBaseBuilderProps = {
   profile: ConnectionProfile | null
   onClose: () => void
   language: Language
+  /** Selects the named knowledge base when `nonce` changes, for example from the dependency map. */
+  focusRequest?: { name: string; nonce: number } | null
 }
 
-export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilderProps) {
+export function KnowledgeBaseBuilder({ profile, language, focusRequest }: KnowledgeBaseBuilderProps) {
   const t = useCallback((key: keyof typeof translations.ja) => translations[language][key], [language])
   const capabilities = getSearchApiCapabilities(profile?.apiVersion)
   const retrieverHintId = useId()
@@ -383,6 +385,14 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
       setLoading(false)
     }
   }
+
+  const focusNonce = focusRequest?.nonce
+  useEffect(() => {
+    if (!profile || !focusRequest) return
+    void handleSelectBase(focusRequest.name)
+    // Only a new request (nonce) selects a knowledge base; later renders must not re-run it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, focusNonce])
 
   return (
     <div className="pane__centerContent">
