@@ -62,6 +62,7 @@ describe('KnowledgeGraphPlayground controls', () => {
       if (descriptor) Object.defineProperty(HTMLDialogElement.prototype, method, descriptor)
       else Reflect.deleteProperty(HTMLDialogElement.prototype, method)
     }
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -117,6 +118,33 @@ describe('KnowledgeGraphPlayground controls', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Graph index' }), { target: { value: 'graph-b' } })
     await waitFor(() => expect(searchDocuments).toHaveBeenLastCalledWith(expect.objectContaining({ indexName: 'graph-b' })))
     expect(input).toHaveValue(custom)
+  })
+
+  it('restores the last GQL guide visibility after reopening the playground', () => {
+    const first = render(playground(false))
+    expect(screen.getByRole('heading', { name: 'GQL input guide' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Hide guide', expanded: true }))
+    first.unmount()
+
+    const second = render(playground(false))
+    expect(screen.queryByRole('heading', { name: 'GQL input guide' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show guide', expanded: false }))
+    second.unmount()
+
+    render(playground(false))
+    expect(screen.getByRole('button', { name: 'Hide guide', expanded: true })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'GQL input guide' })).toBeVisible()
+  })
+
+  it('allows the GQL guide to be toggled when browser storage is blocked', () => {
+    vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => { throw new DOMException('Storage blocked', 'SecurityError') })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    render(playground(false))
+
+    expect(screen.getByRole('heading', { name: 'GQL input guide' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Hide guide', expanded: true }))
+    expect(screen.getByRole('button', { name: 'Show guide', expanded: false })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: 'GQL input guide' })).not.toBeInTheDocument()
   })
 
   it('inserts a template generated from the loaded graph, announces it and restores the previous query on undo', async () => {

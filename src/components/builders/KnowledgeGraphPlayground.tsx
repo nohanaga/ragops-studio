@@ -27,6 +27,8 @@ import { JsonViewer } from '../viewers/JsonViewer'
 import { serializeODataFilter, type ODataFilterExpr } from '../../lib/odataFilter'
 import { InfoTooltip } from '../InfoTooltip'
 
+const GQL_GUIDE_OPEN_STORAGE_KEY = 'ragops.knowledgeGraphPlayground.guideOpen'
+
 function unwrap(result: RestResult): JsonValue {
   if (!result.ok) throw new Error(`${result.error.message} (${result.requestId})`)
   return result.response
@@ -104,7 +106,16 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
   const [query, setQuery] = useState({ text: '', automatic: true })
   const [provenance, setProvenance] = useState<GraphProvenanceKind>('ids')
   const [caret, setCaret] = useState(0)
-  const [guideOpen, setGuideOpen] = useState(true)
+  const [guideOpen, setGuideOpen] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem(GQL_GUIDE_OPEN_STORAGE_KEY)
+      if (saved === 'false') return false
+      if (saved !== null && saved !== 'true') console.warn('Invalid GQL guide visibility preference')
+    } catch (error) {
+      console.warn('Failed to restore GQL guide visibility', error)
+    }
+    return true
+  })
   const [applied, setApplied] = useState<{ title: string; previous: { text: string; automatic: boolean }; previousProvenance: GraphProvenanceKind } | null>(null)
   const queryTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const guideId = useId()
@@ -342,6 +353,16 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
       setResult(response.response)
     }, 'query')
   }
+  function toggleGuide() {
+    const open = !guideOpen
+    setGuideOpen(open)
+    try {
+      window.localStorage.setItem(GQL_GUIDE_OPEN_STORAGE_KEY, String(open))
+    } catch (error) {
+      console.warn('Failed to save GQL guide visibility', error)
+    }
+  }
+
   function applyGql(request: GqlApplyRequest) {
     const nextProvenance = request.provenance ?? provenance
     setApplied({ title: request.title, previous: query, previousProvenance: provenance })
@@ -627,7 +648,7 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
       </section>}
       <section className="section kgPanel kgQuerySection">
         <div className="kgPanel__header"><h3 className="section__title"><i className="bi bi-terminal icon--mr6" />{t('kgQuery')}</h3><span className="kgBadge">GQL</span>
-          <button type="button" className="btn btn--secondary btn--sm" aria-expanded={guideOpen} aria-controls={guideId} onClick={() => setGuideOpen((open) => !open)}>
+          <button type="button" className="btn btn--secondary btn--sm" aria-expanded={guideOpen} aria-controls={guideId} onClick={toggleGuide}>
             <i className="bi bi-mortarboard icon--mr6" aria-hidden="true" />{t(guideOpen ? 'kgGqlGuideHide' : 'kgGqlGuideShow')}
           </button>
         </div>

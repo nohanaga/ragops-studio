@@ -278,6 +278,7 @@ RAGOps Studio を離れることなく、Azure AI Search の Custom Skill をブ
 - **グラフの閲覧**: [エンティティグラフ](https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-entity-graph)と[トピックグラフ](https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-topic-graph)を可視化し、属性やトピックのタイトルを確認（`2026-11-01-preview`）
 - **GQL 検索**: クエリを実行し、結果グラフ、表、根拠文書、診断を表示
 - **GQL 入力ガイド（初心者向け）**: 取得したグラフの型・関係名・名前から作るテンプレート、実在するパターンを一覧できる「グラフの地図」、条件を選んで作るビルダーから始められます。入力中の候補表示、実行前の書き方チェック（全角記号、`==`、存在しない型名など）、クエリの各節の読み解きにも対応
+  - ガイドの表示・非表示はブラウザーに保存され、ページを再読み込みしても維持されます。
 - **グラフ文書の編集**: フォームや JSON で修正・プレビューし、差分確認後に管理対象外のインデックスへ保存
 - **オントロジー編集**: JSON-LD の型と関係を編集し、既存の Blob ソースに適用（再処理キャッシュが必要）
 
