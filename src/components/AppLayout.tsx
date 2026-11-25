@@ -140,6 +140,7 @@ export function AppLayout(props: {
   knowledgeBaseNameOptions: string[]
   availableKnowledgeSources: KnowledgeSourceInfo[]
   availableKnowledgeTools: import('../utils/agenticPreview').KnowledgeBaseToolInfo[]
+  standaloneRetriever1: boolean
 
   isLoadingRequestBuilderSchema: boolean
   requestBuilderFacetFieldInfos: FacetFieldInfo[]
@@ -358,6 +359,7 @@ export function AppLayout(props: {
     knowledgeBaseNameOptions,
     availableKnowledgeSources,
     availableKnowledgeTools,
+    standaloneRetriever1,
     isLoadingRequestBuilderSchema,
     requestBuilderFacetFieldInfos,
     requestBuilderSearchableFieldNames,
@@ -1164,6 +1166,7 @@ export function AppLayout(props: {
                 knowledgeBaseNameOptions={knowledgeBaseNameOptions}
                 availableKnowledgeSources={availableKnowledgeSources}
                 availableKnowledgeTools={availableKnowledgeTools}
+                standaloneRetriever1={standaloneRetriever1}
                 searchForm={searchForm}
                 setSearchForm={setSearchForm}
                 agenticForm={agenticForm}

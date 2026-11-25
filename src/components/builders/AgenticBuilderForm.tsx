@@ -27,12 +27,14 @@ export type AgenticBuilderFormProps = {
 
   availableKnowledgeSources: KnowledgeSourceInfo[]
   availableKnowledgeTools?: KnowledgeBaseToolInfo[]
+  standaloneRetriever1?: boolean
   effectiveApiVersion: string
 }
 
 export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
-  const { t, language, agenticForm, setAgenticForm, availableKnowledgeSources, availableKnowledgeTools = [], effectiveApiVersion } = props
+  const { t, language, agenticForm, setAgenticForm, availableKnowledgeSources, availableKnowledgeTools = [], standaloneRetriever1 = false, effectiveApiVersion } = props
   const capabilities = getSearchApiCapabilities(effectiveApiVersion)
+  const canChooseReasoningAndOutput = capabilities.agenticResponseSynthesis && !standaloneRetriever1
   const activeTool = availableKnowledgeTools.find((tool) => tool.name === agenticForm.toolName)
   const visibleSources = agenticForm.toolName
     ? availableKnowledgeSources.filter((source) => activeTool?.sources.includes(source.name) || (!activeTool && agenticForm.knowledgeSourceParams.some((param) => param.knowledgeSourceName === source.name)))
@@ -43,8 +45,8 @@ export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
   useEffect(() => {
     setAgenticForm((previous) => {
       const streamResponse = capabilities.agenticStreaming ? previous.streamResponse : false
-      const outputMode = capabilities.agenticResponseSynthesis ? previous.outputMode : 'extractiveData'
-      const retrievalReasoningEffort = !capabilities.agenticResponseSynthesis
+      const outputMode = canChooseReasoningAndOutput ? previous.outputMode : 'extractiveData'
+      const retrievalReasoningEffort = !canChooseReasoningAndOutput
         ? 'minimal'
         : previous.retrievalReasoningEffort === 'auto' && !capabilities.reasoningAuto
           ? 'low'
@@ -60,7 +62,7 @@ export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
       return { ...previous, streamResponse, outputMode, retrievalReasoningEffort }
     })
   }, [
-    capabilities.agenticResponseSynthesis,
+    canChooseReasoningAndOutput,
     capabilities.agenticStreaming,
     capabilities.reasoningAuto,
     setAgenticForm,
@@ -88,7 +90,10 @@ export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
         max={1000000}
         value={agenticForm.maxOutputSize}
         disabled={inheritToolDefaults}
-        onChange={(e) => setAgenticForm((p) => ({ ...p, maxOutputSize: Number(e.target.value) }))}
+        onChange={(e) => {
+          const value = e.target.value
+          setAgenticForm((p) => ({ ...p, maxOutputSize: value === '' ? '' : Number(value) }))
+        }}
       />
     </label>
   )
@@ -106,7 +111,7 @@ export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
             const tool = availableKnowledgeTools.find(({ name }) => name === toolName)
             setAgenticForm((previous) => ({
               ...previous, toolName, useToolDefaults: true, knowledgeSourceParams: [],
-              ...(tool ? { retrievalReasoningEffort: tool.reasoningEffort } : {}),
+              ...(tool && canChooseReasoningAndOutput ? { retrievalReasoningEffort: tool.reasoningEffort } : {}),
             }))
           }}>
             <option value="">{t('knowledgeBaseWide')}</option>
@@ -120,7 +125,7 @@ export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
               const checked = event.target.checked
               setAgenticForm((previous) => ({
                 ...previous, useToolDefaults: checked,
-                ...(checked && activeTool ? { retrievalReasoningEffort: activeTool.reasoningEffort } : {}),
+                ...(checked && activeTool && canChooseReasoningAndOutput ? { retrievalReasoningEffort: activeTool.reasoningEffort } : {}),
               }))
             }} />
             {' '}{t('knowledgeBaseToolDefaults')}
@@ -180,8 +185,8 @@ export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
         </span>
         <select
           className="field__input"
-          value={capabilities.agenticResponseSynthesis ? agenticForm.outputMode : 'extractiveData'}
-          disabled={!capabilities.agenticResponseSynthesis || inheritToolDefaults}
+          value={canChooseReasoningAndOutput ? agenticForm.outputMode : 'extractiveData'}
+          disabled={!canChooseReasoningAndOutput || inheritToolDefaults}
           onChange={(e) => setAgenticForm((p) => ({ ...p, outputMode: e.target.value as AgenticFormState['outputMode'] }))}
         >
           <option value="extractiveData">extractiveData</option>
@@ -213,8 +218,8 @@ export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
           </span>
           <select
             className="field__input"
-            value={capabilities.agenticResponseSynthesis ? agenticForm.retrievalReasoningEffort : 'minimal'}
-            disabled={!capabilities.agenticResponseSynthesis || inheritToolDefaults}
+            value={canChooseReasoningAndOutput ? agenticForm.retrievalReasoningEffort : 'minimal'}
+            disabled={!canChooseReasoningAndOutput || inheritToolDefaults}
             onChange={(e) =>
               setAgenticForm((p) => ({
                 ...p,
@@ -288,6 +293,7 @@ export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
           const existingParam = agenticForm.knowledgeSourceParams.find((p) => p.knowledgeSourceName === sourceName)
           const hasRequestOverrides = !!existingParam
           const supportsQueryHints = sourceKind === 'searchIndex'
+          const supportsSourceFilter = capabilities.novemberAgentic && sourceKind === 'searchIndex'
           const supportsIndexOverrides = capabilities.novemberAgentic && (sourceKind === 'searchIndex' || sourceKind === 'azureBlob')
           const supportsEntityGraph = capabilities.novemberAgentic && sourceKind === 'azureBlob'
 
@@ -418,7 +424,7 @@ export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
                             })}
                           />
                         </label>
-                        {supportsIndexOverrides && (
+                        {supportsSourceFilter ? (
                           <label className="field field--full">
                             <span className="field__label">
                               filterAddOn
@@ -428,7 +434,14 @@ export function AgenticBuilderForm(props: AgenticBuilderFormProps) {
                               filterAddOn: e.target.value,
                             })} />
                           </label>
-                        )}
+                        ) : existingParam.filterAddOn?.trim() ? (
+                          <div className="notice notice--warning field--full" role="status">
+                            <span>{t(capabilities.novemberAgentic ? 'sourceFilterSearchIndexOnly' : 'novemberSourceFilterRequired')}</span>
+                            <button type="button" className="btn btn--ghost btn--sm" onClick={() => updateSourceParam(sourceName, { filterAddOn: '' })}>
+                              {t('clearSourceFilter')}
+                            </button>
+                          </div>
+                        ) : null}
                         {supportsQueryHints && (
                           <label className="field field--full">
                             <span className="field__label">

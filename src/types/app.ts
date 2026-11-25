@@ -172,7 +172,7 @@ export type AgenticFormState = {
   includeActivity: boolean
   outputMode: string
   maxRuntimeInSeconds: number
-  maxOutputSize: number
+  maxOutputSize: number | ''
   maxOutputDocuments?: number | ''
   maxOutputSizeInTokens?: number | ''
   retrievalReasoningEffort: 'low' | 'medium' | 'minimal' | 'auto'

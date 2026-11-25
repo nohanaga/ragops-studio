@@ -8,6 +8,7 @@ import type { TranslationKey } from '../lib/translations'
 import { DEFAULT_AUTOCOMPLETE_FORM, DEFAULT_SUGGEST_FORM } from '../app/defaults'
 import { restoreRunResponse } from '../app/restoreRunResponse'
 import { readGraphParameters, readReasoningEffort, readTopicGraph } from '../utils/agenticPreview'
+import { getSearchApiCapabilities } from '../lib/searchApiCapabilities'
 
 type TFunction = (key: TranslationKey) => string
 
@@ -139,7 +140,9 @@ export function useRunRestore(params: {
           const includeActivity = getBoolean('includeActivity', true)
           const outputMode = getString('outputMode', 'answerSynthesis')
           const maxRuntimeInSeconds = getNumber('maxRuntimeInSeconds', 60)
-          const maxOutputSize = getNumber('maxOutputSize', 100000)
+          const sizeKey = getSearchApiCapabilities(run.context.apiVersion).agenticResponseSynthesis
+            ? 'maxOutputSize' : 'maxOutputSizeInTokens'
+          const maxOutputSize = requestObj[sizeKey]
           const retrievalReasoningEffort = readReasoningEffort(requestObj.retrievalReasoningEffort) ?? (intent ? 'minimal' : 'low')
 
           const knowledgeSourceParamsRaw =
@@ -172,7 +175,7 @@ export function useRunRestore(params: {
             includeActivity,
             outputMode,
             maxRuntimeInSeconds,
-            maxOutputSize,
+            maxOutputSize: typeof maxOutputSize === 'number' ? maxOutputSize : '',
             maxOutputDocuments: typeof requestObj.maxOutputDocuments === 'number' ? requestObj.maxOutputDocuments : '',
             maxOutputSizeInTokens: typeof requestObj.maxOutputSizeInTokens === 'number' ? requestObj.maxOutputSizeInTokens : '',
             retrievalReasoningEffort,

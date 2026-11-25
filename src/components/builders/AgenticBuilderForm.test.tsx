@@ -86,12 +86,40 @@ describe('AgenticBuilderForm', () => {
 
     expect(screen.getByTitle(/推論レベル・出力モード・取得上限をリクエストで上書きしません/)).toBeVisible()
     expect(references.getByRole('checkbox', { name: /includeReferenceSourceData/ })).toBeChecked()
-    expect(retrieval.getByRole('textbox', { name: /filterAddOn/ })).toBeVisible()
+    expect(retrieval.queryByRole('textbox', { name: /filterAddOn/ })).not.toBeInTheDocument()
     expect(topicGraph.getByTitle(/ソースに保存されたトピックグラフ/)).toBeVisible()
     expect(topicGraph.getByTitle(/250〜10,000/)).toBeVisible()
     expect(topicGraph.getByTitle(/値が大きいほど結果の多様性/)).toBeVisible()
     expect(entityGraph.getByTitle(/生成したグラフクエリ/)).toBeVisible()
     expect(entityGraph.getByTitle(/根拠文書の件数の上限/)).toBeVisible()
+  })
+
+  it('only offers filterAddOn for a search index and locks the output and reasoning of a standalone Retriever 1 KB', () => {
+    const form = {
+      ...baseAgenticForm,
+      knowledgeSourceParams: [{
+        knowledgeSourceName: 'policies', kind: 'searchIndex', includeReferences: true,
+        includeReferenceSourceData: false, neverQuerySource: false, resultsProcessing: '' as const,
+        maxOutputDocuments: '' as const, queryHintOverrides: '',
+      }],
+    }
+    const { rerender } = render(<AgenticBuilderForm t={(key) => key} language="en"
+      agenticForm={form} setAgenticForm={vi.fn()} availableKnowledgeSources={[{ name: 'policies', kind: 'searchIndex' }]}
+      effectiveApiVersion="2026-11-01-preview" standaloneRetriever1 />)
+    const reasoning = screen.getByRole('combobox', { name: /retrievalReasoningEffort/ })
+    const output = screen.getByRole('combobox', { name: /outputMode/ })
+    expect(reasoning).toHaveValue('minimal')
+    expect(output).toHaveValue('extractiveData')
+    expect(reasoning).toBeDisabled()
+    expect(output).toBeDisabled()
+    expect(screen.getByRole('textbox', { name: /filterAddOn/ })).toBeVisible()
+
+    rerender(<AgenticBuilderForm t={(key) => key} language="en"
+      agenticForm={form} setAgenticForm={vi.fn()} availableKnowledgeSources={[{ name: 'policies', kind: 'searchIndex' }]}
+      effectiveApiVersion="2026-11-01-preview" />)
+    expect(reasoning).toBeEnabled()
+    expect(output).toBeEnabled()
+    expect(reasoning).toHaveValue('auto')
   })
 
   it('shows common runtime parameters for web sources without query hints', () => {

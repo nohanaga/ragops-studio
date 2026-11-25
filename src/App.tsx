@@ -221,6 +221,7 @@ function App() {
     knowledgeBaseNameOptions,
     availableKnowledgeSources,
     availableKnowledgeTools,
+    standaloneRetriever1,
   } = useKnowledgeBaseData({
     labMode,
     activeProfile,
@@ -648,6 +649,7 @@ function App() {
   }, [centerTab, latestResponse])
 
   const { isExecuting, isStreamingResponse, onExecute, onExecuteAllModes, onCancelExecute } = useApiOperations({
+    standaloneRetriever1,
     labMode,
     builderMode,
     activeProfile,
@@ -763,6 +765,7 @@ function App() {
   usePaneResize({ paneSizes, setPaneSizes, dragging, setDragging })
 
   useRequestJsonSync({
+    standaloneRetriever1,
     builderMode,
     labMode,
     searchForm,
@@ -996,6 +999,7 @@ function App() {
       knowledgeBaseNameOptions={knowledgeBaseNameOptions}
       availableKnowledgeSources={availableKnowledgeSources}
       availableKnowledgeTools={availableKnowledgeTools}
+      standaloneRetriever1={standaloneRetriever1}
       isLoadingRequestBuilderSchema={isLoadingRequestBuilderSchema}
       requestBuilderFacetFieldInfos={requestBuilderFacetFieldInfos}
       requestBuilderIndexFieldNames={requestBuilderIndexFieldNames}

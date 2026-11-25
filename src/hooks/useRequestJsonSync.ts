@@ -10,6 +10,7 @@ export function useRequestJsonSync(params: {
   labMode: LabMode
   searchForm: SearchFormState
   agenticForm: AgenticFormState
+  standaloneRetriever1?: boolean
   analyzeForm: AnalyzeFormState
   autocompleteForm: AutocompleteFormState
   suggestForm: SuggestFormState
@@ -26,6 +27,7 @@ export function useRequestJsonSync(params: {
     labMode,
     searchForm,
     agenticForm,
+    standaloneRetriever1,
     analyzeForm,
     autocompleteForm,
     suggestForm,
@@ -43,7 +45,7 @@ export function useRequestJsonSync(params: {
     if (builderMode !== 'form') return
     try {
       if (labMode === 'agentic') {
-        const body = buildAgenticBodyFromForm(agenticForm, effectiveApiVersion, language)
+        const body = buildAgenticBodyFromForm(agenticForm, effectiveApiVersion, language, standaloneRetriever1)
         setRequestJson(JSON.stringify(body ?? {}, null, 2))
       } else if (labMode === 'analyze') {
         const body = buildAnalyzeBodyFromForm(analyzeForm)
@@ -81,6 +83,7 @@ export function useRequestJsonSync(params: {
     searchForm,
     setRequestJson,
     setUiError,
+    standaloneRetriever1,
     suggestForm,
   ])
 

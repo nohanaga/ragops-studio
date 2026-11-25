@@ -123,9 +123,33 @@ describe('utils/appRequestBodies', () => {
     expect(buildAgenticBodyFromForm(form, '2026-11-01-preview')).toMatchObject({
       knowledgeSourceParams: [{ filterAddOn: "region eq 'CA'" }],
     })
+    form.knowledgeSourceParams[0].kind = 'azureBlob'
+    expect(() => buildAgenticBodyFromForm(form, '2026-11-01-preview')).toThrow(/filterAddOn.*search index/)
     form.knowledgeSourceParams[0].filterAddOn = '  '
     expect(asRecord(buildAgenticBodyFromForm(form, '2026-08-01-preview')).knowledgeSourceParams)
       .not.toMatchObject([{ filterAddOn: expect.anything() }])
+  })
+
+  it('sends independent byte and token limits and leaves an omitted limit unset', () => {
+    const form = { ...makeAgenticForm('searchIndex'), maxOutputSize: 2000, maxOutputSizeInTokens: 50 }
+    expect(buildAgenticBodyFromForm(form, '2026-11-01-preview'))
+      .toMatchObject({ maxOutputSize: 2000, maxOutputSizeInTokens: 50 })
+    const tokenOnly = buildAgenticBodyFromForm({ ...form, maxOutputSize: '' }, '2026-11-01-preview')
+    expect(tokenOnly).not.toHaveProperty('maxOutputSize')
+    expect(tokenOnly).toHaveProperty('maxOutputSizeInTokens', 50)
+    const byteOnly = buildAgenticBodyFromForm(form, '2026-08-01-preview')
+    expect(byteOnly).toHaveProperty('maxOutputSize', 2000)
+    expect(byteOnly).not.toHaveProperty('maxOutputSizeInTokens')
+  })
+
+  it('uses a single semantic intent and extractive output for a standalone Retriever 1 base', () => {
+    const form = makeAgenticForm('searchIndex')
+    const body = buildAgenticBodyFromForm(form, '2026-11-01-preview', 'en', true)
+    expect(body).toMatchObject({
+      retrievalReasoningEffort: { kind: 'minimal' }, outputMode: 'extractiveData',
+      intents: [{ type: 'semantic', search: form.userMessage }],
+    })
+    expect(body).not.toHaveProperty('messages')
   })
 
   it('serializes independent topic sampling and entity graph settings', () => {

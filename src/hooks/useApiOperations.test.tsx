@@ -21,7 +21,12 @@ describe('hooks/useApiOperations', () => {
     expect(shouldUseAgenticStreaming('2026-08-01-preview', false)).toBe(false)
   })
 
-  it.each(['form', 'json'] as const)('does not send an unsupported source filter in %s mode', async (builderMode) => {
+  it.each([
+    ['form', '2026-08-01-preview', 'searchIndex', 'novemberSourceFilterRequired'],
+    ['json', '2026-08-01-preview', 'searchIndex', 'novemberSourceFilterRequired'],
+    ['form', '2026-11-01-preview', 'azureBlob', 'sourceFilterSearchIndexOnly'],
+    ['json', '2026-11-01-preview', 'azureBlob', 'sourceFilterSearchIndexOnly'],
+  ] as const)('rejects unsupported filters in %s mode on %s for %s sources', async (builderMode, apiVersion, kind, errorKey) => {
     const handler = vi.fn(() => HttpResponse.json({ response: [] }))
     server.use(
       http.post('/api-proxy/knowledgebases/kb/retrieve', handler),
@@ -31,14 +36,14 @@ describe('hooks/useApiOperations', () => {
     await ensureSeedData()
     const [experiment] = await listExperiments()
     const filter: AgenticFormState['knowledgeSourceParams'][number] = {
-      knowledgeSourceName: 'policies', kind: 'searchIndex', filterAddOn: "region eq 'CA'",
+      knowledgeSourceName: 'policies', kind, filterAddOn: "region eq 'CA'",
       includeReferences: true, includeReferenceSourceData: true, neverQuerySource: false,
       resultsProcessing: 'rerank', maxOutputDocuments: '', queryHintOverrides: '',
     }
     const setUiError = vi.fn()
     const { result } = renderHook(() => useApiOperations({
       labMode: 'agentic',
-      activeProfile: { endpoint: 'https://example.search.windows.net', apiVersion: '2026-08-01-preview', authType: 'apiKey', apiKey: 'test-key' },
+      activeProfile: { endpoint: 'https://example.search.windows.net', apiVersion, authType: 'apiKey', apiKey: 'test-key' },
       indexName: '', knowledgeBaseName: 'kb', selectedExperimentId: experiment.experimentId,
       builderMode,
       requestJson: JSON.stringify({
@@ -58,8 +63,45 @@ describe('hooks/useApiOperations', () => {
     }))
 
     await act(() => result.current.onExecute())
-    expect(setUiError).toHaveBeenLastCalledWith(translations.ja.novemberSourceFilterRequired)
+    expect(setUiError).toHaveBeenLastCalledWith(translations.ja[errorKey])
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('rejects an invalid vector form before sending or recording a search and uses the corrected form on retry', async () => {
+    const handler = vi.fn(async ({ request }: { request: Request }) => {
+      expect(await request.json()).toMatchObject({ vectorQueries: [{ kind: 'vector', vector: [0.1, 0.2] }] })
+      return HttpResponse.json({ value: [] })
+    })
+    server.use(http.post('/api-proxy/indexes/policies/docs/search', handler))
+    const { ensureSeedData, listExperiments, listRunsByExperiment } = await import('../lib/db')
+    await ensureSeedData()
+    const [experiment] = await listExperiments()
+    const existingRuns = await listRunsByExperiment(experiment.experimentId)
+    const setUiError = vi.fn()
+    const { result, rerender } = renderHook(({ vector }) => useApiOperations({
+      labMode: 'semantic-vector',
+      activeProfile: { endpoint: 'https://example.search.windows.net', apiVersion: '2026-11-01-preview', authType: 'apiKey', apiKey: 'test-key' },
+      indexName: 'policies', knowledgeBaseName: '', selectedExperimentId: experiment.experimentId,
+      builderMode: 'form', requestJson: '', runNote: '',
+      searchForm: { ...DEFAULT_SEARCH_FORM, vectorEnabled: true, vectorKind: 'vector', vector, vectorFields: 'embedding' },
+      agenticForm: {
+        userMessage: '', includeActivity: true, outputMode: 'extractiveData', maxRuntimeInSeconds: 60,
+        maxOutputSize: 5000, retrievalReasoningEffort: 'minimal', streamResponse: false, knowledgeSourceParams: [],
+      },
+      language: 'en', t: (key) => translations.en[key],
+      setUiError, setUiLog: vi.fn(), setLatestResponse: vi.fn(),
+      setRunResultMap: vi.fn(), setSelectedRunIds: vi.fn(), setCenterTab: vi.fn(), setResultPages: vi.fn(),
+      reloadRuns: vi.fn(async () => {}),
+    }), { initialProps: { vector: '0.1, invalid' } })
+
+    await act(() => result.current.onExecute())
+    expect(setUiError).toHaveBeenLastCalledWith(translations.en.vectorFormatError)
+    expect(handler).not.toHaveBeenCalled()
+    expect(await listRunsByExperiment(experiment.experimentId)).toHaveLength(existingRuns.length)
+
+    rerender({ vector: '0.1, 0.2' })
+    await act(() => result.current.onExecute())
+    expect(handler).toHaveBeenCalledTimes(1)
   })
 
   it.each(['json', 'json-error', 'sse', 'sse-error'] as const)('retains %s delivery metadata and terminal state for the graph', async (mode) => {

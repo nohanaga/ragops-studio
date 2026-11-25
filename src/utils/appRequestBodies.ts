@@ -77,7 +77,7 @@ export function buildSearchBodyFromForm(
         .map((x) => x.trim())
         .filter((x) => x.length > 0)
         .map((x) => Number(x))
-      if (nums.some((n) => Number.isNaN(n))) throw new Error(translations[language]['vectorFormatError'])
+      if (nums.length === 0 || nums.some((n) => !Number.isFinite(n))) throw new Error(translations[language]['vectorFormatError'])
       v.vector = nums
     } else if (d.vectorKind === 'imageUrl') {
       if (d.vectorImageUrl.trim()) v.url = d.vectorImageUrl.trim()
@@ -180,17 +180,21 @@ export function buildSearchBodyFromForm(
   return body as JsonValue
 }
 
-export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: SearchApiVersion, language: Language = 'en'): JsonValue {
+export function validateAgenticSourceFilter(kind: JsonValue | undefined, filter: JsonValue | undefined, supportedApi: boolean, language: Language): void {
+  if (typeof filter !== 'string' || !filter.trim()) return
+  if (!supportedApi) throw new Error(translations[language].novemberSourceFilterRequired)
+  if (kind !== 'searchIndex') throw new Error(translations[language].sourceFilterSearchIndexOnly)
+}
+
+export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: SearchApiVersion, language: Language = 'en', standaloneRetriever1 = false): JsonValue {
   const capabilities = getSearchApiCapabilities(apiVersion)
+  const reasoningEffort = standaloneRetriever1 ? 'minimal' : s.retrievalReasoningEffort
   const toolName = s.toolName?.trim()
   const useToolDefaults = !!toolName && s.useToolDefaults !== false
-  if (!capabilities.novemberAgentic && s.knowledgeSourceParams.some((source) => source.filterAddOn?.trim())) {
-    throw new Error(translations[language].novemberSourceFilterRequired)
-  }
   if (!capabilities.novemberAgentic && (toolName || s.knowledgeSourceParams.some((source) => source.topicGraph || source.graphParameters))) {
     throw new Error(`Named tools and graph retrieval settings require ${NOVEMBER_AGENTIC_API}.`)
   }
-  if (!useToolDefaults && s.retrievalReasoningEffort === 'auto' && !capabilities.reasoningAuto) {
+  if (!useToolDefaults && reasoningEffort === 'auto' && !capabilities.reasoningAuto) {
     throw new Error('retrievalReasoningEffort=auto requires API version 2026-08-01-preview.')
   }
 
@@ -206,7 +210,11 @@ export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: Searc
       includeReferenceSourceData: ks.includeReferenceSourceData,
     }
     if ((kind === 'searchIndex' || kind === 'azureBlob') && ks.topicGraph) base.topicGraph = buildTopicGraph(ks.topicGraph)
-    if (capabilities.novemberAgentic && (kind === 'searchIndex' || kind === 'azureBlob') && ks.filterAddOn?.trim()) base.filterAddOn = ks.filterAddOn.trim()
+    const filter = ks.filterAddOn?.trim()
+    if (filter) {
+      validateAgenticSourceFilter(kind, filter, capabilities.novemberAgentic, language)
+      base.filterAddOn = filter
+    }
     if (kind === 'azureBlob' && ks.graphParameters) {
       const top = ks.graphParameters.provenance?.hydrateDocuments?.top
       if (top !== undefined && (!Number.isInteger(top) || top < 1 || top > 100)) {
@@ -249,7 +257,7 @@ export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: Searc
   if (!useToolDefaults) body.maxRuntimeInSeconds = s.maxRuntimeInSeconds
   if (knowledgeSourceParams.length > 0) body.knowledgeSourceParams = knowledgeSourceParams
 
-  if (!capabilities.agenticResponseSynthesis || s.retrievalReasoningEffort === 'minimal') {
+  if (!capabilities.agenticResponseSynthesis || reasoningEffort === 'minimal') {
     body.intents = [{ type: 'semantic', search: s.userMessage }]
   } else {
     body.messages = [{
@@ -259,25 +267,24 @@ export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: Searc
   }
 
   if (!capabilities.agenticResponseSynthesis) {
-    body.maxOutputSizeInTokens = s.maxOutputSize
+    if (typeof s.maxOutputSize === 'number') body.maxOutputSizeInTokens = s.maxOutputSize
     return body
   }
 
   if (useToolDefaults) return body
-  body.outputMode = s.outputMode
+  body.outputMode = standaloneRetriever1 ? 'extractiveData' : s.outputMode
+  if (typeof s.maxOutputSize === 'number') body.maxOutputSize = s.maxOutputSize
   if (capabilities.novemberAgentic && typeof s.maxOutputSizeInTokens === 'number') {
     body.maxOutputSizeInTokens = s.maxOutputSizeInTokens
-  } else {
-    body.maxOutputSize = s.maxOutputSize
   }
   if (capabilities.novemberAgentic && typeof s.maxOutputDocuments === 'number') body.maxOutputDocuments = s.maxOutputDocuments
-  for (const key of ['maxOutputDocuments', 'maxOutputSizeInTokens'] as const) {
+  for (const key of ['maxOutputDocuments', 'maxOutputSize', 'maxOutputSizeInTokens'] as const) {
     const value = body[key]
     if (typeof value === 'number' && (!Number.isInteger(value) || value < 1 || value > 2147483647)) {
       throw new Error(`${key} must be a positive int32.`)
     }
   }
-  body.retrievalReasoningEffort = { kind: s.retrievalReasoningEffort }
+  body.retrievalReasoningEffort = { kind: reasoningEffort }
   return body
 }
 

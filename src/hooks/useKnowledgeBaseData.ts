@@ -8,6 +8,7 @@ import { getKnowledgeBase, listKnowledgeBases, listKnowledgeSources } from '../l
 import { getKnowledgeBaseTools } from '../utils/agenticPreview'
 import { isJsonObject } from '../app/json'
 import { getSearchApiCapabilities } from '../lib/searchApiCapabilities'
+import { isMicrosoftRetriever1Only } from '../utils/appRequestBodies'
 
 export function useKnowledgeBaseData(params: {
   labMode: LabMode
@@ -24,10 +25,12 @@ export function useKnowledgeBaseData(params: {
   const [knowledgeBaseNamesError, setKnowledgeBaseNamesError] = useState<string | null>(null)
   const [availableKnowledgeSources, setAvailableKnowledgeSources] = useState<KnowledgeSourceInfo[]>([])
   const [availableKnowledgeTools, setAvailableKnowledgeTools] = useState<ReturnType<typeof getKnowledgeBaseTools>>([])
+  const [standaloneRetriever, setStandaloneRetriever] = useState<{ profile: ConnectionProfile; name: string } | null>(null)
 
   useEffect(() => {
     setAvailableKnowledgeSources([])
     setAvailableKnowledgeTools([])
+    setStandaloneRetriever(null)
     if (labMode !== 'agentic' || editingKnowledgeBase || !knowledgeBaseName.trim() || !activeProfile) {
       return
     }
@@ -48,6 +51,10 @@ export function useKnowledgeBaseData(params: {
         if (abortController.signal.aborted) return
 
         if (result.ok && isJsonObject(result.response)) {
+          const capabilities = getSearchApiCapabilities(activeProfile.apiVersion)
+          const models = result.response.models
+          const standalone = capabilities.microsoftRetriever1 && Array.isArray(models) && isMicrosoftRetriever1Only(models)
+          if (standalone) setStandaloneRetriever({ profile: activeProfile, name: knowledgeBaseName })
           const tools = getKnowledgeBaseTools(result.response.tools, result.response.retrievalReasoningEffort)
           setAvailableKnowledgeTools(tools)
           const kb = result.response as { knowledgeSources?: Array<{ name: string; kind?: string }> }
@@ -72,8 +79,7 @@ export function useKnowledgeBaseData(params: {
           setAvailableKnowledgeSources(sources)
 
           setAgenticForm((prev) => {
-            const isNovember = getSearchApiCapabilities(activeProfile.apiVersion).novemberAgentic
-            if (!isNovember && !prev.toolName && prev.knowledgeSourceParams.length === 0 && sources.length > 0) {
+            if (!capabilities.novemberAgentic && !prev.toolName && prev.knowledgeSourceParams.length === 0 && sources.length > 0) {
               return {
                 ...prev,
                 knowledgeSourceParams: sources.map((src) => ({
@@ -93,7 +99,8 @@ export function useKnowledgeBaseData(params: {
             const tool = tools.find(({ name }) => name === prev.toolName)
             return {
               ...prev,
-              ...(tool && prev.useToolDefaults !== false ? { retrievalReasoningEffort: tool.reasoningEffort } : {}),
+              ...(standalone ? { retrievalReasoningEffort: 'minimal', outputMode: 'extractiveData' } as const
+                : tool && prev.useToolDefaults !== false ? { retrievalReasoningEffort: tool.reasoningEffort } : {}),
               knowledgeSourceParams: prev.knowledgeSourceParams.map((param) => ({
                 ...param,
                 kind: kindByName.get(param.knowledgeSourceName) || param.kind,
@@ -173,5 +180,6 @@ export function useKnowledgeBaseData(params: {
     knowledgeBaseNameOptions,
     availableKnowledgeSources,
     availableKnowledgeTools,
+    standaloneRetriever1: standaloneRetriever?.profile === activeProfile && standaloneRetriever?.name === knowledgeBaseName,
   }
 }
