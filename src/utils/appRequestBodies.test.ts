@@ -116,6 +116,18 @@ describe('utils/appRequestBodies', () => {
     expect(() => buildKnowledgeBaseBodyForApiVersion({ knowledgeSources: [{ name: 'other' }], tools }, '2026-11-01-preview')).toThrow('belong to the knowledge base')
   })
 
+  it('rejects nonempty source filters on older APIs without affecting empty or supported filters', () => {
+    const form = makeAgenticForm('searchIndex')
+    form.knowledgeSourceParams[0].filterAddOn = "  region eq 'CA'  "
+    expect(() => buildAgenticBodyFromForm(form, '2026-08-01-preview')).toThrow(/filterAddOn.*2026-11-01-preview/)
+    expect(buildAgenticBodyFromForm(form, '2026-11-01-preview')).toMatchObject({
+      knowledgeSourceParams: [{ filterAddOn: "region eq 'CA'" }],
+    })
+    form.knowledgeSourceParams[0].filterAddOn = '  '
+    expect(asRecord(buildAgenticBodyFromForm(form, '2026-08-01-preview')).knowledgeSourceParams)
+      .not.toMatchObject([{ filterAddOn: expect.anything() }])
+  })
+
   it('serializes independent topic sampling and entity graph settings', () => {
     const form = makeAgenticForm('searchIndex')
     const topicGraph = { kind: 'diverse', minDiversityPoolSize: 500, diversityFactor: 0.3 } as const

@@ -109,6 +109,7 @@ export function IndexDependencyMap({
   const t = (key: TranslationKey): string => String(translations[language][key] ?? '')
   const [result, setResult] = useState<DependencySnapshotResult | null>(null)
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadCount, setReloadCount] = useState(0)
   const [documentCounts, setDocumentCounts] = useState<Record<string, number>>({})
 
@@ -120,9 +121,12 @@ export function IndexDependencyMap({
     const controller = new AbortController()
     void (async () => {
       setLoading(true)
+      setLoadError(null)
       try {
         const next = await loadDependencySnapshot({ profile, apiVersion, language, signal: controller.signal })
         if (!cancelled) setResult(next)
+      } catch (error) {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error))
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -219,6 +223,7 @@ export function IndexDependencyMap({
       </div>
 
       {!connected ? <div className="notice notice--error">{t('indexBuilderMissingProfileOrApiVersion')}</div> : null}
+      {connected && loadError && <div className="notice notice--error" role="alert">{t('failedToLoad')}: {loadError}</div>}
       {result?.errors.map((error) => (
         <div key={`${error.resource}-${error.message}`} className="notice notice--warning" role="status">
           {fillMessage(t('indexDepLoadError'), { resource: t(RESOURCE_LABEL_KEYS[error.resource]), message: error.message })}

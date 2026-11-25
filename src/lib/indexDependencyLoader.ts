@@ -61,16 +61,18 @@ async function loadDetail(resource: DependencyResource, load: () => Promise<Rest
   }
 }
 
-async function mapWithLimit<T>(items: T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
+async function mapWithLimit<T>(items: T[], limit: number, task: (item: T) => Promise<void>, signal?: AbortSignal): Promise<void> {
   let next = 0
   const worker = async () => {
     while (next < items.length) {
+      signal?.throwIfAborted()
       const position = next
       next += 1
       await task(items[position])
     }
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  signal?.throwIfAborted()
 }
 
 /** Without cursor paging the list API returns only names, so the definitions are read one by one. */
@@ -84,6 +86,7 @@ async function completeDefinitions(input: {
   budget: { remaining: number }
   fetchOne: (name: string) => Promise<RestResult>
   errors: DependencyLoadError[]
+  signal?: AbortSignal
 }): Promise<{ items: JsonRecord[]; skipped: number }> {
   const incomplete = input.items.filter((item) => typeof item.name === 'string' && !input.isComplete(item))
   const selected = incomplete.slice(0, input.budget.remaining)
@@ -95,7 +98,7 @@ async function completeDefinitions(input: {
     const detail = await loadDetail(input.resource, () => input.fetchOne(name))
     if (detail.item) details.set(name, detail.item)
     if (detail.error) input.errors.push(detail.error)
-  })
+  }, input.signal)
 
   return {
     items: input.items.map((item) => (typeof item.name === 'string' ? details.get(item.name) ?? item : item)),
@@ -110,11 +113,13 @@ export async function loadDependencySnapshot(input: {
   signal?: AbortSignal
 }): Promise<DependencySnapshotResult> {
   const { profile, apiVersion, language, signal } = input
+  signal?.throwIfAborted()
   const [indexes, sources, bases] = await Promise.all([
     loadList('indexes', () => listIndexes({ profile, apiVersion, language, signal })),
     loadList('knowledgeSources', () => listKnowledgeSources({ profile, language, signal })),
-    loadList('knowledgeBases', () => listKnowledgeBases({ profile, language })),
+    loadList('knowledgeBases', () => listKnowledgeBases({ profile, language, signal })),
   ])
+  signal?.throwIfAborted()
   const errors = [indexes.error, sources.error, bases.error].filter((error): error is DependencyLoadError => error !== undefined)
   const budget = { remaining: MAX_DETAIL_REQUESTS }
 
@@ -123,16 +128,18 @@ export async function loadDependencySnapshot(input: {
     items: sources.items,
     isComplete: hasSourceDetails,
     budget,
-    fetchOne: (name) => getKnowledgeSource({ profile, knowledgeSourceName: name, language }),
+    fetchOne: (name) => getKnowledgeSource({ profile, knowledgeSourceName: name, language, signal }),
     errors,
+    signal,
   })
   const completedBases = await completeDefinitions({
     resource: 'knowledgeBases',
     items: bases.items,
     isComplete: hasBaseDetails,
     budget,
-    fetchOne: (name) => getKnowledgeBase({ profile, knowledgeBaseName: name, language }),
+    fetchOne: (name) => getKnowledgeBase({ profile, knowledgeBaseName: name, language, signal }),
     errors,
+    signal,
   })
 
   return {

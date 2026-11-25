@@ -43,7 +43,7 @@ export function useRequestJsonSync(params: {
     if (builderMode !== 'form') return
     try {
       if (labMode === 'agentic') {
-        const body = buildAgenticBodyFromForm(agenticForm, effectiveApiVersion)
+        const body = buildAgenticBodyFromForm(agenticForm, effectiveApiVersion, language)
         setRequestJson(JSON.stringify(body ?? {}, null, 2))
       } else if (labMode === 'analyze') {
         const body = buildAnalyzeBodyFromForm(analyzeForm)

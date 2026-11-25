@@ -24,7 +24,7 @@ vi.mock('./aiSearchRest', async (importOriginal) => {
 })
 
 const profile: ConnectionProfile = { endpoint: 'https://example.search.windows.net', apiVersion: '2026-11-01-preview', authType: 'apiKey', apiKey: 'key' }
-const load = () => loadDependencySnapshot({ profile, apiVersion: '2026-11-01-preview', language: 'ja' })
+const load = (signal?: AbortSignal) => loadDependencySnapshot({ profile, apiVersion: '2026-11-01-preview', language: 'ja', signal })
 
 function ok(response: unknown): RestResult {
   return { ok: true, status: 200, requestId: 'req', url: 'https://example.search.windows.net', response: response as never }
@@ -64,12 +64,37 @@ describe('lib/indexDependencyLoader', () => {
     vi.mocked(getKnowledgeSource).mockResolvedValue(ok({ name: 'ks', kind: 'searchIndex', searchIndexParameters: { searchIndexName: 'docs' } }))
     vi.mocked(getKnowledgeBase).mockResolvedValue(ok({ name: 'kb', knowledgeSources: [{ name: 'ks' }] }))
 
-    const result = await load()
+    const { signal } = new AbortController()
+    const result = await load(signal)
 
-    expect(getKnowledgeSource).toHaveBeenCalledWith(expect.objectContaining({ knowledgeSourceName: 'ks' }))
-    expect(getKnowledgeBase).toHaveBeenCalledWith(expect.objectContaining({ knowledgeBaseName: 'kb' }))
+    expect(listKnowledgeBases).toHaveBeenCalledWith(expect.objectContaining({ signal }))
+    expect(getKnowledgeSource).toHaveBeenCalledWith(expect.objectContaining({ knowledgeSourceName: 'ks', signal }))
+    expect(getKnowledgeBase).toHaveBeenCalledWith(expect.objectContaining({ knowledgeBaseName: 'kb', signal }))
     expect(result.snapshot.knowledgeSources[0]).toMatchObject({ searchIndexParameters: { searchIndexName: 'docs' } })
     expect(result.snapshot.knowledgeBases[0]).toMatchObject({ knowledgeSources: [{ name: 'ks' }] })
+  })
+
+  it('does not queue remaining details or move on to bases when source detail loading is aborted', async () => {
+    const controller = new AbortController()
+    vi.mocked(listIndexes).mockResolvedValue(ok({ value: [] }))
+    vi.mocked(listKnowledgeSources).mockResolvedValue(ok({
+      value: Array.from({ length: 10 }, (_, index) => ({ name: `ks-${index}` })),
+    }))
+    vi.mocked(listKnowledgeBases).mockResolvedValue(ok({ value: [{ name: 'kb' }] }))
+    vi.mocked(getKnowledgeSource).mockImplementation(() => new Promise<RestResult>((resolve) => {
+      if (controller.signal.aborted) resolve(failed('Cancelled', 0))
+      else controller.signal.addEventListener('abort', () => resolve(failed('Cancelled', 0)), { once: true })
+    }))
+    vi.mocked(getKnowledgeBase).mockResolvedValue(ok({ name: 'kb', knowledgeSources: [] }))
+
+    const pending = load(controller.signal)
+    await vi.waitFor(() => expect(getKnowledgeSource).toHaveBeenCalledTimes(5))
+    const outcome = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    controller.abort()
+
+    await outcome
+    expect(getKnowledgeSource).toHaveBeenCalledTimes(5)
+    expect(getKnowledgeBase).not.toHaveBeenCalled()
   })
 
   it('keeps what could be read when one resource fails or throws', async () => {

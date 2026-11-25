@@ -43,7 +43,8 @@ export function canReadTopicGraph(profile: ConnectionProfile | null | undefined)
 export function useTopicCoverage(profile: ConnectionProfile | null | undefined, language: Language) {
   const endpoint = profile?.endpoint
   const [stored, setStored] = useState<{ endpoint: string | undefined; state: TopicCoverageState }>({ endpoint, state: IDLE })
-  // A result read through another connection is never shown for the current one.
+  // Discard the previous state even if the user later returns to that endpoint.
+  if (stored.endpoint !== endpoint) setStored({ endpoint, state: IDLE })
   const state = stored.endpoint === endpoint ? stored.state : IDLE
   const loadedRef = useRef<Loaded | null>(null)
   const controllerRef = useRef<AbortController | null>(null)

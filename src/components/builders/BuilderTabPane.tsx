@@ -382,10 +382,7 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
               <select
                 className="field__input"
                 value={knowledgeBaseName}
-                onChange={(e) => {
-                  setKnowledgeBaseName(e.target.value)
-                  setAgenticForm((previous) => ({ ...previous, toolName: '', useToolDefaults: true, knowledgeSourceParams: [] }))
-                }}
+                onChange={(e) => setKnowledgeBaseName(e.target.value)}
                 disabled={!activeProfile || knowledgeBaseNamesLoading}
               >
                 <option value="">{t('placeholderUnset')}</option>

@@ -83,7 +83,7 @@ function topLevelFields(definition: JsonObject): JsonObject[] {
 
 export async function resolveTopicGraphBinding(connection: TopicGraphConnection, sourceName: string): Promise<TopicGraphBinding> {
   const { profile, language, signal } = connection
-  const source = asObject(unwrap(await getKnowledgeSource({ profile, knowledgeSourceName: sourceName, language })), 'Knowledge source')
+  const source = asObject(unwrap(await getKnowledgeSource({ profile, knowledgeSourceName: sourceName, language, signal })), 'Knowledge source')
   signal?.throwIfAborted()
   const contentIndex = contentIndexName(source)
   if (!contentIndex) throw new TopicGraphReadError('noContentIndex', sourceName)

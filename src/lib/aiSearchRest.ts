@@ -1462,6 +1462,7 @@ export async function getKnowledgeBase(input: {
   profile: ConnectionProfile;
   knowledgeBaseName: string;
   language?: Language;
+  signal?: AbortSignal;
 }): Promise<RestResult> {
   const lang = getLang(input.language);
   const endpoint = normalizeEndpoint(input.profile.endpoint);
@@ -1483,6 +1484,7 @@ export async function getKnowledgeBase(input: {
     res = await fetch(url, {
       method: 'GET',
       headers,
+      signal: input.signal,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -1603,6 +1605,7 @@ export async function getKnowledgeSource(input: {
   profile: ConnectionProfile;
   knowledgeSourceName: string;
   language?: Language;
+  signal?: AbortSignal;
 }): Promise<RestResult> {
   const lang = getLang(input.language);
   const endpoint = normalizeEndpoint(input.profile.endpoint);
@@ -1621,7 +1624,7 @@ export async function getKnowledgeSource(input: {
 
   let res: Response;
   try {
-    res = await fetch(url, { method: 'GET', headers });
+    res = await fetch(url, { method: 'GET', headers, signal: input.signal });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return {
@@ -1792,6 +1795,7 @@ export async function deleteKnowledgeSource(input: {
 export async function listKnowledgeBases(input: {
   profile: ConnectionProfile;
   language?: Language;
+  signal?: AbortSignal;
 }): Promise<RestResult> {
   const lang = getLang(input.language);
   const endpoint = normalizeEndpoint(input.profile.endpoint);
@@ -1806,6 +1810,7 @@ export async function listKnowledgeBases(input: {
       profile: input.profile,
       initialUrl: `${collectionUrl}&pageSize=1000`,
       language: lang,
+      signal: input.signal,
     });
   }
 
@@ -1818,7 +1823,7 @@ export async function listKnowledgeBases(input: {
 
   let res: Response;
   try {
-    res = await fetch(url, { method: 'GET', headers });
+    res = await fetch(url, { method: 'GET', headers, signal: input.signal });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return {

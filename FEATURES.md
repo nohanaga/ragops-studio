@@ -58,6 +58,7 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
   - **Graph search**: Inspect generated GQL, result rows, and evidence documents for `graphSearch` steps
   - **Execution status**: Track running, completed, failed, and incomplete activity, including streaming responses
 - **Named tools**: Select a tool and use its defaults or override retrieval settings per request
+- **Per-request source filters**: `filterAddOn` requires `2026-11-01-preview`. Requests with a nonempty filter are rejected on older API versions rather than sent unfiltered.
 - **Entity graph retrieval**: Configure generated GQL and evidence retrieval for graph-enabled Blob sources
 - **Topic graph retrieval**: Inherit or override topic retrieval settings for supported sources
 - **API version**: `2025-11-01-preview` minimum; named tool selection and graph retrieval settings require `2026-11-01-preview`

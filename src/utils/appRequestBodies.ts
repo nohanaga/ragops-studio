@@ -180,10 +180,13 @@ export function buildSearchBodyFromForm(
   return body as JsonValue
 }
 
-export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: SearchApiVersion): JsonValue {
+export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: SearchApiVersion, language: Language = 'en'): JsonValue {
   const capabilities = getSearchApiCapabilities(apiVersion)
   const toolName = s.toolName?.trim()
   const useToolDefaults = !!toolName && s.useToolDefaults !== false
+  if (!capabilities.novemberAgentic && s.knowledgeSourceParams.some((source) => source.filterAddOn?.trim())) {
+    throw new Error(translations[language].novemberSourceFilterRequired)
+  }
   if (!capabilities.novemberAgentic && (toolName || s.knowledgeSourceParams.some((source) => source.topicGraph || source.graphParameters))) {
     throw new Error(`Named tools and graph retrieval settings require ${NOVEMBER_AGENTIC_API}.`)
   }

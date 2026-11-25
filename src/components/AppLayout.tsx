@@ -1472,21 +1472,7 @@ export function AppLayout(props: {
             </div>
           )}
 
-          {centerTab !== 'portal' &&
-            centerTab !== 'builder' &&
-            centerTab !== 'qps-tester' &&
-            centerTab !== 'auto-tuning' &&
-            centerTab !== 'vector-optimizer' &&
-            centerTab !== 'knowledge-source-builder' &&
-            centerTab !== 'knowledge-base-builder' &&
-            centerTab !== 'synonym-map-builder' &&
-            centerTab !== 'index-builder' &&
-            centerTab !== 'indexing-pipeline-builder' &&
-            centerTab !== 'skill-pipeline-builder' &&
-            centerTab !== 'skill-editor' &&
-            centerTab !== 'search-pipeline-visualizer' &&
-            centerTab !== 'index-visualizer' &&
-            centerTab !== 'eval-dataset-generator' && (
+          {(centerTab === 'latest' || centerTab.startsWith('run:')) && (
               <div className="pane__centerContent">
                 {isSearchTableCompareOpen ? (
                   <SearchComparisonTable

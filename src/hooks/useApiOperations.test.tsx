@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it, vi } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, renderHook, act } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 
 import { server } from '../test/mswServer'
 import { translations } from '../lib/translations'
 import { shouldUseAgenticStreaming, useApiOperations } from './useApiOperations'
 import { DEFAULT_SEARCH_FORM } from '../app/defaults'
-import type { LatestResponse } from '../types'
+import type { AgenticFormState, LatestResponse } from '../types'
+
+afterEach(cleanup)
 
 describe('hooks/useApiOperations', () => {
   it('uses SSE only when the effective API version supports it', () => {
@@ -17,6 +19,47 @@ describe('hooks/useApiOperations', () => {
     expect(shouldUseAgenticStreaming('2026-04-01', true)).toBe(false)
     expect(shouldUseAgenticStreaming('2025-11-01-preview', true)).toBe(false)
     expect(shouldUseAgenticStreaming('2026-08-01-preview', false)).toBe(false)
+  })
+
+  it.each(['form', 'json'] as const)('does not send an unsupported source filter in %s mode', async (builderMode) => {
+    const handler = vi.fn(() => HttpResponse.json({ response: [] }))
+    server.use(
+      http.post('/api-proxy/knowledgebases/kb/retrieve', handler),
+      http.post('https://example.search.windows.net/knowledgebases/kb/retrieve', handler),
+    )
+    const { ensureSeedData, listExperiments } = await import('../lib/db')
+    await ensureSeedData()
+    const [experiment] = await listExperiments()
+    const filter: AgenticFormState['knowledgeSourceParams'][number] = {
+      knowledgeSourceName: 'policies', kind: 'searchIndex', filterAddOn: "region eq 'CA'",
+      includeReferences: true, includeReferenceSourceData: true, neverQuerySource: false,
+      resultsProcessing: 'rerank', maxOutputDocuments: '', queryHintOverrides: '',
+    }
+    const setUiError = vi.fn()
+    const { result } = renderHook(() => useApiOperations({
+      labMode: 'agentic',
+      activeProfile: { endpoint: 'https://example.search.windows.net', apiVersion: '2026-08-01-preview', authType: 'apiKey', apiKey: 'test-key' },
+      indexName: '', knowledgeBaseName: 'kb', selectedExperimentId: experiment.experimentId,
+      builderMode,
+      requestJson: JSON.stringify({
+        intents: [{ type: 'semantic', search: 'test' }], knowledgeSourceParams: [filter],
+        retrievalReasoningEffort: { kind: 'minimal' }, outputMode: 'extractiveData', includeActivity: true,
+      }),
+      runNote: '',
+      searchForm: DEFAULT_SEARCH_FORM,
+      agenticForm: {
+        userMessage: 'test', includeActivity: true, outputMode: 'extractiveData', maxRuntimeInSeconds: 60,
+        maxOutputSize: 5000, retrievalReasoningEffort: 'minimal', streamResponse: false, knowledgeSourceParams: [filter],
+      },
+      language: 'ja', t: (key) => translations.ja[key],
+      setUiError, setUiLog: vi.fn(), setLatestResponse: vi.fn(),
+      setRunResultMap: vi.fn(), setSelectedRunIds: vi.fn(), setCenterTab: vi.fn(), setResultPages: vi.fn(),
+      reloadRuns: vi.fn(async () => {}),
+    }))
+
+    await act(() => result.current.onExecute())
+    expect(setUiError).toHaveBeenLastCalledWith(translations.ja.novemberSourceFilterRequired)
+    expect(handler).not.toHaveBeenCalled()
   })
 
   it.each(['json', 'json-error', 'sse', 'sse-error'] as const)('retains %s delivery metadata and terminal state for the graph', async (mode) => {

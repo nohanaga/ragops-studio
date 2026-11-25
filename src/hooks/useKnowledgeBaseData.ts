@@ -40,8 +40,9 @@ export function useKnowledgeBaseData(params: {
             profile: activeProfile,
             knowledgeBaseName: knowledgeBaseName.trim(),
             language,
+            signal: abortController.signal,
           }),
-          listKnowledgeSources({ profile: activeProfile, language }),
+          listKnowledgeSources({ profile: activeProfile, language, signal: abortController.signal }),
         ])
 
         if (abortController.signal.aborted) return
@@ -125,7 +126,7 @@ export function useKnowledgeBaseData(params: {
 
     ;(async () => {
       try {
-        const result = await listKnowledgeBases({ profile: activeProfile, language })
+        const result = await listKnowledgeBases({ profile: activeProfile, language, signal: abortController.signal })
         if (abortController.signal.aborted) return
 
         if (result.ok && result.response && typeof result.response === 'object') {

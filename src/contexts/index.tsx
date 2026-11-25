@@ -494,16 +494,37 @@ export function BuilderStateProvider(props: { children: ReactNode; language: Lan
   const [labMode, setLabMode] = useState<LabMode>('query')
   const [builderMode, setBuilderMode] = useState<BuilderMode>('form')
   const [searchForm, setSearchForm] = useState<SearchFormState>(() => ({ ...DEFAULT_SEARCH_FORM }))
-  const [agenticForm, setAgenticForm] = useState<AgenticFormState>({
-    userMessage: translations[props.language]['sampleQuery'],
-    includeActivity: true,
-    outputMode: 'answerSynthesis',
-    maxRuntimeInSeconds: 60,
-    maxOutputSize: 100000,
-    retrievalReasoningEffort: 'low',
-    streamResponse: false,
-    knowledgeSourceParams: [],
-  })
+  const [{ agenticForm, knowledgeBaseName }, setAgenticBuilder] = useState<{ agenticForm: AgenticFormState; knowledgeBaseName: string }>(() => ({
+    knowledgeBaseName: '',
+    agenticForm: {
+      userMessage: translations[props.language]['sampleQuery'],
+      includeActivity: true,
+      outputMode: 'answerSynthesis',
+      maxRuntimeInSeconds: 60,
+      maxOutputSize: 100000,
+      retrievalReasoningEffort: 'low',
+      streamResponse: false,
+      knowledgeSourceParams: [],
+    },
+  }))
+  const setAgenticForm: Dispatch<SetStateAction<AgenticFormState>> = useCallback((update) => {
+    setAgenticBuilder((previous) => {
+      const next = typeof update === 'function' ? update(previous.agenticForm) : update
+      return next === previous.agenticForm ? previous : { ...previous, agenticForm: next }
+    })
+  }, [])
+  // Keep the KB switch and its override reset atomic. Explicit restore sets the form after the KB.
+  const setKnowledgeBaseName: Dispatch<SetStateAction<string>> = useCallback((update) => {
+    setAgenticBuilder((previous) => {
+      const name = typeof update === 'function' ? update(previous.knowledgeBaseName) : update
+      if (name === previous.knowledgeBaseName) return previous
+      return {
+        knowledgeBaseName: name,
+        agenticForm: name.trim() === previous.knowledgeBaseName.trim() ? previous.agenticForm
+          : { ...previous.agenticForm, toolName: '', useToolDefaults: true, knowledgeSourceParams: [] },
+      }
+    })
+  }, [])
   const [analyzeForm, setAnalyzeForm] = useState<AnalyzeFormState>({
     text: '',
     analyzerName: '',
@@ -517,7 +538,6 @@ export function BuilderStateProvider(props: { children: ReactNode; language: Lan
   const [requestJson, setRequestJson] = useState('')
   const [runNote, setRunNote] = useState('')
   const [indexName, setIndexName] = useState('')
-  const [knowledgeBaseName, setKnowledgeBaseName] = useState('')
 
   const value = useMemo<BuilderStateContextValue>(
     () => ({
@@ -544,7 +564,7 @@ export function BuilderStateProvider(props: { children: ReactNode; language: Lan
       knowledgeBaseName,
       setKnowledgeBaseName,
     }),
-    [labMode, builderMode, searchForm, agenticForm, analyzeForm, autocompleteForm, suggestForm, requestJson, runNote, indexName, knowledgeBaseName]
+    [labMode, builderMode, searchForm, agenticForm, analyzeForm, autocompleteForm, suggestForm, requestJson, runNote, indexName, knowledgeBaseName, setAgenticForm, setKnowledgeBaseName]
   )
 
   return <BuilderStateContext.Provider value={value}>{props.children}</BuilderStateContext.Provider>

@@ -151,7 +151,7 @@ export function useApiOperations(args: {
     try {
       // Parse + validate request JSON early so we can fail fast before persisting a run.
       if (builderMode === 'form' && labMode === 'agentic') {
-        body = buildAgenticBodyFromForm(agenticForm, ctxApiVersion)
+        body = buildAgenticBodyFromForm(agenticForm, ctxApiVersion, language)
       } else if (builderMode === 'form' && (labMode === 'query' || labMode === 'semantic-vector') && searchForm.queryType === 'agentic') {
         body = buildSearchBodyFromForm(labMode, searchForm, language, ctxApiVersion.includes('preview'), ctxApiVersion)
       } else {
@@ -159,6 +159,10 @@ export function useApiOperations(args: {
       }
       if (!getSearchApiCapabilities(ctxApiVersion).novemberAgentic && isJsonObject(body)) {
         const usesNamedTool = labMode === 'agentic' && 'toolName' in body
+        if (labMode === 'agentic' && Array.isArray(body.knowledgeSourceParams)
+          && body.knowledgeSourceParams.some((source) => isJsonObject(source) && typeof source.filterAddOn === 'string' && source.filterAddOn.trim())) {
+          throw new Error(t('novemberSourceFilterRequired'))
+        }
         const hasGraphSettings = labMode === 'agentic' && Array.isArray(body.knowledgeSourceParams)
           && body.knowledgeSourceParams.some((source) => isJsonObject(source) && ('topicGraph' in source || 'graphParameters' in source))
         if (usesNamedTool || hasGraphSettings || ((labMode === 'query' || labMode === 'semantic-vector') && body.queryType === 'agentic')) {
