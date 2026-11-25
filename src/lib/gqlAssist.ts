@@ -1,4 +1,4 @@
-import { isLiteralGraphNode, type GraphProvenanceKind, type WorkbenchGraph } from './knowledgeGraph'
+import { hasGqlControlCharacter, isLiteralGraphNode, type GraphProvenanceKind, type WorkbenchGraph } from './knowledgeGraph'
 import type { TranslationKey } from './translations'
 
 export type GqlPattern = {
@@ -78,17 +78,15 @@ export function buildGqlVocabulary(graph: WorkbenchGraph, hasProvenanceIndex: bo
   }
 }
 
-const hasControlCharacter = (value: string) => [...value].some((ch) => ch.charCodeAt(0) < 0x20 || ch.charCodeAt(0) === 0x7f)
-
 // 型名・関係名として GQL に書ける形にします。特殊文字を含む場合はバッククォートで囲み、安全に囲めない場合は null です。
 export function gqlIdentifier(name: string): string | null {
-  if (!name || /[`\\]/.test(name) || hasControlCharacter(name)) return null
+  if (!name || /[`\\]/.test(name) || hasGqlControlCharacter(name)) return null
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !RESERVED_WORDS.has(name.toUpperCase()) ? name : `\`${name}\``
 }
 
 // 文字列リテラルにします。エスケープが必要な文字を含む値は、誤ったクエリを作らないよう null を返します。
 export function gqlString(value: string): string | null {
-  if (!value || /['"\\]/.test(value) || hasControlCharacter(value)) return null
+  if (!value || /['"\\]/.test(value) || hasGqlControlCharacter(value)) return null
   return `'${value}'`
 }
 

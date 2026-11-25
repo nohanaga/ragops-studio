@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { JsonObject } from '../app/json'
 import { buildGraphDocumentBatch, buildGraphResultView, buildGraphStarterQuery, buildKnowledgeGraph, buildOntologySourceUpdate, buildTopicTitleRows, classifyGraphIndexes, getManagedGraphOwner, parseOntology } from './knowledgeGraph'
 
 const definition = {
@@ -29,7 +30,7 @@ describe('knowledge graph editing', () => {
   })
 
   it('classifies graph resources from bindings without guessing from index names', () => {
-    const indexes = [
+    const indexes: JsonObject[] = [
       { name: 'entity-index', ...definition },
       { name: 'topic-index', ...definition },
       { name: 'topic-looking-name', ...definition },
@@ -71,7 +72,9 @@ describe('knowledge graph editing', () => {
     const graph = buildKnowledgeGraph(definition, [{ ...edge, predicate }])
     expect(buildGraphStarterQuery(graph)).toBe(`MATCH (a)-[r:\`${predicate}\`]->(b) RETURN a.name AS subject, r.predicate AS predicate, b.name AS object LIMIT 25`)
     expect(buildGraphStarterQuery({ nodes: [], edges: [] })).toBe('')
-    expect(() => buildGraphStarterQuery(buildKnowledgeGraph(definition, [{ ...edge, predicate: 'bad`label' }]))).toThrow('safely')
+    for (const predicate of ['bad`label', 'bad\\label', 'bad\u0000label', 'bad\nlabel', 'bad\u007flabel']) {
+      expect(() => buildGraphStarterQuery(buildKnowledgeGraph(definition, [{ ...edge, predicate }]))).toThrow('safely')
+    }
   })
 
   it('preserves directed parallel assertions and scopes canonical IDs by graph, not display names', () => {

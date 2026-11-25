@@ -6,7 +6,7 @@ import {
 } from '../../lib/aiSearchRest'
 import {
   buildGraphDocumentBatch, buildGraphProvenanceRequest, buildGraphStarterQuery, buildKnowledgeGraph, buildOntologySourceUpdate, buildTopicTitleRows, getManagedGraphOwner, graphMappings, graphProvenanceIndexName, graphResultEvidenceIds,
-  classifyGraphIndexes, graphSourceIndex, isGraphBlobSource, type GraphIndexKind, type GraphIndexResource, type GraphProvenanceKind,
+  classifyGraphIndexes, graphSourceIndex, isGraphBlobSource, type GraphIndexKind, type GraphIndexResource, type GraphProvenanceKind, type WorkbenchGraph,
   KNOWLEDGE_GRAPH_API_VERSION, parseDocumentArray, parseOntology, requireObject, responseDocuments,
 } from '../../lib/knowledgeGraph'
 import { buildGqlVocabulary, EMPTY_GQL_VOCABULARY } from '../../lib/gqlAssist'
@@ -14,7 +14,6 @@ import { translations, type Language } from '../../lib/translations'
 import type { ThemePreference } from '../../types'
 import type { JsonObject } from '../../app/json'
 import { isJsonObject } from '../../app/json'
-import { downloadText } from '../../utils/apiHelpers'
 import { getIndexKeyFieldName } from '../../utils/indexClone'
 import { GraphDocumentDialog, GraphDocumentEditor } from './GraphDocumentEditor'
 import { GraphJsonEditor } from './GraphJsonEditor'
@@ -157,7 +156,7 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
     observer.observe(panel)
     return () => observer.disconnect()
   }, [])
-  const parsed = useMemo(() => {
+  const parsed = useMemo<{ documents: JsonObject[]; graph: WorkbenchGraph; error: string | null }>(() => {
     try {
       const documents = parseDocumentArray(draft)
       return { documents, graph: definition ? buildKnowledgeGraph(definition, documents) : { nodes: [], edges: [] }, error: null }
@@ -213,10 +212,10 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
     ? definition : indexes.find((index) => index.name === indexName)?.definition
   const filterFields = selectedDefinition && Array.isArray(selectedDefinition.fields)
     ? selectedDefinition.fields.filter(isJsonObject).filter((field) => field.filterable === true && typeof field.name === 'string').map((field) => String(field.name)) : []
+  const graphProfile = selectedDefinition?.graphProfile
   let filterExample = t('kgFilterPlaceholder')
-  if (selectedDefinition && isJsonObject(selectedDefinition.graphProfile ?? null)
-    && isJsonObject(selectedDefinition.graphProfile.fields ?? null)) {
-    const field = selectedDefinition.graphProfile.fields.predicateField
+  if (isJsonObject(graphProfile) && isJsonObject(graphProfile.fields)) {
+    const field = graphProfile.fields.predicateField
     if (typeof field === 'string' && field) {
       const value = loadedIndexName === indexName ? baseline[0]?.[field] : undefined
       filterExample = serializeODataFilter({

@@ -276,6 +276,7 @@ describe('lib/db compatibility', () => {
     const closed = new Promise<void>((resolve) => {
       db.addEventListener('close', () => resolve(), { once: true })
     })
+    // @ts-expect-error fake-indexeddb declares a constructor parameter, but requires a database instance.
     forceCloseDatabase(unwrap(db))
     await closed
 

@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { useState } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { translations } from '../../lib/translations'
 import type { AgenticFormState } from '../../types'
 import { AgenticBuilderForm } from './AgenticBuilderForm'
+
+afterEach(cleanup)
 
 const baseAgenticForm: AgenticFormState = {
   userMessage: 'What changed?',

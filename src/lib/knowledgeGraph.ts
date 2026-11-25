@@ -28,8 +28,9 @@ export function isGraphBlobSource(source: JsonObject): boolean {
 export function classifyGraphIndexes(indexes: JsonObject[], sources: JsonObject[]): GraphIndexResource[] {
   const topics = new Set<string>()
   for (const index of indexes) {
-    if (!isJsonObject(index.vectorSearch ?? null) || !Array.isArray(index.vectorSearch.topicGraphProfiles)) continue
-    for (const profile of index.vectorSearch.topicGraphProfiles) {
+    const vectorSearch = index.vectorSearch
+    if (!isJsonObject(vectorSearch) || !Array.isArray(vectorSearch.topicGraphProfiles)) continue
+    for (const profile of vectorSearch.topicGraphProfiles) {
       if (isJsonObject(profile) && typeof profile.indexName === 'string') topics.add(profile.indexName)
     }
   }
@@ -42,11 +43,19 @@ export function classifyGraphIndexes(indexes: JsonObject[], sources: JsonObject[
   })
 }
 
+export function hasGqlControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.charCodeAt(0)
+    if (code < 0x20 || code === 0x7f) return true
+  }
+  return false
+}
+
 export function buildGraphStarterQuery(graph: WorkbenchGraph): string {
   const edge = graph.edges[0]
   if (!edge) return ''
   const predicate = edge.label
-  if (!predicate || /[`\\\u0000-\u001f\u007f]/u.test(predicate)) {
+  if (!predicate || /[`\\]/.test(predicate) || hasGqlControlCharacter(predicate)) {
     throw new Error('Cannot safely generate a GQL label for this predicate. Enter a constrained query manually.')
   }
   return `MATCH (a)-[r:\`${predicate}\`]->(b) RETURN a.name AS subject, r.predicate AS predicate, b.name AS object LIMIT 25`

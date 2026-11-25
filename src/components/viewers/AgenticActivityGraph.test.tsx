@@ -82,7 +82,7 @@ describe('AgenticActivityGraph integration', () => {
 
     expect(details()).toBeInTheDocument()
     const closeButton = screen.getByRole('button', { name: localized('actTraceCollapse') })
-    const header = closeButton.closest('.actGraph__inspectorHeader')!
+    const header = closeButton.closest<HTMLDivElement>('.actGraph__inspectorHeader')!
     expect(within(header).getByText(localized('actGraphSelect'))).toBeInTheDocument()
     expect(within(header).queryByRole('combobox')).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: localized('actGraphSelect') })).toHaveClass('actGraph__nodeSelect')

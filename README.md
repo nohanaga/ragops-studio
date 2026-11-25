@@ -105,6 +105,9 @@ npm run lint
 # Test
 npm run test
 
+# Test with coverage (as in CI)
+npm run test:coverage
+
 # Preview (after build)
 npm run preview
 

@@ -104,6 +104,9 @@ npm run lint
 # テスト
 npm run test
 
+# カバレッジ付きテスト（CI と同じ）
+npm run test:coverage
+
 # プレビュー（ビルド後）
 npm run preview
 

@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createOrUpdateKnowledgeBase, getKnowledgeBase, listKnowledgeBases } from '../../lib/aiSearchRest'
 import type { ConnectionProfile } from '../../lib/model'
 import { KnowledgeBaseBuilder } from './KnowledgeBaseBuilder'
+
+afterEach(cleanup)
 
 vi.mock('../../lib/aiSearchRest', () => ({
   createOrUpdateKnowledgeBase: vi.fn(),

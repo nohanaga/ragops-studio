@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { useState } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { translations } from '../../lib/translations'
 import type { LatestResponse, ResultView } from '../../types'
 import { ResultViewPanel } from './ResultViewPanel'
+
+afterEach(cleanup)
 
 describe('ResultViewPanel', () => {
   it('switches between results and Activity Flow inside the same resultCard', () => {
