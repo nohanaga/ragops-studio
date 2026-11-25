@@ -28,6 +28,8 @@ export type CenterTab =
   | 'skill-editor'
   | 'eval-dataset-generator'
   | 'index-visualizer'
+  | 'knowledge-graph-playground'
+  | 'ontology-editor'
 
 export type ResultView = {
   id: 'latest' | `run:${string}`
@@ -58,7 +60,9 @@ export type BuilderMode = 'form' | 'json'
 
 export type SearchFormState = {
   search: string
-  queryType: 'simple' | 'full' | 'semantic'
+  queryType: 'simple' | 'full' | 'semantic' | 'agentic'
+  agenticMaxRuntime?: number | ''
+  agenticDebug?: '' | 'agentic' | 'all'
   top: number
   skip: number
   count: boolean
@@ -131,16 +135,28 @@ export type SearchFormState = {
   vectorFilterOverride: string
 }
 
+export type TopicGraphSettings = {
+  kind: 'balanced' | 'diverse' | 'none'
+  minDiversityPoolSize?: number
+  diversityFactor?: number
+}
+
 export type KnowledgeSourceParamItem = {
   knowledgeSourceName: string
   kind: string
   includeReferences: boolean
   includeReferenceSourceData: boolean
-  alwaysQuerySource: boolean
+  alwaysQuerySource?: boolean
   neverQuerySource: boolean
-  resultsProcessing: 'rerank' | 'none'
+  resultsProcessing: 'rerank' | 'none' | ''
   maxOutputDocuments: number | ''
   queryHintOverrides: string
+  filterAddOn?: string
+  topicGraph?: TopicGraphSettings
+  graphParameters?: {
+    includeQuery?: boolean
+    provenance?: { kind: 'none' | 'hydrate'; hydrateDocuments?: { top?: number; select?: string } }
+  }
 }
 
 /** Lightweight info about a knowledge source inside a knowledge base. */
@@ -150,11 +166,15 @@ export type KnowledgeSourceInfo = {
 }
 
 export type AgenticFormState = {
+  toolName?: string
+  useToolDefaults?: boolean
   userMessage: string
   includeActivity: boolean
   outputMode: string
   maxRuntimeInSeconds: number
-  maxOutputSize: number
+  maxOutputSize: number | ''
+  maxOutputDocuments?: number | ''
+  maxOutputSizeInTokens?: number | ''
   retrievalReasoningEffort: 'low' | 'medium' | 'minimal' | 'auto'
   streamResponse: boolean
   knowledgeSourceParams: KnowledgeSourceParamItem[]
@@ -209,7 +229,9 @@ export type SearchIndexKnowledgeSource = KnowledgeSourceBase & {
     sourceDataFields: Array<{ name: string }>
     searchFields: Array<{ name: string }>
     queryHints?: JsonValue
+    topicGraph?: TopicGraphSettings
   }
+  resultsProcessing?: 'rerank' | 'none'
 }
 
 export type McpServerKnowledgeSource = KnowledgeSourceBase & {
@@ -228,6 +250,7 @@ export type KnowledgeBase = {
   outputMode: string | null
   knowledgeSources: Array<{ name: string }>
   models: JsonValue[]
+  tools?: JsonValue[]
   encryptionKey: JsonValue | null
   retrievalReasoningEffort: { kind: string }
   retrieveDefaults?: {

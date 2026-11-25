@@ -13,6 +13,7 @@ import { diffLines } from 'diff'
 
 import type { ConnectionProfile, SearchApiVersion } from '../lib/model'
 import { createOrUpdateIndex, getIndexDefinition, listIndexes } from '../lib/aiSearchRest'
+import { findUnsupportedNovemberIndexFeatures } from '../lib/indexGraphProfiles'
 import type { Language } from '../lib/translations'
 import { translations } from '../lib/translations'
 import { computeIndexDiff } from '../utils/indexDiff'
@@ -158,6 +159,16 @@ export function useIndexPublishFlow({ profile, apiVersion, language, t }: UseInd
     const name = typeof candidateObj.name === 'string' ? candidateObj.name.trim() : ''
     if (!name) {
       setPublishError(t('indexBuilderJsonNameRequired'))
+      return
+    }
+
+    const unsupportedFeatures = findUnsupportedNovemberIndexFeatures(candidateObj, apiVersion)
+    if (unsupportedFeatures.length > 0) {
+      setPublishError(
+        t('indexBuilderNovemberSchemaPublishBlocked')
+          .replace('{features}', unsupportedFeatures.join(', '))
+          .replace('{version}', apiVersion),
+      )
       return
     }
 

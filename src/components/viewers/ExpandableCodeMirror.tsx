@@ -5,7 +5,7 @@
  * view for easier editing/inspection.
  */
 
-import { useState } from 'react'
+import { useEffect, useId, useRef, useState, type SyntheticEvent } from 'react'
 
 import CodeMirror, { type ReactCodeMirrorProps } from '@uiw/react-codemirror'
 
@@ -18,10 +18,40 @@ type ExpandableCodeMirrorProps = ReactCodeMirrorProps & {
 
 export function ExpandableCodeMirror(props: ExpandableCodeMirrorProps) {
   const { t, modalTitle, onCreateEditor, height, ...rest } = props
-  const [open, setOpen] = useState(false)
+  const [mode, setMode] = useState<'dialog' | 'overlay' | null>(null)
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  const titleId = useId()
+
+  useEffect(() => {
+    if (mode !== 'dialog') return
+    const dialog = dialogRef.current
+    if (!dialog) return
+    dialog.showModal()
+    return () => dialog.close()
+  }, [mode])
 
   const expandTitle = t ? t('editorExpand') : 'Expand'
   const expandedTitle = modalTitle ?? (t ? t('editorExpandedTitle') : 'Editor')
+  const close = () => {
+    dialogRef.current?.close()
+    setMode(null)
+  }
+  const dismissNested = (event: SyntheticEvent<HTMLDialogElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    close()
+  }
+  const expandedEditor = mode && (
+    <>
+      <div className="modal-header">
+        <h2 id={titleId}>{expandedTitle}</h2>
+        <button type="button" className="btn" aria-label={t ? t('dialogClose') : 'Close'} onClick={close}>✕</button>
+      </div>
+      <div className="modal-body" style={{ padding: 12 }}>
+        <CodeMirror height={mode === 'dialog' ? 'calc(100dvh - 130px)' : 'calc(94vh - 140px)'} {...rest} />
+      </div>
+    </>
+  )
 
   return (
     <>
@@ -29,7 +59,9 @@ export function ExpandableCodeMirror(props: ExpandableCodeMirrorProps) {
         <button
           type="button"
           className="btn btn--icon"
-          onClick={() => setOpen(true)}
+          // A nested modal must join the browser's top layer too.
+          onClick={(event) => setMode(event.currentTarget.closest('dialog:modal') ? 'dialog' : 'overlay')}
+          aria-haspopup="dialog"
           title={expandTitle}
           style={{ position: 'absolute', top: 8, right: 8, zIndex: 5 }}
         >
@@ -39,22 +71,24 @@ export function ExpandableCodeMirror(props: ExpandableCodeMirrorProps) {
         <CodeMirror height={height} onCreateEditor={onCreateEditor} {...rest} />
       </div>
 
-      {open && (
-        <div className="modal-overlay" onClick={() => setOpen(false)}>
+      {mode === 'dialog' && (
+        <dialog ref={dialogRef} className="modal-content expandedEditorDialog" aria-labelledby={titleId}
+          onCancel={dismissNested}
+          onKeyDown={(event) => { if (event.key === 'Escape' && !event.defaultPrevented) dismissNested(event) }}>
+          {expandedEditor}
+        </dialog>
+      )}
+      {mode === 'overlay' && (
+        <div className="modal-overlay" onClick={close}>
           <div
             className="modal-content"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
             onClick={(e) => e.stopPropagation()}
             style={{ width: '96vw', maxWidth: 1400, minWidth: 600, maxHeight: '94vh' }}
           >
-            <div className="modal-header">
-              <h2>{expandedTitle}</h2>
-              <button type="button" className="btn" onClick={() => setOpen(false)}>
-                ✕
-              </button>
-            </div>
-            <div className="modal-body" style={{ padding: 12 }}>
-              <CodeMirror height="calc(94vh - 140px)" {...rest} />
-            </div>
+            {expandedEditor}
           </div>
         </div>
       )}

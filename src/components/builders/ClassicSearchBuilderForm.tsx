@@ -14,6 +14,7 @@ import type { Language } from '../../lib/translations'
 import { translations } from '../../lib/translations'
 import type { LabMode, SearchFormState } from '../../types'
 import { InfoTooltip } from '../InfoTooltip'
+import { getSearchApiCapabilities } from '../../lib/searchApiCapabilities'
 
 type TranslationKey = keyof typeof translations.ja
 
@@ -54,6 +55,8 @@ export function ClassicSearchBuilderForm(props: ClassicSearchBuilderFormProps) {
   } = props
 
   const DEBUG_OPTIONS = ['queryRewrites', 'vector', 'innerHits', 'semantic', 'all'] as const
+  const direct = searchForm.queryType === 'agentic'
+  const supportsDirect = getSearchApiCapabilities(effectiveApiVersion).novemberAgentic
 
   const [debugFilterText, setDebugFilterText] = useState('')
   const debugFilterInputRef = useRef<HTMLInputElement | null>(null)
@@ -90,7 +93,7 @@ export function ClassicSearchBuilderForm(props: ClassicSearchBuilderFormProps) {
       <label className="field field--full" data-guide-target="search-query">
         <span className="field__label">
           query
-          <InfoTooltip tooltipKey="query" language={language} />
+          <InfoTooltip tooltipKey={direct ? 'directAgenticQuery' : 'query'} language={language} />
         </span>
         <input
           className="field__input"
@@ -126,15 +129,58 @@ export function ClassicSearchBuilderForm(props: ClassicSearchBuilderFormProps) {
             setSearchForm((p) => ({ ...p, queryType: next }))
             if (next === 'semantic') {
               setLabMode('semantic-vector')
+            } else if (next === 'agentic') {
+              setLabMode('query')
             }
           }}
         >
           <option value="simple">simple</option>
           <option value="full">full (Lucene)</option>
           <option value="semantic">semantic</option>
+          <option value="agentic" disabled={!supportsDirect}>agentic (Microsoft Retriever 1)</option>
         </select>
       </label>
 
+      {direct ? <>
+        <div className="field field--full field__hint">{t(supportsDirect ? 'directAgenticHint' : 'novemberAgenticRequired')}</div>
+        {(['filter', 'select', 'searchFields'] as const).map((key) => (
+          <label className="field" key={key}>
+            <span className="field__label">
+              {key}
+              <InfoTooltip tooltipKey={key} language={language} />
+            </span>
+            <input className="field__input" value={searchForm[key]} onChange={(event) => setSearchForm((p) => ({ ...p, [key]: event.target.value }))} />
+          </label>
+        ))}
+        <label className="field">
+          <span className="field__label">
+            top
+            <InfoTooltip tooltipKey="top" language={language} />
+          </span>
+          <input type="number" min={1} max={1000} className="field__input" value={searchForm.top} onChange={(event) => setSearchForm((p) => ({ ...p, top: Number(event.target.value) }))} />
+        </label>
+        <label className="field">
+          <span className="field__label">
+            agenticOptions.maxRuntimeInSeconds
+            <InfoTooltip tooltipKey="directAgenticMaxRuntime" language={language} />
+          </span>
+          <input type="number" min={1} max={2147483647} className="field__input" value={searchForm.agenticMaxRuntime ?? ''} onChange={(event) => setSearchForm((p) => ({ ...p, agenticMaxRuntime: event.target.value === '' ? '' : Number(event.target.value) }))} />
+        </label>
+        <label className="field">
+          <span className="field__label">
+            debug
+            <InfoTooltip tooltipKey="directAgenticDebug" language={language} />
+          </span>
+          <select className="field__input" value={searchForm.agenticDebug ?? ''} onChange={(event) => {
+            const debug = event.target.value
+            setSearchForm((p) => ({ ...p, agenticDebug: debug === 'agentic' || debug === 'all' ? debug : '' }))
+          }}>
+            <option value="">{t('optionNone')}</option>
+            <option value="agentic">agentic</option>
+            <option value="all">all</option>
+          </select>
+        </label>
+      </> : <>
       <label className="field">
         <span className="field__label">
           count
@@ -798,6 +844,7 @@ export function ClassicSearchBuilderForm(props: ClassicSearchBuilderFormProps) {
           </div>
         </div>
       </details>
+      </>}
 
       {labMode === 'semantic-vector' && searchForm.queryType === 'semantic' && (
         <div className="semantic-section">

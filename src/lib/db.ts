@@ -5,10 +5,11 @@
  * Treat it as an operational cache that users can export/import.
  */
 
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { openDB, unwrap, type DBSchema, type IDBPDatabase, type IndexNames, type StoreNames } from 'idb';
 import { v4 as uuidv4 } from 'uuid';
 import type { Artifact, Experiment, Run, SettingsRecord } from './model';
 import { translations, type Language } from './translations';
+import { getBrowserLanguage } from '../utils/helpers';
 
 export type RunsExportBundleV1 = {
   kind: 'ragops-studio:runs';
@@ -19,7 +20,8 @@ export type RunsExportBundleV1 = {
 };
 
 const DB_NAME = 'ragops-studio';
-const DB_VERSION = 1;
+// Used only when missing stores or indexes require an additive migration.
+const DB_VERSION = 2;
 
 interface LabDbSchema extends DBSchema {
   experiments: {
@@ -47,47 +49,142 @@ interface LabDbSchema extends DBSchema {
   };
 }
 
+const DB_STORES = {
+  experiments: {
+    keyPath: 'experimentId',
+    indexes: { by_updatedAt: 'updatedAt' },
+  },
+  runs: {
+    keyPath: 'runId',
+    indexes: {
+      by_experimentId: 'experimentId',
+      by_experimentId_startedAt: ['experimentId', 'startedAt'],
+      by_startedAt: 'startedAt',
+    },
+  },
+  artifacts: {
+    keyPath: 'artifactId',
+    indexes: {
+      by_runId: 'runId',
+      by_runId_type: ['runId', 'type'],
+    },
+  },
+  settings: { keyPath: 'id', indexes: {} },
+} satisfies {
+  [Store in StoreNames<LabDbSchema>]: {
+    keyPath: string;
+    indexes: Record<IndexNames<LabDbSchema, Store>, string | string[]>;
+  };
+};
+
 let dbPromise: Promise<IDBPDatabase<LabDbSchema>> | undefined;
 
 function nowIso(): string {
   return new Date().toISOString();
 }
 
-export async function getDb(): Promise<IDBPDatabase<LabDbSchema>> {
-  if (!dbPromise) {
-    dbPromise = openDB<LabDbSchema>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        // Schema creation is idempotent; upgrade runs once per version.
-        if (!db.objectStoreNames.contains('experiments')) {
-          const experiments = db.createObjectStore('experiments', {
-            keyPath: 'experimentId',
-          });
-          experiments.createIndex('by_updatedAt', 'updatedAt');
-        }
+function dbErrorMessage(key: 'dbUpgradeBlocked' | 'dbSchemaIncompatible'): string {
+  const language = typeof navigator === 'undefined' ? 'en' : getBrowserLanguage();
+  return translations[language][key];
+}
 
-        if (!db.objectStoreNames.contains('runs')) {
-          const runs = db.createObjectStore('runs', { keyPath: 'runId' });
-          runs.createIndex('by_experimentId', 'experimentId');
-          runs.createIndex('by_experimentId_startedAt', [
-            'experimentId',
-            'startedAt',
-          ]);
-          runs.createIndex('by_startedAt', 'startedAt');
-        }
+function hasRequiredSchema(db: IDBDatabase): boolean {
+  const existingStores = Object.keys(DB_STORES).filter((name) => db.objectStoreNames.contains(name));
+  if (existingStores.length === 0) return false;
 
-        if (!db.objectStoreNames.contains('artifacts')) {
-          const artifacts = db.createObjectStore('artifacts', {
-            keyPath: 'artifactId',
-          });
-          artifacts.createIndex('by_runId', 'runId');
-          artifacts.createIndex('by_runId_type', ['runId', 'type']);
-        }
+  const tx = db.transaction(existingStores, 'readonly');
+  let complete = existingStores.length === Object.keys(DB_STORES).length;
+  for (const [name, schema] of Object.entries(DB_STORES)) {
+    if (!db.objectStoreNames.contains(name)) continue;
+    const store = tx.objectStore(name);
+    if (JSON.stringify(store.keyPath) !== JSON.stringify(schema.keyPath) || store.autoIncrement) {
+      throw new Error(`${dbErrorMessage('dbSchemaIncompatible')} (${name})`);
+    }
+    for (const [indexName, keyPath] of Object.entries(schema.indexes)) {
+      if (!store.indexNames.contains(indexName)) {
+        complete = false;
+        continue;
+      }
+      const index = store.index(indexName);
+      if (JSON.stringify(index.keyPath) !== JSON.stringify(keyPath) || index.unique || index.multiEntry) {
+        throw new Error(`${dbErrorMessage('dbSchemaIncompatible')} (${name}.${indexName})`);
+      }
+    }
+  }
+  return complete;
+}
 
-        if (!db.objectStoreNames.contains('settings')) {
-          db.createObjectStore('settings', { keyPath: 'id' });
+function openDatabase(version?: number): Promise<IDBPDatabase<LabDbSchema>> {
+  return new Promise((resolve, reject) => {
+    let blocked = false;
+    const opening = openDB<LabDbSchema>(DB_NAME, version, {
+      upgrade(db, _oldVersion, _newVersion, transaction) {
+        void transaction.done.catch(reject);
+        if (blocked) {
+          transaction.abort();
+          return;
+        }
+        // A versionless open probes the existing schema, including newer databases.
+        if (version === undefined) return;
+        const database = unwrap(db);
+        const tx = unwrap(transaction);
+        for (const [name, schema] of Object.entries(DB_STORES)) {
+          const store = database.objectStoreNames.contains(name)
+            ? tx.objectStore(name)
+            : database.createObjectStore(name, { keyPath: schema.keyPath });
+          for (const [indexName, keyPath] of Object.entries(schema.indexes)) {
+            if (!store.indexNames.contains(indexName)) store.createIndex(indexName, keyPath);
+          }
         }
       },
+      blocked() {
+        blocked = true;
+        reject(new Error(dbErrorMessage('dbUpgradeBlocked')));
+      },
+      blocking() {
+        void opening.then((db) => db.close());
+        dbPromise = undefined;
+      },
+      terminated() {
+        dbPromise = undefined;
+      },
     });
+    opening.then((db) => {
+      if (blocked) db.close();
+      else resolve(db);
+    }, reject);
+  });
+}
+
+async function openCompatibleDatabase(): Promise<IDBPDatabase<LabDbSchema>> {
+  while (true) {
+    const db = await openDatabase();
+    try {
+      if (hasRequiredSchema(unwrap(db))) return db;
+    } catch (error) {
+      db.close();
+      throw error;
+    }
+
+    const nextVersion = Math.max(DB_VERSION, db.version + 1);
+    db.close();
+    try {
+      return await openDatabase(nextVersion);
+    } catch (error) {
+      // Another tab may have upgraded between the probe and the migration.
+      if (error instanceof DOMException && error.name === 'VersionError') continue;
+      throw error;
+    }
+  }
+}
+
+export async function getDb(): Promise<IDBPDatabase<LabDbSchema>> {
+  if (!dbPromise) {
+    const opening = openCompatibleDatabase().catch((error: unknown) => {
+      if (dbPromise === opening) dbPromise = undefined;
+      throw error;
+    });
+    dbPromise = opening;
   }
 
   return dbPromise;

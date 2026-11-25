@@ -220,10 +220,13 @@ function App() {
     knowledgeBaseNamesError,
     knowledgeBaseNameOptions,
     availableKnowledgeSources,
+    availableKnowledgeTools,
+    standaloneRetriever1,
   } = useKnowledgeBaseData({
     labMode,
     activeProfile,
     knowledgeBaseName,
+    editingKnowledgeBase: centerTab === 'knowledge-base-builder',
     language,
     setAgenticForm,
   })
@@ -646,7 +649,9 @@ function App() {
   }, [centerTab, latestResponse])
 
   const { isExecuting, isStreamingResponse, onExecute, onExecuteAllModes, onCancelExecute } = useApiOperations({
+    standaloneRetriever1,
     labMode,
+    builderMode,
     activeProfile,
     indexName,
     knowledgeBaseName,
@@ -760,6 +765,7 @@ function App() {
   usePaneResize({ paneSizes, setPaneSizes, dragging, setDragging })
 
   useRequestJsonSync({
+    standaloneRetriever1,
     builderMode,
     labMode,
     searchForm,
@@ -937,8 +943,10 @@ function App() {
   if (bootError) {
     return (
       <div className="app app--error">
-        <h1>{t('bootErrorTitle')}</h1>
-        <pre className="mono">{bootError}</pre>
+        <div className="notice notice--error" role="alert">
+          <h1 className="notice__title">{t('bootErrorTitle')}</h1>
+          <pre className="mono notice__pre">{bootError}</pre>
+        </div>
       </div>
     )
   }
@@ -990,6 +998,8 @@ function App() {
       knowledgeBaseNamesError={knowledgeBaseNamesError}
       knowledgeBaseNameOptions={knowledgeBaseNameOptions}
       availableKnowledgeSources={availableKnowledgeSources}
+      availableKnowledgeTools={availableKnowledgeTools}
+      standaloneRetriever1={standaloneRetriever1}
       isLoadingRequestBuilderSchema={isLoadingRequestBuilderSchema}
       requestBuilderFacetFieldInfos={requestBuilderFacetFieldInfos}
       requestBuilderIndexFieldNames={requestBuilderIndexFieldNames}

@@ -49,7 +49,9 @@ export function normalizeCenterTab(raw: unknown, ids: string[]): CenterTab {
     value === 'skill-pipeline-builder' ||
     value === 'skill-editor' ||
     value === 'eval-dataset-generator' ||
-    value === 'index-visualizer'
+    value === 'index-visualizer' ||
+    value === 'knowledge-graph-playground' ||
+    value === 'ontology-editor'
   ) {
     return value
   }

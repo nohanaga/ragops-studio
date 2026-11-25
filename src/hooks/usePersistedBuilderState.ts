@@ -179,7 +179,7 @@ export function usePersistedBuilderState(params: {
         knowledgeSourceParams: (restored.agenticForm.knowledgeSourceParams ?? []).map((param) => ({
           ...param,
           neverQuerySource: param.neverQuerySource ?? false,
-          resultsProcessing: param.resultsProcessing === 'none' ? 'none' : 'rerank',
+          resultsProcessing: param.resultsProcessing === 'none' || param.resultsProcessing === '' ? param.resultsProcessing : 'rerank',
           maxOutputDocuments: typeof param.maxOutputDocuments === 'number' ? param.maxOutputDocuments : '',
           queryHintOverrides: typeof param.queryHintOverrides === 'string' ? param.queryHintOverrides : '',
         })),

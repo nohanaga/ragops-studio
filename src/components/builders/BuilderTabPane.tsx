@@ -65,6 +65,8 @@ export type BuilderTabPaneProps = {
   knowledgeBaseNameOptions: string[]
 
   availableKnowledgeSources: KnowledgeSourceInfo[]
+  availableKnowledgeTools?: import('../../utils/agenticPreview').KnowledgeBaseToolInfo[]
+  standaloneRetriever1?: boolean
 
   // Forms
   searchForm: SearchFormState
@@ -175,6 +177,8 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
     buildRequestBuilderActiveSummary,
     isPreviewApiVersion,
     availableKnowledgeSources,
+    availableKnowledgeTools,
+    standaloneRetriever1,
     searchForm,
     setSearchForm,
     agenticForm,
@@ -558,6 +562,8 @@ export function BuilderTabPane(props: BuilderTabPaneProps) {
           agenticForm={agenticForm}
           setAgenticForm={setAgenticForm}
           availableKnowledgeSources={availableKnowledgeSources}
+          availableKnowledgeTools={availableKnowledgeTools}
+          standaloneRetriever1={standaloneRetriever1}
           effectiveApiVersion={effectiveApiVersion}
         />
         )}

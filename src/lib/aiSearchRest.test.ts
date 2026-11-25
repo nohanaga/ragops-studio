@@ -35,6 +35,7 @@ import {
   resetIndexer,
   resolveSearchApiVersion,
   searchDocuments,
+  queryKnowledgeGraph,
   suggestDocuments,
 } from './aiSearchRest'
 
@@ -46,6 +47,21 @@ function asRecord(v: unknown): Record<string, unknown> {
 describe('lib/aiSearchRest', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('routes graph queries through the shared authenticated client and rejects older API versions', async () => {
+    let observedBody: unknown
+    server.use(http.post('*/indexes/graph/docs/search.graph', async ({ request }) => {
+      observedBody = await request.json()
+      expect(new URL(request.url).searchParams.get('api-version')).toBe('2026-11-01-preview')
+      expect(request.headers.get('api-key')).toBe('k')
+      return HttpResponse.json({ value: [], '@search.graphProvenanceDocuments': {} })
+    }))
+    const profile = { endpoint: 'https://example.search.windows.net', apiVersion: '2026-11-01-preview' as const, authType: 'apiKey' as const, apiKey: 'k' }
+    const body = { gql: 'MATCH (a)-[r]->(b) RETURN a.name LIMIT 5', provenance: { kind: 'ids' } }
+    expect((await queryKnowledgeGraph({ profile, indexName: 'graph', body })).ok).toBe(true)
+    expect(observedBody).toEqual(body)
+    await expect(queryKnowledgeGraph({ profile: { ...profile, apiVersion: '2026-08-01-preview' }, indexName: 'graph', body })).rejects.toThrow('2026-11-01-preview')
   })
 
   it('keeps newer configured API versions and raises older versions to the feature minimum', () => {

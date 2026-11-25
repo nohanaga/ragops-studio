@@ -7,13 +7,13 @@
 
 import { useRef, useState } from 'react'
 import type { ConnectionProfile, Run, RunResponseMetadata, SearchApiVersion } from '../lib/model'
-import type { AgenticFormState, CenterTab, LabMode, LatestResponse, SearchFormState, UiLogEntry } from '../types'
+import type { AgenticFormState, BuilderMode, CenterTab, LabMode, LatestResponse, SearchFormState, UiLogEntry } from '../types'
 import { translations, type Language } from '../lib/translations'
 import type { JsonValue } from '../lib/aiSearchRest'
 import { addArtifact, createRun, updateRun } from '../lib/db'
 import { agenticRetrieve, agenticRetrieveStream, analyzeIndex, autocompleteDocuments, resolveSearchApiVersion, searchDocuments, suggestDocuments } from '../lib/aiSearchRest'
 import type { AgenticStreamEvent } from '../lib/aiSearchRest'
-import { buildSearchBodyFromForm } from '../utils/appRequestBodies'
+import { buildAgenticBodyFromForm, buildSearchBodyFromForm, validateAgenticSourceFilter } from '../utils/appRequestBodies'
 import { inferRunType, parseJsonStrict, validateRequest } from '../utils'
 import { getSearchApiCapabilities } from '../lib/searchApiCapabilities'
 
@@ -69,8 +69,10 @@ export function useApiOperations(args: {
   knowledgeBaseName: string
   selectedExperimentId: string | null
   requestJson: string
+  builderMode: BuilderMode
   searchForm: SearchFormState
   agenticForm: AgenticFormState
+  standaloneRetriever1?: boolean
   runNote: string
   language: Language
   t: (key: TranslationKey) => string
@@ -90,8 +92,10 @@ export function useApiOperations(args: {
     knowledgeBaseName,
     selectedExperimentId,
     requestJson,
+    builderMode,
     searchForm,
     agenticForm,
+    standaloneRetriever1,
     runNote,
     language,
     t,
@@ -142,10 +146,33 @@ export function useApiOperations(args: {
       return
     }
 
+    const ctxApiVersion = labMode === 'agentic'
+      ? resolveSearchApiVersion(activeProfile.apiVersion, '2025-11-01-preview')
+      : activeProfile.apiVersion
     let body: JsonValue
     try {
       // Parse + validate request JSON early so we can fail fast before persisting a run.
-      body = parseJsonStrict(requestJson)
+      if (builderMode === 'form' && labMode === 'agentic') {
+        body = buildAgenticBodyFromForm(agenticForm, ctxApiVersion, language, standaloneRetriever1)
+      } else if (builderMode === 'form' && (labMode === 'query' || labMode === 'semantic-vector')) {
+        body = buildSearchBodyFromForm(labMode, searchForm, language, ctxApiVersion.includes('preview'), ctxApiVersion)
+      } else {
+        body = parseJsonStrict(requestJson)
+      }
+      const { novemberAgentic } = getSearchApiCapabilities(ctxApiVersion)
+      if (labMode === 'agentic' && builderMode === 'json' && isJsonObject(body) && Array.isArray(body.knowledgeSourceParams)) {
+        for (const source of body.knowledgeSourceParams) {
+          if (isJsonObject(source)) validateAgenticSourceFilter(source.kind, source.filterAddOn, novemberAgentic, language)
+        }
+      }
+      if (!novemberAgentic && isJsonObject(body)) {
+        const usesNamedTool = labMode === 'agentic' && 'toolName' in body
+        const hasGraphSettings = labMode === 'agentic' && Array.isArray(body.knowledgeSourceParams)
+          && body.knowledgeSourceParams.some((source) => isJsonObject(source) && ('topicGraph' in source || 'graphParameters' in source))
+        if (usesNamedTool || hasGraphSettings || ((labMode === 'query' || labMode === 'semantic-vector') && body.queryType === 'agentic')) {
+          throw new Error(t('novemberAgenticRequired'))
+        }
+      }
       validateRequest(labMode, body, language)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -161,9 +188,6 @@ export function useApiOperations(args: {
     let streamLastEvent = ''
     let streamRequestId = ''
     const runningActivityIds = new Set<string>()
-    const ctxApiVersion = labMode === 'agentic'
-      ? resolveSearchApiVersion(activeProfile.apiVersion, '2025-11-01-preview')
-      : activeProfile.apiVersion
     const useAgenticStreaming = labMode === 'agentic'
       && shouldUseAgenticStreaming(ctxApiVersion, agenticForm.streamResponse)
     const executeAbortController = useAgenticStreaming

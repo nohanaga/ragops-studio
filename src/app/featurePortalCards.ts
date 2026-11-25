@@ -64,6 +64,20 @@ export const CATEGORY_META: Record<CardCategory, { labelJa: string; labelEn: str
 }
 
 export const PORTAL_CARDS: PortalCard[] = [
+  {
+    id: 'knowledge-graph-playground', icon: 'diagram-3', category: 'devtool',
+    titleJa: 'Knowledge Graph Playground', titleEn: 'Knowledge Graph Playground',
+    descJa: 'トピック / エンティティグラフの取得、草案編集、可視化、GQL 検索。Ontology Editor と連携します。',
+    descEn: 'Retrieve, draft-edit, visualize and query topic / entity graphs with the linked Ontology Editor.',
+    action: 'openKnowledgeGraph',
+  },
+  {
+    id: 'ontology-editor', icon: 'bezier2', category: 'builder',
+    titleJa: 'Ontology Editor', titleEn: 'Ontology Editor',
+    descJa: 'エンティティ型・関係を JSON-LD とキャンバスで編集し、Playground からオントロジーを適用します。',
+    descEn: 'Edit entity types and relationships as JSON-LD and on a canvas, then apply through the Playground.',
+    action: 'openOntologyEditor',
+  },
   // ── Search Modes ─────────────────────────────────────────────
   {
     id: 'fulltext-search',
@@ -341,6 +355,7 @@ export const PORTAL_CARDS: PortalCard[] = [
         { icon: 'ui-checks-grid', titleJa: '構成エディターで index レベル設定を編集', titleEn: 'Edit index-level configuration', descJa: 'Semantic、Scoring Profiles、Suggesters、Analyzers、Normalizers、Vector profiles をフォームで編集し、JSON に反映します。Semantic 構成や HNSW / Vectorizer / Compression の関連付けはここで整理します。', descEn: 'Edit Semantic, Scoring Profiles, Suggesters, Analyzers, Normalizers, and Vector profiles through forms that sync back to JSON. Use this area to organize semantic mappings and HNSW / Vectorizer / Compression relationships.', targetSelector: '[data-guide-target="index-builder-config"]' },
         { icon: 'code-slash', titleJa: 'JSON とインポート / エクスポート', titleEn: 'JSON and import/export', descJa: 'JSON エディターで最終的に送信する定義を確認・直接編集します。既存テンプレートのインポート、現在定義のエクスポート、クリップボードコピーは操作ボタンから行います。', descEn: 'Use the JSON editor to review or directly edit the final payload. Import existing templates, export the current definition, or copy JSON from the action buttons.', targetSelector: '[data-guide-target="index-builder-editor"]' },
         { icon: 'cloud-upload', titleJa: 'Diff を確認して保存', titleEn: 'Save after diff review', descJa: 'Save は新規作成または既存インデックス更新を行います。既存リソースでは CodeMirror の Diff で変更内容と更新影響を確認してから確定します。', descEn: 'Save creates a new index or updates an existing one. For existing resources, review the CodeMirror diff and update impact before confirming.', targetSelector: '[data-guide-target="index-builder-actions"]' },
+        { icon: 'bezier2', titleJa: '依存関係マップで参照関係を確認', titleEn: 'Check references in the dependency map', descJa: '依存関係タブでは、選択中のインデックスについて、ナレッジ ベース、ナレッジ ソース、トピック プロファイル、トピック用インデックスまでの参照関係を図で確認できます。矢印は参照する側から参照される側へ向かいます。各リソースの名前を選ぶと、それぞれのビルダーで開きます。', descEn: 'The Dependencies tab draws how the selected index relates to knowledge bases, knowledge sources, topic profiles, and topic indexes. Arrows point from the referencing resource to the referenced one. Select a resource name to open it in its builder.', targetSelector: '[data-guide-target="index-builder-dependencies"]' },
         { icon: 'intersect', titleJa: 'Clone Assistant で移行準備', titleEn: 'Prepare migrations with Clone Assistant', descJa: 'Clone Assistant では既存インデックスをベースに新しい定義を作れます。破壊的な変更が必要な場合は新インデックスを作って Alias 切り替えに備えます。', descEn: 'Use Clone Assistant to create a new definition from an existing index. For destructive changes, create a replacement index and prepare an alias switch.', targetSelector: '[data-guide-target="index-builder-clone"]' },
         { icon: 'signpost-split', titleJa: 'Aliases で参照名を管理', titleEn: 'Manage aliases', descJa: 'Aliases タブで、アプリケーションが参照する Alias を作成・更新・削除できます。入れ替え時は Alias の参照先を新しいインデックスへ切り替えます。', descEn: 'Use the Aliases tab to create, update, and delete the alias name your application references. For index swaps, repoint the alias to the new index.', targetSelector: '[data-guide-target="index-builder-aliases"]' },
         { icon: 'trash3', titleJa: '削除 (注意)', titleEn: 'Delete (caution)', descJa: 'DELETE /indexes/{name} は復元不可です。本番は Alias を介してスワップ、古いインデックスの削除はダウンタイムを見てからにします。', descEn: 'DELETE /indexes/{name} is irreversible. In production, swap behind an Alias and only delete the old index after a safe window.' },
@@ -496,7 +511,7 @@ export const PORTAL_CARDS: PortalCard[] = [
       steps: [
         { icon: 'box-arrow-in-right', titleJa: '開く', titleEn: 'Open', descJa: 'ツールメニューから Knowledge Base Builder を開きます。preview API で動作します。', descEn: 'Open Knowledge Base Builder from the Tools menu. Uses the preview API.' },
         { icon: 'plus-circle', titleJa: '基本情報を入力', titleEn: 'Enter basics', descJa: 'name (Agentic Retrieval クエリで指定される ID)、description (会話エージェントの用途説明) を入力します。', descEn: 'Set name (the ID specified by Agentic Retrieval queries) and description (high-level purpose of the agent).', targetSelector: '[data-guide-target="knowledge-base-form"]' },
-        { icon: 'cpu', titleJa: 'Knowledge Agent (LLM) を接続', titleEn: 'Bind a Knowledge Agent (LLM)', descJa: 'Azure OpenAI の endpoint / deployment ID / API キー またはマネージド ID 認証を設定します。サブクエリ計画と最終応答生成をこのデプロイメントが担当します。', descEn: 'Configure the Azure OpenAI endpoint / deployment ID / API key (or managed identity). This deployment plans subqueries and synthesizes the final response.' },
+        { icon: 'cpu', titleJa: '検索計画モデルを設定', titleEn: 'Configure the planning model', descJa: 'Azure OpenAI モデルを接続するか、2026-11-01-preview で Microsoft Retriever 1 を有効にします。単体利用では Azure OpenAI のデプロイは不要です。', descEn: 'Connect an Azure OpenAI model, or enable Microsoft Retriever 1 with 2026-11-01-preview. Standalone use requires no Azure OpenAI deployment.', targetSelector: '[data-guide-target="knowledge-base-retriever"]' },
         { icon: 'collection', titleJa: 'knowledgeSources を追加', titleEn: 'Add knowledgeSources', descJa: '事前に公開した Knowledge Source を配列に追加。複数追加すると Agent がクエリごとに「どれを使うか」を自動選択します。選択ロジックは各 Source の description に依存します。', descEn: 'Add previously published Knowledge Sources to the array. With multiple sources, the Agent picks per query — selection logic depends on each source’s description.', targetSelector: '[data-guide-target="knowledge-base-sources"]' },
         { icon: 'cloud-upload', titleJa: '公開', titleEn: 'Publish', descJa: 'Save で PUT /knowledgeBases/{name} (preview) を送信。公開後は Lab Mode = Agentic でドロップダウンに表示され、Agentic Retrieval で使えるようになります。', descEn: 'Save sends PUT /knowledgeBases/{name} (preview). After publishing, it appears in the dropdown when Lab Mode = Agentic and is usable in Agentic Retrieval.', targetSelector: '[data-guide-target="knowledge-base-actions"]' },
       ],

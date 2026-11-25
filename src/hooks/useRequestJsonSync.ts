@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { AgenticFormState, AnalyzeFormState, AutocompleteFormState, BuilderMode, LabMode, SearchFormState, SuggestFormState } from '../types'
 import type { SearchApiVersion } from '../lib/model'
 import type { Language } from '../lib/translations'
@@ -10,6 +10,7 @@ export function useRequestJsonSync(params: {
   labMode: LabMode
   searchForm: SearchFormState
   agenticForm: AgenticFormState
+  standaloneRetriever1?: boolean
   analyzeForm: AnalyzeFormState
   autocompleteForm: AutocompleteFormState
   suggestForm: SuggestFormState
@@ -26,6 +27,7 @@ export function useRequestJsonSync(params: {
     labMode,
     searchForm,
     agenticForm,
+    standaloneRetriever1,
     analyzeForm,
     autocompleteForm,
     suggestForm,
@@ -36,13 +38,14 @@ export function useRequestJsonSync(params: {
     setRequestJson,
     setUiError,
   } = params
+  const formError = useRef<string | null>(null)
 
   // Keep requestJson in sync with form state when in form mode.
   useEffect(() => {
     if (builderMode !== 'form') return
     try {
       if (labMode === 'agentic') {
-        const body = buildAgenticBodyFromForm(agenticForm, effectiveApiVersion)
+        const body = buildAgenticBodyFromForm(agenticForm, effectiveApiVersion, language, standaloneRetriever1)
         setRequestJson(JSON.stringify(body ?? {}, null, 2))
       } else if (labMode === 'analyze') {
         const body = buildAnalyzeBodyFromForm(analyzeForm)
@@ -54,11 +57,19 @@ export function useRequestJsonSync(params: {
         const body = buildSuggestBodyFromForm(suggestForm)
         setRequestJson(JSON.stringify(body ?? {}, null, 2))
       } else {
-        const body = buildSearchBodyFromForm(labMode, searchForm, language, isPreviewApiVersion)
+        const body = buildSearchBodyFromForm(labMode, searchForm, language, isPreviewApiVersion, effectiveApiVersion)
         setRequestJson(JSON.stringify(body ?? {}, null, 2))
       }
+      const previousFormError = formError.current
+      if (previousFormError) {
+        setUiError((current) => current === previousFormError ? null : current)
+        formError.current = null
+      }
     } catch (e) {
-      setUiError(e instanceof Error ? e.message : String(e))
+      const message = e instanceof Error ? e.message : String(e)
+      formError.current = message
+      setRequestJson('')
+      setUiError(message)
     }
   }, [
     agenticForm,
@@ -72,12 +83,13 @@ export function useRequestJsonSync(params: {
     searchForm,
     setRequestJson,
     setUiError,
+    standaloneRetriever1,
     suggestForm,
   ])
 
   // Ensure a minimal starter JSON is present when empty.
   useEffect(() => {
-    if (requestJson.trim().length > 0) return
+    if (builderMode === 'form' || requestJson.trim().length > 0) return
 
     if (labMode === 'query') {
       setRequestJson(
@@ -183,5 +195,5 @@ export function useRequestJsonSync(params: {
         2,
       ),
     )
-  }, [labMode, requestJson, setRequestJson])
+  }, [builderMode, labMode, requestJson, setRequestJson])
 }

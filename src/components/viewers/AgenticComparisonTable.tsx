@@ -1,12 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { Language } from '../../lib/translations'
 import type { JsonValue } from '../../lib/aiSearchRest'
-import type { AppSettings } from '../../lib/model'
-import type { ResultView } from '../../types'
+import type { AppSettings, ConnectionProfile } from '../../lib/model'
+import type { LatestResponse, ResultView, TopicGraphSettings } from '../../types'
 import { isJsonObject } from '../../app/json'
+import { canReadTopicGraph, useTopicCoverage } from '../../hooks/useTopicCoverage'
+import { layoutTopicTreemap, summarizeTopicCoverage } from '../../lib/topicGraphCoverage'
+import type { TopicGraphReadErrorCode } from '../../lib/topicGraphReader'
 import { downloadText, extractAgenticResponse, extractDocs, isTableComparableRunType, pickFirstStringField, pickPrimaryText } from '../../utils'
 import { formatLocalDateTime } from '../../utils/helpers'
+import { compareTopDocuments, getAgenticComparisonSources, getAgenticDocumentIdentity, getAgenticReasoningEffort, getDocumentKeyForSource, getTopDocuments } from '../../utils/agenticComparison'
+import { InfoTooltip } from '../InfoTooltip'
+import { TOPIC_TREEMAP_HEIGHT, TOPIC_TREEMAP_WIDTH, TopicBranchLegend, TopicCoverageCell, type TopicColumnData } from './TopicCoverageCell'
 
 type ComparisonItem = {
   rank: number
@@ -17,6 +23,7 @@ type ComparisonItem = {
   stableIds: string[]
   urls: string[]
   fingerprint: string
+  documentIdentity?: string
   score?: number
   rerankerScore?: number
   rerankerBoostedScore?: number
@@ -26,6 +33,12 @@ type ComparisonItem = {
 type ComparisonColumn = {
   view: ResultView
   items: ComparisonItem[]
+  agentic?: {
+    topicSettings: Map<string, TopicGraphSettings | undefined>
+    groundData: 'ranked' | 'unranked' | 'incomplete'
+    referenceCount?: number
+    reasoningEffort?: string
+  }
 }
 
 type SelectedItem = {
@@ -42,6 +55,9 @@ const RANK_COLUMN_WIDTH = 64
 const MIN_RESULT_COLUMN_WIDTH = 150
 const MAX_RESULT_COLUMN_WIDTH = 520
 const FALLBACK_RESULT_COLUMN_WIDTH = 220
+const TOP_K_CHOICES = [5, 10, 20, 50] as const
+const MAX_TOPIC_RESULTS = Math.max(...TOP_K_CHOICES)
+const DEFAULT_TOP_K = 10
 
 const copy = {
   ja: {
@@ -74,6 +90,59 @@ const copy = {
     sameRank: '同順位',
     outOfRange: '圏外',
     empty: '比較できる検索結果が 2 件以上ありません。',
+    diversityTitle: '多様性設定と取得結果の差分',
+    baselineRun: '基準 Run',
+    topK: '比較する上位件数',
+    comparisonLimit: '同じ質問・KB で実行した Run を比較してください。文書の差分はトピックの網羅率を示すものではありません。',
+    settingsCaption: 'リクエストで指定したトピックグラフ設定',
+    noTopicSources: 'ソース別のトピックグラフ設定は記録されていません。',
+    notSpecified: '上書きなし（実効値は不明）',
+    sourceNotRecorded: 'このソースは未記録',
+    parameterNotSpecified: '未指定',
+    changed: '指定差分',
+    added: '追加',
+    dropped: '脱落',
+    common: '共通',
+    uniqueDocuments: '一意な文書',
+    topResults: '上位 {count} 件',
+    selectedResults: '対象 {count} 件',
+    identityMissing: '文書を特定できない結果: {count} 件',
+    baselineUnavailable: '基準 Run の文書を照合できません',
+    unranked: '順位付きデータなし',
+    incomplete: '未完了または失敗',
+    referenceCount: '参照 {count} 件',
+    trackOrigin: '追跡元',
+    changedDocuments: '追加・脱落した文書',
+    topicTitle: 'トピックの網羅状況',
+    topicDescription: 'ナレッジソースのトピックインデックスをたどり、上位チャンクが入る末端トピックの分布を比較します。',
+    topicSource: 'ナレッジソース',
+    topicLoad: 'トピックを読み込む',
+    topicReload: '再読み込み',
+    topicLoading: '読み込み中...',
+    topicRefreshing: 'チャンクのベクトルを取得中...',
+    topicNeedsApiVersion: 'トピックインデックスの読み取りには、接続プロファイルの API バージョンを 2026-11-01-preview にしてください。',
+    topicNeedsConnection: 'トピックインデックスを読み取るには、接続プロファイルを選択してください。',
+    topicSummary: 'トピックインデックス {index}（末端トピック {leaves} 件、最上位トピック {roots} 件）。インデックスにはチャンクごとの所属が保存されていないため、登録済みの重心（HasCentroidVector）が最も近い末端トピックを、トピックインデックスの検索で調べています。',
+    topicRowLabel: 'トピックの分布',
+    topicHit: 'ヒット',
+    topicEffective: '実効トピック数',
+    topicCoverage: 'カバー率',
+    versusBaseline: '基準比',
+    topicUnassigned: 'トピックを判定できない結果: {count} 件',
+    topicMapLabel: '上位 {count} 件が入った末端トピックの分布',
+    topicRanksLabel: '順位ごとの末端トピック',
+    topicCellHits: 'ヒット {count} 件（{ranks}）',
+    topicCellShare: 'コーパスに占める割合: {share}',
+    topicRankTitle: '#{rank}: {topic}（スコア {score}）',
+    topicRankNone: '#{rank}: トピックを判定できません',
+    topicErrorRequest: 'Azure AI Search から読み取れませんでした: {detail}',
+    topicErrorNoContentIndex: 'ナレッジソース {detail} から、コンテンツインデックスを特定できません。',
+    topicErrorNoTopicProfile: 'ベクトルフィールドにトピックグラフ プロファイルがリンクされていません（{detail}）。',
+    topicErrorAmbiguousVector: 'トピックグラフ プロファイルがリンクされたベクトルフィールドが複数あります（{detail}）。',
+    topicErrorVectorNotRetrievable: 'ベクトルフィールド {detail} が取得可能ではないため、チャンクのベクトルを読み取れません。',
+    topicErrorUnsupported: '公式の TopicGraph 形式のトピックインデックスとして読み取れません（{detail}）。',
+    topicErrorTooLarge: 'トピックインデックスの文書数が、読み取り上限の {detail} 件を超えています。',
+    topicErrorUnexpected: 'トピックの分布を計算できませんでした: {detail}',
   },
   en: {
     title: 'Search result table comparison',
@@ -105,6 +174,59 @@ const copy = {
     sameRank: 'Same rank',
     outOfRange: 'Not ranked',
     empty: 'Select at least two comparable search results.',
+    diversityTitle: 'Diversity settings and result changes',
+    baselineRun: 'Baseline run',
+    topK: 'Compare top K',
+    comparisonLimit: 'Compare runs using the same query and knowledge base. Document changes do not measure topic coverage.',
+    settingsCaption: 'Topic graph settings sent in the request',
+    noTopicSources: 'No per-source topic graph settings were recorded.',
+    notSpecified: 'No override (effective value unknown)',
+    sourceNotRecorded: 'Source not recorded',
+    parameterNotSpecified: 'Omitted',
+    changed: 'Request differs',
+    added: 'Added',
+    dropped: 'Dropped',
+    common: 'Common',
+    uniqueDocuments: 'Distinct documents',
+    topResults: 'Top {count}',
+    selectedResults: '{count} results in range',
+    identityMissing: 'Results without a document identity: {count}',
+    baselineUnavailable: 'Baseline documents cannot be matched',
+    unranked: 'No ranked grounding data',
+    incomplete: 'Incomplete or failed',
+    referenceCount: '{count} references',
+    trackOrigin: 'Tracking from',
+    changedDocuments: 'Added and dropped documents',
+    topicTitle: 'Topic coverage',
+    topicDescription: 'Follows the knowledge source to its topic index and compares how the top chunks are spread over the leaf topics.',
+    topicSource: 'Knowledge source',
+    topicLoad: 'Load topics',
+    topicReload: 'Reload',
+    topicLoading: 'Loading...',
+    topicRefreshing: 'Reading chunk vectors...',
+    topicNeedsApiVersion: 'Set the connection profile API version to 2026-11-01-preview to read the topic index.',
+    topicNeedsConnection: 'Select a connection profile to read the topic index.',
+    topicSummary: 'Topic index {index} ({leaves} leaf topics, {roots} top-level topics). The index does not store which topic each chunk belongs to, so the leaf topic with the nearest registered centroid (HasCentroidVector) is looked up with a search on the topic index.',
+    topicRowLabel: 'Topic distribution',
+    topicHit: 'Hit',
+    topicEffective: 'Effective topics',
+    topicCoverage: 'Coverage',
+    versusBaseline: 'vs. baseline',
+    topicUnassigned: 'Results without a topic: {count}',
+    topicMapLabel: 'Distribution of the top {count} results over leaf topics',
+    topicRanksLabel: 'Leaf topic by rank',
+    topicCellHits: '{count} hit(s) ({ranks})',
+    topicCellShare: 'Share of the corpus: {share}',
+    topicRankTitle: '#{rank}: {topic} (score {score})',
+    topicRankNone: '#{rank}: no topic could be determined',
+    topicErrorRequest: 'Could not read from Azure AI Search: {detail}',
+    topicErrorNoContentIndex: 'Could not identify the content index of knowledge source {detail}.',
+    topicErrorNoTopicProfile: 'No topic graph profile is linked to the vector field ({detail}).',
+    topicErrorAmbiguousVector: 'More than one vector field is linked to a topic graph profile ({detail}).',
+    topicErrorVectorNotRetrievable: 'Vector field {detail} is not retrievable, so chunk vectors cannot be read.',
+    topicErrorUnsupported: 'The topic index cannot be read as an official TopicGraph index ({detail}).',
+    topicErrorTooLarge: 'The topic index has more documents than the read limit of {detail}.',
+    topicErrorUnexpected: 'Could not calculate the topic distribution: {detail}',
   },
 } as const
 
@@ -160,6 +282,7 @@ function hasSharedValue(left: string[], right: string[]): boolean {
 }
 
 function isSameDocument(left: ComparisonItem, right: ComparisonItem): boolean {
+  if (left.documentIdentity && right.documentIdentity) return left.documentIdentity === right.documentIdentity
   if (hasSharedValue(left.stableIds, right.stableIds)) return true
   if (hasSharedValue(left.urls, right.urls)) return true
   return left.fingerprint.length > 0 && left.fingerprint === right.fingerprint
@@ -171,10 +294,15 @@ function getRankDeltaLabel(baselineRank: number, matchedRank: number, sameRank: 
   return delta < 0 ? `↑${Math.abs(delta)}` : `↓${delta}`
 }
 
-function extractAgenticComparisonItems(body: JsonValue): ComparisonItem[] {
-  const { extractedChunks, references } = extractAgenticResponse(body)
-  if (!extractedChunks) return []
-
+function extractAgenticComparison(response: LatestResponse) {
+  const { extractedChunks, references, activity } = extractAgenticResponse(response.body)
+  const rankedChunks = isJsonObject(response.requestBody) && response.requestBody.outputMode === 'answerSynthesis'
+    ? null
+    : extractedChunks
+  const { topicSettings, sourceByActivity } = getAgenticComparisonSources(response.requestBody, activity)
+  const incomplete = response.status < 200 || response.status >= 300
+    || response.runStatus === 'error' || response.runStatus === 'canceled'
+    || (response.responseFormat === 'sse' && !response.runStatus)
   const referencesById = new Map<string, Record<string, JsonValue>>()
   for (const referenceValue of references ?? []) {
     if (!isJsonObject(referenceValue)) continue
@@ -183,7 +311,7 @@ function extractAgenticComparisonItems(body: JsonValue): ComparisonItem[] {
     referencesById.set(String(referenceId), referenceValue)
   }
 
-  return extractedChunks.map((chunk, index) => {
+  const items = (rankedChunks ?? []).map((chunk, index): ComparisonItem => {
     const value = isJsonObject(chunk) ? chunk : null
     const rawRefId = value?.ref_id
     const hasRefId = typeof rawRefId === 'string' || typeof rawRefId === 'number'
@@ -227,9 +355,19 @@ function extractAgenticComparisonItems(body: JsonValue): ComparisonItem[] {
       stableIds: [...stableIds],
       urls: [...urls],
       fingerprint,
+      documentIdentity: getAgenticDocumentIdentity(reference, sourceByActivity),
       raw: chunk,
     }
   })
+  return {
+    items,
+    agentic: {
+      topicSettings,
+      groundData: incomplete ? 'incomplete' : rankedChunks ? 'ranked' : 'unranked',
+      referenceCount: references?.length,
+      reasoningEffort: getAgenticReasoningEffort(response.requestBody, activity),
+    } satisfies NonNullable<ComparisonColumn['agentic']>,
+  }
 }
 
 function extractSearchComparisonItems(
@@ -262,14 +400,83 @@ function extractSearchComparisonItems(
   })
 }
 
-function extractComparisonItems(view: ResultView, settings: AppSettings | null): ComparisonItem[] {
-  if (!view.response) return []
-  if (view.runType === 'agentic_retrieve') return extractAgenticComparisonItems(view.response.body)
-  return extractSearchComparisonItems(
-    view.response.body,
-    settings?.displayTitleFields,
-    settings?.displayTextFields,
-  )
+function buildComparisonColumn(view: ResultView, settings: AppSettings | null): ComparisonColumn {
+  if (!view.response) return { view, items: [] }
+  if (view.runType === 'agentic_retrieve') return { view, ...extractAgenticComparison(view.response) }
+  return { view, items: extractSearchComparisonItems(view.response.body, settings?.displayTitleFields, settings?.displayTextFields) }
+}
+
+const topicFields = ['kind', 'diversityFactor', 'minDiversityPoolSize'] as const
+
+function getTopicValue(field: typeof topicFields[number], graph?: TopicGraphSettings) {
+  if (!graph || (field !== 'kind' && graph.kind === 'none') || (field === 'diversityFactor' && graph.kind !== 'diverse')) return undefined
+  return graph[field]
+}
+
+function TopicSettingsCell({ graph, baseline, sourceRecorded, isBaseline, text }: {
+  graph?: TopicGraphSettings
+  baseline?: TopicGraphSettings
+  sourceRecorded: boolean
+  isBaseline: boolean
+  text: typeof copy[Language]
+}) {
+  const differs = !isBaseline && topicFields.some((field) => getTopicValue(field, graph) !== getTopicValue(field, baseline))
+  return <>
+    {graph ? (
+      <dl className="agenticComparison__values">
+        {topicFields.map((field) => {
+          if (field !== 'kind' && (graph.kind === 'none' || (field === 'diversityFactor' && graph.kind !== 'diverse'))) return null
+          const value = getTopicValue(field, graph)
+          const changed = !isBaseline && value !== getTopicValue(field, baseline)
+          return <div key={field} className={changed ? 'agenticComparison__value--changed' : undefined}>
+            <dt>{field}</dt>
+            <dd>{value ?? text.parameterNotSpecified}</dd>
+          </div>
+        })}
+      </dl>
+    ) : <span className="text-muted-xs">{sourceRecorded ? text.notSpecified : text.sourceNotRecorded}</span>}
+    {differs && <span className="agenticComparison__changeBadge">{text.changed}</span>}
+  </>
+}
+
+function TopResultsCell({ current, baseline, groundData, isBaseline, text }: {
+  current?: ReturnType<typeof getTopDocuments<ComparisonItem>>
+  baseline?: ReturnType<typeof getTopDocuments<ComparisonItem>>
+  groundData?: NonNullable<ComparisonColumn['agentic']>['groundData']
+  isBaseline: boolean
+  text: typeof copy[Language]
+}) {
+  if (!current) {
+    const reason = groundData === 'incomplete' ? text.incomplete : groundData === 'unranked' ? text.unranked : undefined
+    return <span aria-label={reason} title={reason}>–</span>
+  }
+  const changes = baseline && !baseline.unidentified && !current.unidentified && !isBaseline
+    ? compareTopDocuments(baseline.documents, current.documents) : null
+  return <>
+    <div className="text-muted-xs">{text.selectedResults.replace('{count}', String(current.returned))}</div>
+    {current.unidentified > 0 ? (
+      <div className="text-muted-xs">{text.identityMissing.replace('{count}', String(current.unidentified))}</div>
+    ) : changes ? (
+      <>
+        <dl className="agenticComparison__values agenticComparison__values--counts">
+          <div><dt>{text.common}</dt><dd>{changes.common}</dd></div>
+          <div><dt>{text.added}</dt><dd>{changes.added.length}</dd></div>
+          <div><dt>{text.dropped}</dt><dd>{changes.dropped.length}</dd></div>
+        </dl>
+        {(changes.added.length > 0 || changes.dropped.length > 0) && (
+          <details className="agenticComparison__changes">
+            <summary>{text.changedDocuments}</summary>
+            <ul>
+              {changes.added.map((item) => <li key={`added-${item.rank}`}><strong>{text.added}</strong> #{item.rank} {getDisplayTitle(item, text.untitled)}</li>)}
+              {changes.dropped.map((item) => <li key={`dropped-${item.rank}`}><strong>{text.dropped}</strong> #{item.rank} {getDisplayTitle(item, text.untitled)}</li>)}
+            </ul>
+          </details>
+        )}
+      </>
+    ) : isBaseline ? (
+      <dl className="agenticComparison__values"><div><dt>{text.uniqueDocuments}</dt><dd>{current.documents.size}</dd></div></dl>
+    ) : <div className="text-muted-xs">{text.baselineUnavailable}</div>}
+  </>
 }
 
 function formatScore(value: number): string {
@@ -383,22 +590,40 @@ function buildComparisonCsv(columns: ComparisonColumn[]): string {
   return rows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n')
 }
 
+function describeTopicError(text: typeof copy[Language], code: TopicGraphReadErrorCode | 'unexpected', detail: string): string {
+  const messages = {
+    request: text.topicErrorRequest,
+    noContentIndex: text.topicErrorNoContentIndex,
+    noTopicProfile: text.topicErrorNoTopicProfile,
+    ambiguousVector: text.topicErrorAmbiguousVector,
+    vectorNotRetrievable: text.topicErrorVectorNotRetrievable,
+    unsupportedTopicIndex: text.topicErrorUnsupported,
+    tooLarge: text.topicErrorTooLarge,
+    unexpected: text.topicErrorUnexpected,
+  } satisfies Record<TopicGraphReadErrorCode | 'unexpected', string>
+  return messages[code].replace('{detail}', detail)
+}
+
 export function SearchComparisonTable({
   views,
   language,
   settings,
+  profile = null,
   onClose,
   onSelectView,
 }: {
   views: ResultView[]
   language: Language
   settings: AppSettings | null
+  profile?: ConnectionProfile | null
   onClose: () => void
   onSelectView: (viewId: ResultView['id']) => void
 }) {
   const text = copy[language]
   const [selected, setSelected] = useState<SelectedItem | null>(null)
   const [trackedSelection, setTrackedSelection] = useState<SelectedItem | null>(null)
+  const [baselineId, setBaselineId] = useState<ResultView['id']>()
+  const [topK, setTopK] = useState<number>(DEFAULT_TOP_K)
   const [tableWidth, setTableWidth] = useState(0)
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
   const [activeResizer, setActiveResizer] = useState<string | null>(null)
@@ -406,13 +631,64 @@ export function SearchComparisonTable({
   const dragState = useRef<{ columnId: string; startX: number; startWidth: number } | null>(null)
   const columns: ComparisonColumn[] = useMemo(() => views
     .filter((view) => isTableComparableRunType(view.runType) && view.response)
-    .map((view) => ({ view, items: extractComparisonItems(view, settings) })), [settings, views])
+    .map((view) => buildComparisonColumn(view, settings)), [settings, views])
   const isAgenticOnly = columns.length > 0 && columns.every((column) => column.view.runType === 'agentic_retrieve')
+  const agenticColumns = useMemo(() => columns.filter((column) => column.agentic), [columns])
+  const showDiversityComparison = agenticColumns.length >= 2
+  const labelColumnWidth = showDiversityComparison ? 120 : RANK_COLUMN_WIDTH
+  const topicSources = useMemo(() => showDiversityComparison
+    ? [...new Set(agenticColumns.flatMap((column) => [...(column.agentic?.topicSettings.keys() ?? [])]))].sort()
+    : [], [agenticColumns, showDiversityComparison])
+  const topResults = useMemo(() => new Map(showDiversityComparison ? agenticColumns.flatMap((column) =>
+    column.agentic?.groundData === 'ranked' ? [[column.view.id, getTopDocuments(column.items, topK)] as const] : [],
+  ) : []), [agenticColumns, showDiversityComparison, topK])
+  const baseline = agenticColumns.find((column) => column.view.id === baselineId)
+    ?? agenticColumns.find((column) => column.agentic?.groundData === 'ranked' && column.items.length > 0
+      && column.items.slice(0, DEFAULT_TOP_K).every((item) => item.documentIdentity))
+    ?? agenticColumns.find((column) => column.agentic?.groundData === 'ranked' && column.items.length === 0)
+    ?? agenticColumns.find((column) => column.agentic?.groundData === 'ranked')
+    ?? agenticColumns[0]
+  const topBaseline = baseline && topResults.get(baseline.view.id)
+  const { state: topicState, analyze: analyzeTopics, reset: resetTopics } = useTopicCoverage(profile, language)
+  const [topicSourceChoice, setTopicSourceChoice] = useState('')
+  const topicSource = topicSources.includes(topicSourceChoice) ? topicSourceChoice
+    : topicSources.find((source) => agenticColumns.some((column) => {
+      const kind = column.agentic?.topicSettings.get(source)?.kind
+      return kind === 'diverse' || kind === 'balanced'
+    })) ?? topicSources[0] ?? ''
+  const topicKeys = useMemo(() => !topicSource ? [] : [...new Set(agenticColumns.flatMap((column) =>
+    column.agentic?.groundData === 'ranked'
+      ? column.items.slice(0, MAX_TOPIC_RESULTS).flatMap((item) => getDocumentKeyForSource(item.documentIdentity, topicSource) ?? [])
+      : []))], [agenticColumns, topicSource])
+  const topicKeySignature = topicKeys.join('\n')
+  const topicReady = topicState.status === 'ready' ? topicState : null
+  const topicHierarchy = topicReady?.hierarchy
+  const topicCells = useMemo(
+    () => topicHierarchy ? layoutTopicTreemap(topicHierarchy, TOPIC_TREEMAP_WIDTH, TOPIC_TREEMAP_HEIGHT, 1) : [],
+    [topicHierarchy],
+  )
+  const topicColumns = useMemo(() => {
+    const result = new Map<string, TopicColumnData>()
+    if (!topicReady) return result
+    for (const column of agenticColumns) {
+      if (column.agentic?.groundData !== 'ranked') continue
+      const ranks = column.items.slice(0, topK).map((item) => {
+        const key = getDocumentKeyForSource(item.documentIdentity, topicReady.sourceName)
+        return key ? topicReady.assignments.get(key) : undefined
+      })
+      result.set(column.view.id, { ranks, coverage: summarizeTopicCoverage(topicReady.hierarchy, ranks.map((rank) => rank?.leafId)) })
+    }
+    return result
+  }, [agenticColumns, topK, topicReady])
+  const readMissingTopicVectors = useEffectEvent(() => { void analyzeTopics(topicSource, topicKeys) })
+  useEffect(() => {
+    if (topicReady?.sourceName === topicSource) readMissingTopicVectors()
+  }, [topicReady?.sourceName, topicSource, topicKeySignature])
   const rowCount = Math.max(0, ...columns.map((column) => column.items.length))
-  const automaticColumnWidth = columns.length > 0 && tableWidth > RANK_COLUMN_WIDTH
+  const automaticColumnWidth = columns.length > 0 && tableWidth > labelColumnWidth
     ? Math.max(
         MIN_RESULT_COLUMN_WIDTH,
-        Math.min(MAX_RESULT_COLUMN_WIDTH, Math.floor((tableWidth - RANK_COLUMN_WIDTH) / columns.length)),
+        Math.min(MAX_RESULT_COLUMN_WIDTH, Math.floor((tableWidth - labelColumnWidth) / columns.length)),
       )
     : FALLBACK_RESULT_COLUMN_WIDTH
   const effectiveColumnWidths = useMemo(
@@ -422,7 +698,7 @@ export function SearchComparisonTable({
     ])),
     [automaticColumnWidth, columnWidths, columns],
   )
-  const effectiveTableWidth = RANK_COLUMN_WIDTH + columns.reduce(
+  const effectiveTableWidth = labelColumnWidth + columns.reduce(
     (total, column) => total + effectiveColumnWidths[column.view.id],
     0,
   )
@@ -536,6 +812,85 @@ export function SearchComparisonTable({
         <div className="notice notice--info" role="status">{text.empty}</div>
       ) : (
         <>
+          {showDiversityComparison && baseline && (
+            <section className="agenticComparison__diversity" aria-labelledby="agentic-diversity-title">
+              <div>
+                <h3 id="agentic-diversity-title">
+                  {text.diversityTitle}
+                  <InfoTooltip tooltipKey="agenticComparisonTopicSettings" language={language} />
+                </h3>
+                <p>{text.comparisonLimit}</p>
+              </div>
+              <div className="agenticComparison__controls">
+                <label className="field">
+                  <span className="field__label">{text.baselineRun}<InfoTooltip tooltipKey="agenticComparisonBaseline" language={language} /></span>
+                  <select className="field__input" value={baseline.view.id} onChange={(event) => {
+                    setBaselineId(agenticColumns.find((column) => column.view.id === event.target.value)?.view.id)
+                  }}>
+                    {agenticColumns.map(({ view }) => <option key={view.id} value={view.id}>{view.label}</option>)}
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="field__label">{text.topK}<InfoTooltip tooltipKey="agenticComparisonTopK" language={language} /></span>
+                  <select className="field__input" value={topK} onChange={(event) => setTopK(Number(event.target.value))}>
+                    {TOP_K_CHOICES.map((limit) => <option key={limit} value={limit}>{limit}</option>)}
+                  </select>
+                </label>
+              </div>
+            </section>
+          )}
+          {showDiversityComparison && baseline && topicSources.length > 0 && (
+            <section className="agenticComparison__topics" aria-labelledby="agentic-topics-title">
+              <div className="agenticComparison__topicsHeader">
+                <div>
+                  <h3 id="agentic-topics-title">
+                    {text.topicTitle}
+                    <InfoTooltip tooltipKey="agenticComparisonTopicLoad" language={language} />
+                  </h3>
+                  <p>{text.topicDescription}</p>
+                </div>
+                <div className="agenticComparison__controls">
+                  {topicSources.length > 1 && (
+                    <label className="field">
+                      <span className="field__label">{text.topicSource}</span>
+                      <select className="field__input" value={topicSource} onChange={(event) => {
+                        setTopicSourceChoice(event.target.value)
+                        resetTopics()
+                      }}>
+                        {topicSources.map((source) => <option key={source} value={source}>{source}</option>)}
+                      </select>
+                    </label>
+                  )}
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={!canReadTopicGraph(profile) || !topicSource || topicState.status === 'loading'}
+                    onClick={() => void analyzeTopics(topicSource, topicKeys, { reload: true })}
+                  >
+                    <i className="bi bi-diagram-3 icon--mr6" aria-hidden="true" />
+                    {topicState.status === 'loading' ? text.topicLoading : topicReady ? text.topicReload : text.topicLoad}
+                  </button>
+                </div>
+              </div>
+              {!canReadTopicGraph(profile) && (
+                <div className="notice notice--info" role="status">{profile ? text.topicNeedsApiVersion : text.topicNeedsConnection}</div>
+              )}
+              {topicState.status === 'error' && (
+                <div className="notice notice--error" role="alert">{describeTopicError(text, topicState.code, topicState.detail)}</div>
+              )}
+              {topicReady && (
+                <>
+                  <p className="text-muted-xs" role="status">
+                    {topicReady.refreshing ? text.topicRefreshing : text.topicSummary
+                      .replace('{index}', topicReady.binding.topicIndex)
+                      .replace('{leaves}', String(topicReady.hierarchy.leaves.length))
+                      .replace('{roots}', String(topicReady.hierarchy.roots.length))}
+                  </p>
+                  <TopicBranchLegend hierarchy={topicReady.hierarchy} />
+                </>
+              )}
+            </section>
+          )}
           {trackedSelection && (
             <div className="agenticComparison__matchSummary" role="status" aria-live="polite">
               <div className="agenticComparison__matchSummaryHeader">
@@ -560,10 +915,11 @@ export function SearchComparisonTable({
                     className={`agenticComparison__matchRank${item ? '' : ' agenticComparison__matchRank--missing'}`}
                   >
                     <span className="agenticComparison__matchRun">{column.view.label}</span>
-                    <strong>{item ? `#${item.rank}` : text.outOfRange}</strong>
+                    <strong>{item ? `#${item.rank}` : column.agentic?.groundData === 'unranked' ? text.unranked
+                      : column.agentic?.groundData === 'incomplete' ? text.incomplete : text.outOfRange}</strong>
                     {item && (
                       <span>{column.view.id === trackedSelection.column.view.id
-                        ? text.baseline
+                        ? (showDiversityComparison ? text.trackOrigin : text.baseline)
                         : getRankDeltaLabel(trackedSelection.item.rank, item.rank, text.sameRank)}</span>
                     )}
                   </div>
@@ -575,7 +931,7 @@ export function SearchComparisonTable({
           <div ref={tableWrapRef} className="agenticComparison__tableWrap">
             <table className="agenticComparison__table" style={{ width: effectiveTableWidth }}>
               <colgroup>
-                <col style={{ width: RANK_COLUMN_WIDTH }} />
+                <col style={{ width: labelColumnWidth }} />
                 {columns.map((column) => (
                   <col key={column.view.id} style={{ width: effectiveColumnWidths[column.view.id] }} />
                 ))}
@@ -590,7 +946,9 @@ export function SearchComparisonTable({
                         <div className="agenticComparison__runHeader">
                           <div className="agenticComparison__runTitleRow">
                             <div className="agenticComparison__runTitle">{column.view.label}</div>
-                            {trackedSelection?.column.view.id === column.view.id && (
+                            {(showDiversityComparison
+                              ? baseline?.view.id === column.view.id
+                              : trackedSelection?.column.view.id === column.view.id) && (
                               <span className="agenticComparison__baselineBadge">{text.baseline}</span>
                             )}
                           </div>
@@ -599,7 +957,15 @@ export function SearchComparisonTable({
                             {typeof response.latencyMs === 'number' && (
                               <span>{text.latency}: {response.latencyMs.toFixed(0)} ms</span>
                             )}
-                            <span>{text.resultCount.replace('{count}', String(column.items.length))}</span>
+                            <span>{column.agentic?.groundData === 'incomplete' ? text.incomplete
+                              : column.agentic?.groundData === 'unranked' ? text.unranked
+                                : text.resultCount.replace('{count}', String(column.items.length))}</span>
+                            {column.agentic?.groundData === 'unranked' && column.agentic.referenceCount !== undefined && (
+                              <span>{text.referenceCount.replace('{count}', String(column.agentic.referenceCount))}</span>
+                            )}
+                            {column.agentic && (
+                              <span>retrievalReasoningEffort: {column.agentic.reasoningEffort ?? text.parameterNotSpecified}</span>
+                            )}
                           </div>
                         </div>
                         <div
@@ -616,6 +982,66 @@ export function SearchComparisonTable({
                   })}
                 </tr>
               </thead>
+              {showDiversityComparison && (
+                <tbody className="agenticComparison__summaryRows">
+                  <tr><th colSpan={columns.length + 1} className="agenticComparison__summaryTitle">{text.settingsCaption}</th></tr>
+                  {topicSources.length === 0 ? (
+                    <tr><td colSpan={columns.length + 1} className="text-muted-xs">{text.noTopicSources}</td></tr>
+                  ) : topicSources.map((source) => (
+                    <tr key={source}>
+                      <th scope="row" className="agenticComparison__summaryLabel" title={source}>{source}</th>
+                      {columns.map((column) => (
+                        <td key={column.view.id}>
+                          {column.agentic ? (
+                            <TopicSettingsCell
+                              graph={column.agentic.topicSettings.get(source)}
+                              baseline={baseline?.agentic?.topicSettings.get(source)}
+                              sourceRecorded={column.agentic.topicSettings.has(source)}
+                              isBaseline={column.view.id === baseline?.view.id}
+                              text={text}
+                            />
+                          ) : '–'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  <tr>
+                    <th scope="row" className="agenticComparison__summaryLabel">{text.topResults.replace('{count}', String(topK))}</th>
+                    {columns.map((column) => (
+                      <td key={column.view.id}>
+                        <TopResultsCell
+                          current={topResults.get(column.view.id)}
+                          baseline={topBaseline}
+                          groundData={column.agentic?.groundData}
+                          isBaseline={column.view.id === baseline?.view.id}
+                          text={text}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                  {topicReady && (
+                    <tr>
+                      <th scope="row" className="agenticComparison__summaryLabel">
+                        {text.topicRowLabel}
+                        <InfoTooltip tooltipKey="agenticComparisonTopicMetrics" language={language} />
+                      </th>
+                      {columns.map((column) => (
+                        <td key={column.view.id}>
+                          <TopicCoverageCell
+                            data={topicColumns.get(column.view.id)}
+                            baseline={baseline && topicColumns.get(baseline.view.id)}
+                            isBaseline={column.view.id === baseline?.view.id}
+                            groundData={column.agentic?.groundData}
+                            hierarchy={topicReady.hierarchy}
+                            cells={topicCells}
+                            text={text}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  )}
+                </tbody>
+              )}
               <tbody>
                 {Array.from({ length: rowCount }, (_, rowIndex) => (
                   <tr key={rowIndex}>
@@ -672,7 +1098,7 @@ export function SearchComparisonTable({
                                   {isDocumentMatch && trackedSelection && (
                                     <span className="agenticComparison__rankDelta">
                                       {isBaselineSource
-                                        ? text.baseline
+                                        ? (showDiversityComparison ? text.trackOrigin : text.baseline)
                                         : getRankDeltaLabel(trackedSelection.item.rank, item.rank, text.sameRank)}
                                     </span>
                                   )}

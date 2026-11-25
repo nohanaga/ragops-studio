@@ -17,6 +17,7 @@ import type { EmbeddingTopologyClusterMetric } from '../../lib/embeddingTopology
 import type { HierarchicalSignaturePayload } from '../../lib/clusterSignatureAggregation'
 import type { ClusterEdge, ClusterGraphData, EdgeConfidence, EdgeReason } from '../../lib/clusterGraph'
 import { buildHierarchicalClusterGraph, rebuildClusterGraphFromMeta } from '../../lib/clusterGraph'
+import { CLUSTER_COLORS } from '../../lib/graphPalette'
 import type { SharedLlmConfig } from '../../hooks/useSharedLlmConfig'
 import { LlmProfileSelector } from '../builders/LlmProfileSelector'
 import { TipsBlock } from '../builders/TipsBlock'
@@ -46,13 +47,6 @@ export type IndexVisualizerProps = {
   onOpenLlmSettings: () => void
   openIndexInspector: (name?: string) => void
 }
-
-const CLUSTER_COLORS = [
-  '#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f',
-  '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac',
-  '#86bcb6', '#8cd17d', '#b6992d', '#499894', '#d37295',
-  '#a0cbe8', '#ffbe7d', '#ff9888', '#89d4cf', '#8dca6b',
-]
 
 /** Parse hex color to [r, g, b]. */
 function hexToRgb(hex: string): [number, number, number] {

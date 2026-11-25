@@ -38,6 +38,9 @@ const EvalDatasetGenerator = lazy(() => import('./builders/EvalDatasetGenerator'
 const SearchParameterAutoTuning = lazy(() => import('./builders/SearchParameterAutoTuning').then(m => ({ default: m.SearchParameterAutoTuning })))
 const SearchPipelineVisualizer = lazy(() => import('./viewers/SearchPipelineVisualizer').then(m => ({ default: m.SearchPipelineVisualizer })))
 const IndexVisualizer = lazy(() => import('./viewers/IndexVisualizer').then(m => ({ default: m.IndexVisualizer })))
+const KnowledgeGraphPlayground = lazy(() => import('./builders/KnowledgeGraphPlayground').then(m => ({ default: m.KnowledgeGraphPlayground })))
+const OntologyEditor = lazy(() => import('./builders/OntologyEditor').then(m => ({ default: m.OntologyEditor })))
+import { EMPTY_ONTOLOGY } from '../lib/knowledgeGraph'
 import { extractQueryString, isTableComparableRunType } from '../utils'
 import { SearchComparisonTable } from './viewers/AgenticComparisonTable'
 import { QueryPerformanceTester } from './viewers/QueryPerformanceTester'
@@ -136,6 +139,8 @@ export function AppLayout(props: {
   knowledgeBaseNamesError: string | null
   knowledgeBaseNameOptions: string[]
   availableKnowledgeSources: KnowledgeSourceInfo[]
+  availableKnowledgeTools: import('../utils/agenticPreview').KnowledgeBaseToolInfo[]
+  standaloneRetriever1: boolean
 
   isLoadingRequestBuilderSchema: boolean
   requestBuilderFacetFieldInfos: FacetFieldInfo[]
@@ -353,6 +358,8 @@ export function AppLayout(props: {
     knowledgeBaseNamesError,
     knowledgeBaseNameOptions,
     availableKnowledgeSources,
+    availableKnowledgeTools,
+    standaloneRetriever1,
     isLoadingRequestBuilderSchema,
     requestBuilderFacetFieldInfos,
     requestBuilderSearchableFieldNames,
@@ -437,7 +444,25 @@ export function AppLayout(props: {
   } = indexInspector
 
   const [isLlmSettingsOpen, setIsLlmSettingsOpen] = useState(false)
+  const [knowledgeBaseFocus, setKnowledgeBaseFocus] = useState<{ name: string; nonce: number } | null>(null)
+  const [knowledgeSourceFocus, setKnowledgeSourceFocus] = useState<{ name: string; nonce: number } | null>(null)
   const [isSearchTableCompareOpen, setIsSearchTableCompareOpen] = useState(false)
+  const [graphToolTabs, setGraphToolTabs] = useState<Array<'knowledge-graph-playground' | 'ontology-editor'>>(
+    () => centerTab === 'knowledge-graph-playground' || centerTab === 'ontology-editor' ? [centerTab] : [],
+  )
+  const [ontologyJson, setOntologyJson] = useState(EMPTY_ONTOLOGY)
+  const graphTabs = [...new Set([
+    ...graphToolTabs,
+    ...(centerTab === 'knowledge-graph-playground' || centerTab === 'ontology-editor' ? [centerTab] : []),
+  ])]
+  function openGraphTool(tab: 'knowledge-graph-playground' | 'ontology-editor') {
+    setGraphToolTabs((tabs) => [...new Set([
+      ...tabs,
+      ...(centerTab === 'knowledge-graph-playground' || centerTab === 'ontology-editor' ? [centerTab] : []),
+      tab,
+    ])])
+    setCenterTab(tab)
+  }
   const [resultCardViews, setResultCardViews] = useState<Partial<Record<ResultView['id'], 'results' | 'activity'>>>({})
   const isActivityFlowActive = activeResultView.runType === 'agentic_retrieve' && resultCardViews[activeResultView.id] === 'activity'
   function setResultCardView(viewId: ResultView['id'], mode: 'results' | 'activity') {
@@ -524,6 +549,12 @@ export function AppLayout(props: {
         setIsIndexVisualizerOpen(true)
         setCenterTab('index-visualizer')
         break
+      case 'openKnowledgeGraph':
+        openGraphTool('knowledge-graph-playground')
+        break
+      case 'openOntologyEditor':
+        openGraphTool('ontology-editor')
+        break
       case 'openTextToVector':
         textToVector.setShowTextToVectorTool(true)
         break
@@ -605,6 +636,8 @@ export function AppLayout(props: {
           setIsIndexVisualizerOpen(true)
           setCenterTab('index-visualizer')
         }}
+        onOpenKnowledgeGraph={() => openGraphTool('knowledge-graph-playground')}
+        onOpenOntologyEditor={() => openGraphTool('ontology-editor')}
         onOpenLlmSettings={() => setIsLlmSettingsOpen(true)}
         connectionProfiles={settings?.profiles ?? {}}
         activeConnectionProfileId={settings?.activeProfileId ?? ''}
@@ -816,6 +849,21 @@ export function AppLayout(props: {
                 </button>
               </div>
             )}
+
+            {graphTabs.map((tab) => (
+              <div className="tabWrapper" key={tab}>
+                <button className={'tab ' + (centerTab === tab ? 'tab--active' : '')} onClick={() => openGraphTool(tab)}>
+                  <span className="tab__label">
+                    <i className={`bi ${tab === 'ontology-editor' ? 'bi-bezier2' : 'bi-diagram-3'} icon--mr6`} aria-hidden="true" />
+                    {t(tab === 'ontology-editor' ? 'ontologyEditor' : 'knowledgeGraphPlayground')}
+                  </span>
+                </button>
+                <button className="tab__closeBtn" aria-label={t('kgCancel')} onClick={() => {
+                  setGraphToolTabs((tabs) => tabs.filter((item) => item !== tab))
+                  if (centerTab === tab) setCenterTab('builder')
+                }}>×</button>
+              </div>
+            ))}
 
             {isVectorOptimizerOpen && (
               <div className="tabWrapper">
@@ -1117,6 +1165,8 @@ export function AppLayout(props: {
                 knowledgeBaseNamesError={knowledgeBaseNamesError}
                 knowledgeBaseNameOptions={knowledgeBaseNameOptions}
                 availableKnowledgeSources={availableKnowledgeSources}
+                availableKnowledgeTools={availableKnowledgeTools}
+                standaloneRetriever1={standaloneRetriever1}
                 searchForm={searchForm}
                 setSearchForm={setSearchForm}
                 agenticForm={agenticForm}
@@ -1244,15 +1294,37 @@ export function AppLayout(props: {
             </div>
           )}
 
+          {graphTabs.includes('knowledge-graph-playground') && (
+            <div className="tabPane" hidden={centerTab !== 'knowledge-graph-playground'}>
+              <Suspense fallback={<LazyFallback />}>
+                <KnowledgeGraphPlayground
+                  key={`${settings?.activeProfileId}:${activeProfile?.endpoint}:${activeProfile?.apiVersion}`}
+                  active={centerTab === 'knowledge-graph-playground'}
+                  profile={activeProfile} language={language} theme={theme}
+                  ontologyJson={ontologyJson} onOntologyChange={setOntologyJson}
+                  onOpenOntology={() => openGraphTool('ontology-editor')}
+                />
+              </Suspense>
+            </div>
+          )}
+          {graphTabs.includes('ontology-editor') && (
+            <div className="tabPane" hidden={centerTab !== 'ontology-editor'}>
+              <Suspense fallback={<LazyFallback />}>
+                <OntologyEditor value={ontologyJson} onChange={setOntologyJson} language={language} theme={theme}
+                  onOpenPlayground={() => openGraphTool('knowledge-graph-playground')} />
+              </Suspense>
+            </div>
+          )}
+
           {isKnowledgeSourceBuilderOpen && (
             <div className="tabPane" hidden={centerTab !== 'knowledge-source-builder'}>
-              <KnowledgeSourceBuilder profile={activeProfile} onClose={() => setCenterTab('builder')} language={language} />
+              <KnowledgeSourceBuilder profile={activeProfile} onClose={() => setCenterTab('builder')} language={language} focusRequest={knowledgeSourceFocus} />
             </div>
           )}
 
           {isKnowledgeBaseBuilderOpen && (
             <div className="tabPane" hidden={centerTab !== 'knowledge-base-builder'}>
-              <KnowledgeBaseBuilder profile={activeProfile} onClose={() => setCenterTab('builder')} language={language} />
+              <KnowledgeBaseBuilder profile={activeProfile} onClose={() => setCenterTab('builder')} language={language} focusRequest={knowledgeBaseFocus} />
             </div>
           )}
 
@@ -1285,6 +1357,16 @@ export function AppLayout(props: {
                 onOpenSynonymMapBuilder={() => {
                   setIsSynonymMapBuilderOpen(true)
                   setCenterTab('synonym-map-builder')
+                }}
+                onOpenKnowledgeSource={(name) => {
+                  setKnowledgeSourceFocus((previous) => ({ name, nonce: (previous?.nonce ?? 0) + 1 }))
+                  setIsKnowledgeSourceBuilderOpen(true)
+                  setCenterTab('knowledge-source-builder')
+                }}
+                onOpenKnowledgeBase={(name) => {
+                  setKnowledgeBaseFocus((previous) => ({ name, nonce: (previous?.nonce ?? 0) + 1 }))
+                  setIsKnowledgeBaseBuilderOpen(true)
+                  setCenterTab('knowledge-base-builder')
                 }}
                 copyToClipboard={copyToClipboard}
               />
@@ -1393,27 +1475,14 @@ export function AppLayout(props: {
             </div>
           )}
 
-          {centerTab !== 'portal' &&
-            centerTab !== 'builder' &&
-            centerTab !== 'qps-tester' &&
-            centerTab !== 'auto-tuning' &&
-            centerTab !== 'vector-optimizer' &&
-            centerTab !== 'knowledge-source-builder' &&
-            centerTab !== 'knowledge-base-builder' &&
-            centerTab !== 'synonym-map-builder' &&
-            centerTab !== 'index-builder' &&
-            centerTab !== 'indexing-pipeline-builder' &&
-            centerTab !== 'skill-pipeline-builder' &&
-            centerTab !== 'skill-editor' &&
-            centerTab !== 'search-pipeline-visualizer' &&
-            centerTab !== 'index-visualizer' &&
-            centerTab !== 'eval-dataset-generator' && (
+          {(centerTab === 'latest' || centerTab.startsWith('run:')) && (
               <div className="pane__centerContent">
                 {isSearchTableCompareOpen ? (
                   <SearchComparisonTable
                     views={resultViews}
                     language={language}
                     settings={settings}
+                    profile={activeProfile}
                     onClose={() => setIsSearchTableCompareOpen(false)}
                     onSelectView={(viewId) => setCenterTab(viewId)}
                   />

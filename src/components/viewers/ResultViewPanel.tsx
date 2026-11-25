@@ -14,7 +14,7 @@ import type { ResultView, LabMode, LatestResponse } from '../../types'
 import type { Language, TranslationKey } from '../../lib/translations'
 import type { AppSettings, ConnectionProfile, SearchApiVersion } from '../../lib/model'
 import { extractDocs, extractAgenticResponse, pickPrimaryText, pickFirstStringField } from '../../utils'
-import { formatLocalDateTime } from '../../utils/helpers'
+import { extractQueryString, formatLocalDateTime } from '../../utils/helpers'
 import { unifiedDiff } from '../../lib/diffText'
 import { getCitationDocument, indexDocuments, type JsonValue } from '../../lib/aiSearchRest'
 import { JsonViewer } from './JsonViewer'
@@ -647,7 +647,7 @@ export function ResultViewPanel({
                       </div>
                     )
                   }
-                  return '(no messages)'
+                  return extractQueryString(requestBody) || '(no messages)'
                 })()
               ) : labMode === 'analyze' ? (
                 (() => {

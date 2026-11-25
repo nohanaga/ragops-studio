@@ -23,6 +23,7 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
 
 ### Query Mode (Classic Search)
 - **Full-text search**: `simple` / `full` query types
+- **[Microsoft Retriever 1](https://learn.microsoft.com/en-us/azure/search/agentic-retrieval-how-to-use-microsoft-retriever#search-directly-with-microsoft-retriever-1)**: Direct index search without a knowledge base (`queryType: agentic`, `2026-11-01-preview`)
 - **Basic parameters**: `search`, `top`, `skip`, `count`, `select`, `filter`, `orderby`, `searchMode`, `searchFields`, `facets`, `highlight`
 - **Scoring**: `scoringProfile`, `scoringParameters`
 - **Advanced options**: `minimumCoverage`, `scoringStatistics`, `sessionId`
@@ -54,8 +55,15 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
   - **Graph**: Visualize actions, source branches, references, and final output as connected nodes, with pan and zoom
   - **Timeline**: View execution durations and overlapping activity on a shared time axis using recorded start and completion timestamps
   - **Activity details**: Read request and final result text; inspect queries, models, token usage, hit counts, generated filters/boosts, references, and raw JSON
+  - **Graph search**: Inspect generated GQL, result rows, and evidence documents for `graphSearch` steps
   - **Execution status**: Track running, completed, failed, and incomplete activity, including streaming responses
-- **API version**: Automatically uses `2025-11-01-preview`
+- **Named tools**: Select a tool and use its defaults or override retrieval settings per request
+- **Per-request source filters**: `filterAddOn` is supported only for search index knowledge sources on `2026-11-01-preview`. The app rejects nonempty filters on unsupported API versions or source types rather than silently dropping them.
+- **Retrieve output limits**: On `2026-11-01-preview`, the app sends byte and token limits independently when provided.
+- **Standalone Microsoft Retriever 1 knowledge bases**: The form uses `minimal` reasoning and `extractiveData` output, sending the question as one semantic intent.
+- **Entity graph retrieval**: Configure generated GQL and evidence retrieval for graph-enabled Blob sources
+- **Topic graph retrieval**: Inherit or override topic retrieval settings for supported sources
+- **API version**: `2025-11-01-preview` minimum; named tool selection and graph retrieval settings require `2026-11-01-preview`
 
 ![](./docs/images/screenshot4_en.png)
 
@@ -77,7 +85,10 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
 - **Create/update indexes**: Edit schema in JSON editor and create/update
 - **Schema Workbench**: Edit fields through Field Matrix toggles for `key`, `searchable`, `filterable`, `sortable`, `facetable`, `retrievable`, lexical settings, synonym maps, and vector dimensions/profiles
 - **Index-level configuration editors**: Form editors for semantic configurations, scoring profiles, suggesters, analyzers, normalizers, and vector profiles that sync back to JSON
+- **Graph profile and topic graph editors**: Map the 22 edge-list roles of `graphProfile` to fields, add the official sample graph fields, define `vectorSearch.topicGraphProfiles` (`defaultKind`, `defaultDiversityFactor`, `defaultMinDiversityPoolSize`), and link vector fields through `topicGraphProfile`, with validation against the documented field types, attributes, and ranges (`2026-11-01-preview`)
+- **Other `2026-11-01-preview` schema additions**: `openAICompatible` vectorizer parameters and the `random` scoring function (`seedParameter`). The new editors are read-only for other API versions, and saving an index that uses these properties with an older API version is blocked before contacting the service
 - **Diff-reviewed publishing**: Review semantic and normalized JSON diffs before updating existing indexes
+- **Dependency map**: Draw how the selected index relates to knowledge bases, knowledge sources, topic graph profiles, and topic indexes (arrows point from the referencing resource to the referenced one). Each resource opens in its builder, indexes show their document counts, and unsaved edits in the editor are reflected before saving
 - **Clone Assistant**: Create a replacement index definition from an existing index and prepare rebuilds that require destructive schema changes
 - **Delete indexes**: Remove existing indexes
 - **Statistics**: Display `documentCount`, `storageSize`, `vectorIndexSize`
@@ -101,6 +112,7 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
 - **Create/update knowledge sources**: 
   - `name`, `kind='searchIndex'`, `description`
   - `searchIndexParameters`: `searchIndexName`, `semanticConfigurationName`, `sourceDataFields`, `searchFields`
+- **Topic graph defaults**: Set `none` / `balanced` / `diverse` for search-index sources (`2026-11-01-preview`)
 - **Delete knowledge sources**: Remove existing knowledge sources
 
 ![](./docs/images/screenshot8_en.png)
@@ -108,6 +120,8 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
 ### Knowledge Base Builder
 - **Knowledge base list**: Display existing knowledge bases
 - **Create/update knowledge bases**: `name`, `description`, `knowledgeSources` array
+- **Retrieval models**: Configure Microsoft Retriever 1, GPT-6 profiles, and OpenAI-compatible models (`2026-11-01-preview`)
+- **[Named tools](https://learn.microsoft.com/en-us/azure/search/agentic-retrieval-how-to-configure-tools?pivots=rest)**: Configure source scopes, filters, and retrieval defaults (`2026-11-01-preview`)
 - **Delete knowledge bases**: Remove existing knowledge bases
 
 ![](./docs/images/screenshot7_en.png)
@@ -253,6 +267,14 @@ A browser-integrated Python development environment for building, testing, and d
 - **Global → Local 2-stage search**: Search the meta-index first, route through macro / micro / facet / question nodes, then run local document search against the source index with trace and stats views
 - **Visualization and Meta JSON persistence**: Save `.ragvis.json` for cluster coordinates/graph structure and `.ragmeta.json` for LLM summaries, traces, token usage, and reusable meta state
 
+### Knowledge Graph Playground / Ontology Editor
+- **Graph exploration**: Visualize [entity graphs](https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-entity-graph) and [topic graphs](https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-topic-graph) and inspect properties and topic titles (`2026-11-01-preview`)
+- **GQL queries**: Run queries and inspect result graphs, tables, evidence documents, and diagnostics
+- **GQL input guide for beginners**: Start from templates generated with the node types, predicates, and names of the loaded graph (with a "Graph map" of existing patterns and a guided builder), get suggestions while typing, see pre-run hints for common mistakes (full-width symbols, `==`, unknown labels), and read each clause of your query in plain language
+  - The browser remembers whether the guide is shown or hidden across page reloads.
+- **Graph document editing**: Edit in a form or JSON, preview changes, and review diffs before saving to unmanaged indexes
+- **Ontology editing**: Edit JSON-LD types and relationships and apply them to an existing Blob source with a reprocessing-enabled cache
+
 ### Eval Dataset Generator
 - **LLM-powered evaluation dataset generation**: Automatically generate Search Parameter AutoTuning-compatible JSONL evaluation datasets from real documents in your Azure AI Search index
 - **Two generation modes**:
@@ -355,6 +377,9 @@ A browser-integrated Python development environment for building, testing, and d
 - **Run selection**: Select multiple runs (max 10) to compare results side by side
 - **Table comparison**: Compare ranked results from `query`, `semantic`, `vector`, `hybrid`, `semantic_hybrid`, and `agentic_retrieve` runs in columns
   - Shows document rank movement, search and reranker scores, latency, and raw results
+  - **Agentic Retrieval diversity comparison**: Select at least two Agentic runs to compare each source's `kind`, `diversityFactor`, and `minDiversityPoolSize` against a baseline run. The table shows recorded request settings, not the effective settings of a run that did not send an override. Each run header also shows its `retrievalReasoningEffort` (the value the service applied, from the `agenticReasoning` activity, or the request value), so runs planned by a model (`low` or higher) are not mistaken for `minimal` runs. Use `minimal` for comparisons, because model planning changes the generated queries from run to run.
+  - **Top-K document changes**: Compare the first 5, 10, 20, or 50 results and count common, added, and dropped documents after deduplicating by source name and document key (or Blob URL). Use the same query and knowledge base, select `extractiveData`, and include activity and references. Counts are unavailable without ranked data or document identities. Document changes do not measure topic coverage.
+  - **Topic coverage**: "Load topics" follows the knowledge source to its content index, the topic graph profile linked to the vector field, and the topic index. It reads (read-only) the topic hierarchy and the stored vectors of the top chunks being compared, then runs a vector query on the topic index with each chunk vector and assigns the chunk to the leaf topic with the nearest centroid (`HasCentroidVector`). The centroid vectors do not need to be retrievable. For each run it shows a topic treemap (same layout for every run), a per-rank strip colored by topic, the number of hit topics, the effective number of topics (exp(−Σ p ln p) over the topic shares p), and the coverage (sum of the corpus shares of the hit topics), plus the difference in effective topics from the baseline run. The published topic index does not store which topic each chunk belongs to (the official `list-members` also decides by closeness to the centroid), so the assignment is an estimate that may not match the original build classification exactly. The connection profile API version must be `2026-11-01-preview`.
   - Because score scales differ by search mode, cross-mode comparisons emphasize rank and document movement
 - **Delete runs**: Delete individual runs
 - **Query filter**: Filter runs by query text
@@ -537,7 +562,7 @@ After launching the application, configure your Azure AI Search connection from 
 1. **API Key Authentication** (Recommended)
    - Endpoint: Azure AI Search service endpoint URL (e.g., `https://your-service.search.windows.net`)
    - API Key: Admin key or query key
-   - API Version: Data-plane REST API version (new connections default to `2026-05-01-preview`; Agentic mode uses the selected version and only raises versions older than `2025-11-01-preview` to that minimum)
+   - API Version: Data-plane REST API version (new connections default to `2026-08-01-preview`; select `2026-11-01-preview` for graph retrieval)
 
 2. **Bearer Token Authentication**
    - Endpoint: Azure AI Search service endpoint URL

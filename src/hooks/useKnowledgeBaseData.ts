@@ -1,42 +1,37 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import type { ConnectionProfile } from '../lib/model'
 import type { AgenticFormState, KnowledgeSourceInfo, LabMode } from '../types'
 import type { Language } from '../lib/translations'
 import { translations } from '../lib/translations'
 import { getKnowledgeBase, listKnowledgeBases, listKnowledgeSources } from '../lib/aiSearchRest'
+import { getKnowledgeBaseTools } from '../utils/agenticPreview'
+import { isJsonObject } from '../app/json'
+import { getSearchApiCapabilities } from '../lib/searchApiCapabilities'
+import { isMicrosoftRetriever1Only } from '../utils/appRequestBodies'
 
 export function useKnowledgeBaseData(params: {
   labMode: LabMode
   activeProfile: ConnectionProfile | null
   knowledgeBaseName: string
+  editingKnowledgeBase: boolean
   language: Language
   setAgenticForm: Dispatch<SetStateAction<AgenticFormState>>
 }) {
-  const { labMode, activeProfile, knowledgeBaseName, language, setAgenticForm } = params
+  const { labMode, activeProfile, knowledgeBaseName, editingKnowledgeBase, language, setAgenticForm } = params
 
   const [availableKnowledgeBaseNames, setAvailableKnowledgeBaseNames] = useState<string[]>([])
   const [knowledgeBaseNamesLoading, setKnowledgeBaseNamesLoading] = useState(false)
   const [knowledgeBaseNamesError, setKnowledgeBaseNamesError] = useState<string | null>(null)
   const [availableKnowledgeSources, setAvailableKnowledgeSources] = useState<KnowledgeSourceInfo[]>([])
-
-  // Reset knowledgeSourceParams when knowledgeBaseName changes so the
-  // fetch-and-init guard (length === 0) works correctly on KB switch.
-  // Skip the first render to preserve persisted state.
-  const prevKbNameRef = useRef(knowledgeBaseName)
-  useEffect(() => {
-    if (prevKbNameRef.current !== knowledgeBaseName) {
-      prevKbNameRef.current = knowledgeBaseName
-      setAvailableKnowledgeSources([])
-      setAgenticForm((prev) => ({
-        ...prev,
-        knowledgeSourceParams: [],
-      }))
-    }
-  }, [knowledgeBaseName, setAgenticForm])
+  const [availableKnowledgeTools, setAvailableKnowledgeTools] = useState<ReturnType<typeof getKnowledgeBaseTools>>([])
+  const [standaloneRetriever, setStandaloneRetriever] = useState<{ profile: ConnectionProfile; name: string } | null>(null)
 
   useEffect(() => {
-    if (labMode !== 'agentic' || !knowledgeBaseName.trim() || !activeProfile) {
+    setAvailableKnowledgeSources([])
+    setAvailableKnowledgeTools([])
+    setStandaloneRetriever(null)
+    if (labMode !== 'agentic' || editingKnowledgeBase || !knowledgeBaseName.trim() || !activeProfile) {
       return
     }
 
@@ -48,13 +43,20 @@ export function useKnowledgeBaseData(params: {
             profile: activeProfile,
             knowledgeBaseName: knowledgeBaseName.trim(),
             language,
+            signal: abortController.signal,
           }),
-          listKnowledgeSources({ profile: activeProfile, language }),
+          listKnowledgeSources({ profile: activeProfile, language, signal: abortController.signal }),
         ])
 
         if (abortController.signal.aborted) return
 
-        if (result.ok && result.response && typeof result.response === 'object') {
+        if (result.ok && isJsonObject(result.response)) {
+          const capabilities = getSearchApiCapabilities(activeProfile.apiVersion)
+          const models = result.response.models
+          const standalone = capabilities.microsoftRetriever1 && Array.isArray(models) && isMicrosoftRetriever1Only(models)
+          if (standalone) setStandaloneRetriever({ profile: activeProfile, name: knowledgeBaseName })
+          const tools = getKnowledgeBaseTools(result.response.tools, result.response.retrievalReasoningEffort)
+          setAvailableKnowledgeTools(tools)
           const kb = result.response as { knowledgeSources?: Array<{ name: string; kind?: string }> }
           const sourceKinds = new Map<string, string>()
           if (sourceListResult.ok && sourceListResult.response && typeof sourceListResult.response === 'object') {
@@ -77,7 +79,7 @@ export function useKnowledgeBaseData(params: {
           setAvailableKnowledgeSources(sources)
 
           setAgenticForm((prev) => {
-            if (prev.knowledgeSourceParams.length === 0 && sources.length > 0) {
+            if (!capabilities.novemberAgentic && !prev.toolName && prev.knowledgeSourceParams.length === 0 && sources.length > 0) {
               return {
                 ...prev,
                 knowledgeSourceParams: sources.map((src) => ({
@@ -94,8 +96,11 @@ export function useKnowledgeBaseData(params: {
               }
             }
             const kindByName = new Map(sources.map((source) => [source.name, source.kind]))
+            const tool = tools.find(({ name }) => name === prev.toolName)
             return {
               ...prev,
+              ...(standalone ? { retrievalReasoningEffort: 'minimal', outputMode: 'extractiveData' } as const
+                : tool && prev.useToolDefaults !== false ? { retrievalReasoningEffort: tool.reasoningEffort } : {}),
               knowledgeSourceParams: prev.knowledgeSourceParams.map((param) => ({
                 ...param,
                 kind: kindByName.get(param.knowledgeSourceName) || param.kind,
@@ -112,10 +117,10 @@ export function useKnowledgeBaseData(params: {
     return () => {
       abortController.abort()
     }
-  }, [activeProfile, knowledgeBaseName, labMode, language, setAgenticForm])
+  }, [activeProfile, editingKnowledgeBase, knowledgeBaseName, labMode, language, setAgenticForm])
 
   useEffect(() => {
-    if (labMode !== 'agentic' || !activeProfile) {
+    if (labMode !== 'agentic' || editingKnowledgeBase || !activeProfile) {
       setAvailableKnowledgeBaseNames([])
       setKnowledgeBaseNamesLoading(false)
       setKnowledgeBaseNamesError(null)
@@ -128,7 +133,7 @@ export function useKnowledgeBaseData(params: {
 
     ;(async () => {
       try {
-        const result = await listKnowledgeBases({ profile: activeProfile, language })
+        const result = await listKnowledgeBases({ profile: activeProfile, language, signal: abortController.signal })
         if (abortController.signal.aborted) return
 
         if (result.ok && result.response && typeof result.response === 'object') {
@@ -160,7 +165,7 @@ export function useKnowledgeBaseData(params: {
     return () => {
       abortController.abort()
     }
-  }, [activeProfile, labMode, language])
+  }, [activeProfile, editingKnowledgeBase, labMode, language])
 
   const knowledgeBaseNameOptions = useMemo(() => {
     const opts = new Set<string>()
@@ -174,5 +179,7 @@ export function useKnowledgeBaseData(params: {
     knowledgeBaseNamesError,
     knowledgeBaseNameOptions,
     availableKnowledgeSources,
+    availableKnowledgeTools,
+    standaloneRetriever1: standaloneRetriever?.profile === activeProfile && standaloneRetriever?.name === knowledgeBaseName,
   }
 }

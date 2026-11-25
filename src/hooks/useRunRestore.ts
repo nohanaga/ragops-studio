@@ -7,6 +7,8 @@ import { isJsonObject, type JsonObject } from '../app/json'
 import type { TranslationKey } from '../lib/translations'
 import { DEFAULT_AUTOCOMPLETE_FORM, DEFAULT_SUGGEST_FORM } from '../app/defaults'
 import { restoreRunResponse } from '../app/restoreRunResponse'
+import { readGraphParameters, readReasoningEffort, readTopicGraph } from '../utils/agenticPreview'
+import { getSearchApiCapabilities } from '../lib/searchApiCapabilities'
 
 type TFunction = (key: TranslationKey) => string
 
@@ -127,24 +129,21 @@ export function useRunRestore(params: {
         const contents = firstMsg && Array.isArray(firstMsg.content) ? firstMsg.content : null
         const firstContent =
           contents && contents.length > 0 && isJsonObject(contents[0]) ? contents[0] : null
+        const intent = Array.isArray(requestObj.intents) ? requestObj.intents.find(isJsonObject) : undefined
         const userMessage =
           firstContent && firstContent.type === 'text' && typeof firstContent.text === 'string'
             ? firstContent.text
-            : ''
+            : typeof intent?.search === 'string' ? intent.search : ''
 
-        if (userMessage) {
+        {
+          const toolName = getString('toolName')
           const includeActivity = getBoolean('includeActivity', true)
           const outputMode = getString('outputMode', 'answerSynthesis')
           const maxRuntimeInSeconds = getNumber('maxRuntimeInSeconds', 60)
-          const maxOutputSize = getNumber('maxOutputSize', 100000)
-          const retrievalReasoningEffortRaw = requestObj.retrievalReasoningEffort
-          const retrievalReasoningEffortObj = isJsonObject(retrievalReasoningEffortRaw)
-            ? retrievalReasoningEffortRaw
-            : null
-          const retrievalReasoningEffort =
-            typeof retrievalReasoningEffortObj?.kind === 'string'
-              ? retrievalReasoningEffortObj.kind
-              : 'low'
+          const sizeKey = getSearchApiCapabilities(run.context.apiVersion).agenticResponseSynthesis
+            ? 'maxOutputSize' : 'maxOutputSizeInTokens'
+          const maxOutputSize = requestObj[sizeKey]
+          const retrievalReasoningEffort = readReasoningEffort(requestObj.retrievalReasoningEffort) ?? (intent ? 'minimal' : 'low')
 
           const knowledgeSourceParamsRaw =
             Array.isArray(requestObj.knowledgeSourceParams) ? requestObj.knowledgeSourceParams : []
@@ -156,10 +155,13 @@ export function useRunRestore(params: {
               includeReferences: typeof ks.includeReferences === 'boolean' ? ks.includeReferences : true,
               includeReferenceSourceData:
                 typeof ks.includeReferenceSourceData === 'boolean' ? ks.includeReferenceSourceData : true,
-              alwaysQuerySource: typeof ks.alwaysQuerySource === 'boolean' ? ks.alwaysQuerySource : false,
+              alwaysQuerySource: typeof ks.alwaysQuerySource === 'boolean' ? ks.alwaysQuerySource : undefined,
               neverQuerySource: typeof ks.neverQuerySource === 'boolean' ? ks.neverQuerySource : false,
-              resultsProcessing: ks.resultsProcessing === 'none' ? 'none' as const : 'rerank' as const,
+              resultsProcessing: ks.resultsProcessing === 'none' ? 'none' as const : ks.resultsProcessing === 'rerank' ? 'rerank' as const : '' as const,
               maxOutputDocuments: typeof ks.maxOutputDocuments === 'number' ? ks.maxOutputDocuments : '' as const,
+              topicGraph: readTopicGraph(ks.topicGraph),
+              graphParameters: readGraphParameters(ks.graphParameters),
+              filterAddOn: typeof ks.filterAddOn === 'string' ? ks.filterAddOn : '',
               queryHintOverrides: isJsonObject(ks.queryHintOverrides)
                 ? JSON.stringify(ks.queryHintOverrides, null, 2)
                 : '',
@@ -167,18 +169,16 @@ export function useRunRestore(params: {
             .filter((ks) => ks.knowledgeSourceName.trim().length > 0)
 
           setAgenticForm({
+            toolName,
+            useToolDefaults: !!toolName && ['retrievalReasoningEffort', 'maxRuntimeInSeconds', 'maxOutputDocuments', 'maxOutputSizeInTokens', 'maxOutputSize', 'outputMode'].every((key) => !(key in requestObj)),
             userMessage,
             includeActivity,
             outputMode,
             maxRuntimeInSeconds,
-            maxOutputSize,
-            retrievalReasoningEffort:
-              retrievalReasoningEffort === 'low' ||
-              retrievalReasoningEffort === 'medium' ||
-              retrievalReasoningEffort === 'minimal' ||
-              retrievalReasoningEffort === 'auto'
-                ? retrievalReasoningEffort
-                : 'low',
+            maxOutputSize: typeof maxOutputSize === 'number' ? maxOutputSize : '',
+            maxOutputDocuments: typeof requestObj.maxOutputDocuments === 'number' ? requestObj.maxOutputDocuments : '',
+            maxOutputSizeInTokens: typeof requestObj.maxOutputSizeInTokens === 'number' ? requestObj.maxOutputSizeInTokens : '',
+            retrievalReasoningEffort,
             streamResponse: false,
             knowledgeSourceParams,
           })
@@ -323,7 +323,7 @@ export function useRunRestore(params: {
         // Reset to default values and restore search form with all parameters including vector queries
         const queryTypeRaw = getString('queryType', 'simple')
         const queryType =
-          queryTypeRaw === 'simple' || queryTypeRaw === 'full' || queryTypeRaw === 'semantic'
+          queryTypeRaw === 'simple' || queryTypeRaw === 'full' || queryTypeRaw === 'semantic' || queryTypeRaw === 'agentic'
             ? queryTypeRaw
             : 'simple'
 
@@ -458,7 +458,7 @@ export function useRunRestore(params: {
 
         const queryTypeRaw = getString('queryType', 'simple')
         const queryType: SearchFormState['queryType'] =
-          queryTypeRaw === 'simple' || queryTypeRaw === 'full' || queryTypeRaw === 'semantic'
+          queryTypeRaw === 'simple' || queryTypeRaw === 'full' || queryTypeRaw === 'semantic' || queryTypeRaw === 'agentic'
             ? queryTypeRaw
             : 'simple'
 
@@ -504,9 +504,13 @@ export function useRunRestore(params: {
             : ''
 
         // Reset to default values and restore search form with all parameters
+        const agenticOptions = isJsonObject(requestObj.agenticOptions) ? requestObj.agenticOptions : undefined
+        const directDebug = requestObj.debug
         setSearchForm({
           search: getString('search', ''),
           queryType,
+          agenticMaxRuntime: typeof agenticOptions?.maxRuntimeInSeconds === 'number' ? agenticOptions.maxRuntimeInSeconds : '',
+          agenticDebug: directDebug === 'agentic' || directDebug === 'all' ? directDebug : '',
           top: getNumber('top', 10),
           skip: getNumber('skip', 0),
           count: getBoolean('count', true),

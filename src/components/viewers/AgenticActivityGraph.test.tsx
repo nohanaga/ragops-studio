@@ -6,21 +6,24 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { translations } from '../../lib/translations'
 import { AgenticActivityTimeline } from './AgenticActivityTimeline'
 import type { ActivityGraphNode } from '../../lib/agenticActivityGraph'
+import type { JsonValue } from '../../lib/aiSearchRest'
+import type { LatestResponse } from '../../types'
 
 type TestNodeData = ActivityGraphNode & { statusLabel: string; countLabel: string }
 
 vi.mock('@xyflow/react', () => ({
-  ReactFlow: ({ nodes, nodeTypes, onNodeClick, children }: {
-    nodes: { id: string; data: TestNodeData; position: { x: number; y: number } }[]
+  ReactFlow: ({ nodes, nodeTypes, onNodeClick, onPaneClick, children }: {
+    nodes: { id: string; data: TestNodeData; position: { x: number; y: number }; selected: boolean }[]
     nodeTypes: { activity: (props: { data: TestNodeData; selected: boolean }) => ReactNode }
     onNodeClick: (event: null, node: { id: string }) => void
+    onPaneClick: () => void
     children: ReactNode
   }) => (
-    <div data-testid="graph-canvas">
+    <div data-testid="graph-canvas" onClick={(event) => { if (event.target === event.currentTarget) onPaneClick() }}>
       {nodes.map((node) => (
         <div key={node.id}>
           <button data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick(null, node)}>{node.data.title}: {node.data.subtitle}</button>
-          <nodeTypes.activity data={node.data} selected={false} />
+          <nodeTypes.activity data={node.data} selected={node.selected} />
         </div>
       ))}
       {children}
@@ -44,6 +47,70 @@ const activity = [{
 }]
 
 describe('AgenticActivityGraph integration', () => {
+  it('shows graphSearch results in the Graph inspector and the expanded Timeline row', () => {
+    const activity: JsonValue[] = [
+      { type: 'modelQueryPlanning', id: 0 },
+      { type: 'graphSearch', id: 1, knowledgeSourceName: 'employees', graphSearchArguments: { naturalLanguageQuery: 'Who employs Rina?' } },
+      { type: 'searchIndex', id: 2, knowledgeSourceName: 'manuals' },
+    ]
+    const response: LatestResponse = {
+      at: undefined, requestId: 'graph', url: '', status: 200, runType: 'agentic_retrieve', requestBody: {},
+      body: { activity, references: [{ type: 'graphSearch', id: 'row', activitySource: 1, sourceData: { rows: [{ organization: 'Woodgrove' }] } }] },
+    }
+    render(<AgenticActivityTimeline activity={activity} response={response} t={(key) => translations.en[key]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }))
+    const graphSearch = screen.getByRole('button', { name: 'graphSearch: employees · Who employs Rina?' })
+    expect(graphSearch.dataset.y).toBe(screen.getByRole('button', { name: /^searchIndex:/ }).dataset.y)
+    fireEvent.click(graphSearch)
+    const details = within(screen.getByRole('region', { name: 'Node details' }))
+    expect(details.getByRole('table')).toHaveTextContent('Woodgrove')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Timeline' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Show details: graphSearch #1/ }))
+    expect(within(screen.getByRole('region', { name: 'Node details' })).getByRole('table')).toHaveTextContent('Woodgrove')
+  })
+
+  it.each(['ja', 'en'] as const)('closes details with the close button or background and reopens them on node selection (%s)', (language) => {
+    const localized = (key: keyof typeof translations.en) => translations[language][key]
+    render(<AgenticActivityTimeline activity={activity} t={localized} language={language} />)
+    fireEvent.click(screen.getByRole('button', { name: localized('actGraphView') }))
+    const canvas = screen.getByTestId('graph-canvas')
+    const workspace = canvas.closest('.actGraph__workspace')
+    const source = screen.getByRole('button', { name: /^searchIndex:/ })
+    const details = () => screen.queryByRole('region', { name: localized('actGraphDetails') })
+
+    expect(details()).toBeInTheDocument()
+    const closeButton = screen.getByRole('button', { name: localized('actTraceCollapse') })
+    const header = closeButton.closest<HTMLDivElement>('.actGraph__inspectorHeader')!
+    expect(within(header).getByText(localized('actGraphSelect'))).toBeInTheDocument()
+    expect(within(header).queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: localized('actGraphSelect') })).toHaveClass('actGraph__nodeSelect')
+    fireEvent.click(source)
+    expect(screen.getByRole('combobox')).toHaveValue('activity-0')
+    expect(workspace).not.toHaveClass('actGraph__workspace--collapsed')
+    fireEvent.click(screen.getByRole('button', { name: localized('actTraceCollapse') }))
+    expect(details()).not.toBeInTheDocument()
+    expect(workspace).toHaveClass('actGraph__workspace--collapsed')
+    expect(canvas.querySelector('.actGraph__node--selected')).toBeNull()
+
+    fireEvent.click(source)
+    expect(details()).toBeInTheDocument()
+    expect(screen.getByRole('combobox')).toHaveValue('activity-0')
+    expect(workspace).not.toHaveClass('actGraph__workspace--collapsed')
+    fireEvent.click(screen.getByRole('button', { name: localized('actGraphFit') }))
+    expect(details()).toBeInTheDocument()
+    fireEvent.click(canvas)
+    expect(details()).not.toBeInTheDocument()
+    expect(workspace).toHaveClass('actGraph__workspace--collapsed')
+    expect(canvas.querySelector('.actGraph__node--selected')).toBeNull()
+
+    fireEvent.click(source)
+    expect(details()).toBeInTheDocument()
+    expect(screen.getByRole('combobox')).toHaveValue('activity-0')
+    expect(workspace).not.toHaveClass('actGraph__workspace--collapsed')
+  })
+
   it('keeps timeline as default, opens graph, inspects recorded hints, and switches back', () => {
     render(<AgenticActivityTimeline activity={activity} t={t} language="ja" />)
     expect(screen.queryByTestId('graph-canvas')).not.toBeInTheDocument()

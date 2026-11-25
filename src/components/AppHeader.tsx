@@ -34,6 +34,8 @@ export type AppHeaderProps = {
   onOpenSkillEditor: () => void
   onOpenSearchPipelineVisualizer: () => void
   onOpenIndexVisualizer: () => void
+  onOpenKnowledgeGraph: () => void
+  onOpenOntologyEditor: () => void
   onOpenLlmSettings: () => void
   connectionProfiles: Record<string, ConnectionProfile>
   activeConnectionProfileId: string
@@ -61,6 +63,8 @@ export function AppHeader({
   onOpenSkillEditor,
   onOpenSearchPipelineVisualizer,
   onOpenIndexVisualizer,
+  onOpenKnowledgeGraph,
+  onOpenOntologyEditor,
   onOpenLlmSettings,
   connectionProfiles,
   activeConnectionProfileId,
@@ -165,6 +169,12 @@ export function AppHeader({
               onClick={onOpenIndexVisualizer}
             >
               📊 {t('indexVisualizer')}
+            </button>
+            <button type="button" className="dropdown-item" onClick={onOpenKnowledgeGraph}>
+              <i className="bi bi-diagram-3"></i> {t('knowledgeGraphPlayground')}
+            </button>
+            <button type="button" className="dropdown-item" onClick={onOpenOntologyEditor}>
+              <i className="bi bi-bezier2"></i> {t('ontologyEditor')}
             </button>
           </div>
         </div>

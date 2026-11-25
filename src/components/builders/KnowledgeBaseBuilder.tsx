@@ -4,7 +4,7 @@
  * Provides CRUD operations for knowledge bases used by agentic retrieval.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import type { ConnectionProfile } from '../../lib/model'
 import type { KnowledgeBase } from '../../types'
 import {
@@ -16,8 +16,11 @@ import {
 import { InfoTooltip } from '../InfoTooltip'
 import { translations, type Language } from '../../lib/translations'
 import type { JsonValue } from '../../lib/aiSearchRest'
+import { isJsonObject } from '../../app/json'
 import { getSearchApiCapabilities } from '../../lib/searchApiCapabilities'
-import { buildKnowledgeBaseBodyForApiVersion } from '../../utils/appRequestBodies'
+import { buildKnowledgeBaseBodyForApiVersion, isKnowledgeBaseModelKind, isMicrosoftRetriever1Only } from '../../utils/appRequestBodies'
+import { NOVEMBER_KB_MODELS, validatedCompatibleModel } from '../../utils/agenticPreview'
+import { KnowledgeBaseToolFields } from './KnowledgeBaseToolFields'
 
 const SUPPORTED_MODEL_NAMES = [
   'gpt-5',
@@ -33,6 +36,16 @@ const SUPPORTED_MODEL_NAMES = [
   'gpt-5.6-terra',
   'gpt-5.6-luna',
 ] as const
+const COMPATIBLE_LEGACY_MODEL_NAMES = ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano'] as const
+
+function modelParameters(model: JsonValue | undefined, key: string) {
+  const value = isJsonObject(model) ? model[key] : undefined
+  return isJsonObject(value) ? value : {}
+}
+
+function readString(value: JsonValue | undefined) {
+  return typeof value === 'string' ? value : ''
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -52,11 +65,14 @@ type KnowledgeBaseBuilderProps = {
   profile: ConnectionProfile | null
   onClose: () => void
   language: Language
+  /** Selects the named knowledge base when `nonce` changes, for example from the dependency map. */
+  focusRequest?: { name: string; nonce: number } | null
 }
 
-export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilderProps) {
+export function KnowledgeBaseBuilder({ profile, language, focusRequest }: KnowledgeBaseBuilderProps) {
   const t = useCallback((key: keyof typeof translations.ja) => translations[language][key], [language])
   const capabilities = getSearchApiCapabilities(profile?.apiVersion)
+  const retrieverHintId = useId()
 
   const normalizeKnowledgeBase = useCallback((input: unknown): KnowledgeBase => {
     const kb: Record<string, unknown> = isRecord(input) ? input : {}
@@ -76,6 +92,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
       outputMode: (typeof kb.outputMode === 'string' ? kb.outputMode : null),
       knowledgeSources,
       models: (Array.isArray(kb.models) && kb.models.every(isJsonValue)) ? kb.models : [],
+      tools: Array.isArray(kb.tools) && kb.tools.every(isJsonValue) ? kb.tools : undefined,
       encryptionKey: isJsonValue(kb.encryptionKey) ? kb.encryptionKey : null,
       retrievalReasoningEffort:
         isRecord(kb.retrievalReasoningEffort)
@@ -100,6 +117,8 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedBase, setSelectedBase] = useState<KnowledgeBase | null>(null)
+  const [selectedEndpoint, setSelectedEndpoint] = useState('')
+  const [compatibleHeaders, setCompatibleHeaders] = useState('')
   const [formData, setFormData] = useState<Partial<KnowledgeBase>>({
     name: '',
     description: null,
@@ -132,20 +151,93 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
     })
   }, [capabilities.agenticResponseSynthesis, capabilities.reasoningAuto])
 
-  const firstModel = isRecord(formData.models?.[0]) ? formData.models[0] : {}
-  const firstModelParameters = isRecord(firstModel.azureOpenAIParameters) ? firstModel.azureOpenAIParameters : {}
-  const modelName = typeof firstModelParameters.modelName === 'string' ? firstModelParameters.modelName : ''
-  const deploymentId = typeof firstModelParameters.deploymentId === 'string' ? firstModelParameters.deploymentId : ''
-  const resourceUri = typeof firstModelParameters.resourceUri === 'string' ? firstModelParameters.resourceUri : ''
+  const models = formData.models ?? []
+  const hasRetriever = models.some((model) => isKnowledgeBaseModelKind(model, 'microsoftRetriever1'))
+  const retrieverOnly = isMicrosoftRetriever1Only(models)
+  const requiresRetrieverPreview = hasRetriever && !capabilities.microsoftRetriever1
+  const canConfigureReasoningAndOutput = capabilities.agenticResponseSynthesis && !retrieverOnly
+  const azureOpenAIModel = models.find((model) => isKnowledgeBaseModelKind(model, 'azureOpenAI'))
+  const compatibleIndex = models.findIndex((model) => isKnowledgeBaseModelKind(model, 'openAICompatible'))
+  const compatible = compatibleIndex >= 0
+  const compatibleParams = modelParameters(models[compatibleIndex], 'openAICompatibleParameters')
+  const compatibleModelName = readString(compatibleParams.modelName)
+  const audience = readString(compatibleParams.managedIdentityAudience)
+  const identity = isJsonObject(compatibleParams.authIdentity) ? compatibleParams.authIdentity : undefined
+  const modelNames: readonly string[] = capabilities.novemberAgentic ? [...SUPPORTED_MODEL_NAMES, ...NOVEMBER_KB_MODELS] : SUPPORTED_MODEL_NAMES
+  const compatibleModelNames: readonly string[] = [...COMPATIBLE_LEGACY_MODEL_NAMES, ...modelNames]
+  const azureOpenAIParameters = isRecord(azureOpenAIModel) && isRecord(azureOpenAIModel.azureOpenAIParameters)
+    ? azureOpenAIModel.azureOpenAIParameters
+    : {}
+  const modelName = typeof azureOpenAIParameters.modelName === 'string' ? azureOpenAIParameters.modelName : ''
+  const deploymentId = typeof azureOpenAIParameters.deploymentId === 'string' ? azureOpenAIParameters.deploymentId : ''
+  const resourceUri = typeof azureOpenAIParameters.resourceUri === 'string' ? azureOpenAIParameters.resourceUri : ''
 
-  function updateFirstModel(patch: Record<string, string>) {
-    const models = [...(formData.models ?? [])]
-    models[0] = {
-      ...firstModel,
-      kind: 'azureOpenAI',
-      azureOpenAIParameters: { ...firstModelParameters, ...patch },
-    } as JsonValue
-    setFormData({ ...formData, models })
+  function setMicrosoftRetriever1(enabled: boolean) {
+    setFormData((previous) => {
+      const otherModels = (previous.models ?? []).filter((model) => !isKnowledgeBaseModelKind(model, 'microsoftRetriever1'))
+      return { ...previous, models: enabled ? [...otherModels, { kind: 'microsoftRetriever1' }] : otherModels }
+    })
+  }
+
+  function switchCompatibleModel(enabled: boolean) {
+    setCompatibleHeaders('')
+    setFormData((previous) => {
+      const next = [...(previous.models ?? [])]
+      const oldIndex = next.findIndex((model) => isKnowledgeBaseModelKind(model, enabled ? 'azureOpenAI' : 'openAICompatible'))
+      if (enabled) {
+        next[oldIndex < 0 ? next.length : oldIndex] = {
+          kind: 'openAICompatible',
+          openAICompatibleParameters: { uri: '', modelName: 'gpt-6-sol' },
+        }
+      } else if (oldIndex >= 0) {
+        next.splice(oldIndex, 1)
+      }
+      return { ...previous, models: next }
+    })
+  }
+
+  function updateCompatibleModel(patch: Record<string, JsonValue>) {
+    setFormData((previous) => ({
+      ...previous,
+      models: previous.models?.map((model, i) => i === compatibleIndex && isJsonObject(model)
+        ? { ...model, openAICompatibleParameters: { ...compatibleParams, ...patch } }
+        : model),
+    }))
+  }
+
+  function buildBody(updating: boolean): JsonValue {
+    if (!compatible || !capabilities.novemberAgentic) {
+      return buildKnowledgeBaseBodyForApiVersion(formData, profile?.apiVersion, language)
+    }
+    const original = selectedBase?.models[compatibleIndex]
+    const originalParams = modelParameters(original, 'openAICompatibleParameters')
+    const mayReuseHeaders = updating && !!profile && selectedEndpoint === profile.endpoint && selectedBase?.name === formData.name
+      && original !== undefined && isKnowledgeBaseModelKind(original, 'openAICompatible')
+      && originalParams.uri === compatibleParams.uri && originalParams.modelName === compatibleParams.modelName
+      && !originalParams.managedIdentityAudience && !originalParams.authIdentity
+    const params = validatedCompatibleModel(compatibleParams, compatibleHeaders, mayReuseHeaders)
+    return buildKnowledgeBaseBodyForApiVersion({
+      ...formData,
+      models: models.map((model, i) => i === compatibleIndex && isJsonObject(model) ? { ...model, openAICompatibleParameters: params } : model),
+    }, profile?.apiVersion, language)
+  }
+
+  function updateAzureOpenAIModel(patch: Record<string, string> | null) {
+    setFormData((previous) => {
+      const nextModels = [...(previous.models ?? [])]
+      const index = nextModels.findIndex((model) => isKnowledgeBaseModelKind(model, 'azureOpenAI'))
+      if (!patch) return { ...previous, models: nextModels.filter((model) => !isKnowledgeBaseModelKind(model, 'azureOpenAI')) }
+
+      const original = nextModels[index]
+      const model = original !== undefined && isJsonObject(original) ? original : {}
+      const parameters = model.azureOpenAIParameters
+      nextModels[index < 0 ? nextModels.length : index] = {
+        ...model,
+        kind: 'azureOpenAI',
+        azureOpenAIParameters: { ...(parameters !== undefined && isJsonObject(parameters) ? parameters : {}), ...patch },
+      }
+      return { ...previous, models: nextModels }
+    })
   }
 
   const loadKnowledgeBases = useCallback(async () => {
@@ -180,7 +272,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
     }
     setLoading(true)
     try {
-      const body = buildKnowledgeBaseBodyForApiVersion(formData, profile.apiVersion)
+      const body = buildBody(false)
       const result = await createOrUpdateKnowledgeBase({
         profile,
         knowledgeBaseName: formData.name,
@@ -188,6 +280,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
         language,
       })
       if (result.ok) {
+        setCompatibleHeaders('')
         setMessage({ type: 'success', text: `${t('created')}: ${formData.name}` })
         await loadKnowledgeBases()
         setFormData({
@@ -203,7 +296,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
           retrieveDefaults: undefined,
         })
       } else {
-        setMessage({ type: 'error', text: `${t('failed')}: ${result.error.message}` })
+        setMessage({ type: 'error', text: compatibleHeaders ? `${t('compatibleSaveFailed')} (HTTP ${result.status})` : `${t('failed')}: ${result.error.message}` })
       }
     } catch (e) {
       setMessage({ type: 'error', text: `${t('error')}: ${e}` })
@@ -216,7 +309,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
     if (!profile || !selectedBase || !formData.name) return
     setLoading(true)
     try {
-      const body = buildKnowledgeBaseBodyForApiVersion(formData, profile.apiVersion)
+      const body = buildBody(true)
       const result = await createOrUpdateKnowledgeBase({
         profile,
         knowledgeBaseName: formData.name,
@@ -224,10 +317,13 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
         language,
       })
       if (result.ok) {
+        setCompatibleHeaders('')
+        setSelectedBase(normalizeKnowledgeBase(formData))
+        setSelectedEndpoint(profile.endpoint)
         setMessage({ type: 'success', text: `${t('updated')}: ${formData.name}` })
         await loadKnowledgeBases()
       } else {
-        setMessage({ type: 'error', text: `${t('failed')}: ${result.error.message}` })
+        setMessage({ type: 'error', text: compatibleHeaders ? `${t('compatibleSaveFailed')} (HTTP ${result.status})` : `${t('failed')}: ${result.error.message}` })
       }
     } catch (e) {
       setMessage({ type: 'error', text: `${t('error')}: ${e}` })
@@ -246,6 +342,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
         await loadKnowledgeBases()
         if (selectedBase?.name === name) {
           setSelectedBase(null)
+          setCompatibleHeaders('')
           setFormData({
             name: '',
             description: null,
@@ -271,12 +368,14 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
 
   const handleSelectBase = async (name: string) => {
     if (!profile) return
+    setCompatibleHeaders('')
     setLoading(true)
     try {
       const result = await getKnowledgeBase({ profile, knowledgeBaseName: name, language })
       if (result.ok && result.response) {
         const base = normalizeKnowledgeBase(result.response)
         setSelectedBase(base)
+        setSelectedEndpoint(profile.endpoint)
         setFormData(base)
       }
     } catch (e) {
@@ -286,6 +385,14 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
       setLoading(false)
     }
   }
+
+  const focusNonce = focusRequest?.nonce
+  useEffect(() => {
+    if (!profile || !focusRequest) return
+    void handleSelectBase(focusRequest.name)
+    // Only a new request (nonce) selects a knowledge base; later renders must not re-run it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, focusNonce])
 
   return (
     <div className="pane__centerContent">
@@ -309,6 +416,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                     type="button"
                     className={`btn builder-list-item__btn ${selectedBase?.name === kb.name ? 'builder-list-item__btn--active' : ''}`}
                     onClick={() => handleSelectBase(kb.name)}
+                    disabled={loading}
                   >
                     {kb.name}
                   </button>
@@ -353,6 +461,24 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 />
               </label>
+              <div className="field field--full" data-guide-target="knowledge-base-retriever">
+                <span className="field__label">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={hasRetriever}
+                      disabled={!capabilities.microsoftRetriever1}
+                      aria-describedby={retrieverHintId}
+                      onChange={(e) => setMicrosoftRetriever1(e.target.checked)}
+                    />
+                    {' '}{t('knowledgeBaseMicrosoftRetriever1')}
+                  </label>
+                  <InfoTooltip tooltipKey="knowledgeBaseMicrosoftRetriever1" language={language} />
+                </span>
+                <span className="field__hint" id={retrieverHintId}>{t(capabilities.microsoftRetriever1
+                  ? 'knowledgeBaseMicrosoftRetriever1Hint'
+                  : 'knowledgeBaseMicrosoftRetriever1Preview')}</span>
+              </div>
               <label className="field">
                 <span className="field__label">
                   {t('retrievalInstructions')}
@@ -375,8 +501,8 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                 <textarea
                   className="field__textarea"
                   rows={2}
-                  value={formData.answerInstructions || ''}
-                  disabled={!capabilities.agenticResponseSynthesis}
+                  value={retrieverOnly ? '' : formData.answerInstructions || ''}
+                  disabled={!canConfigureReasoningAndOutput}
                   onChange={(e) => setFormData({ ...formData, answerInstructions: e.target.value })}
                   placeholder={t('answerInstructionsPlaceholder')}
                 />
@@ -388,8 +514,8 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                 </span>
                 <select
                   className="field__input"
-                  value={capabilities.agenticResponseSynthesis ? formData.outputMode || 'answerSynthesis' : 'extractiveData'}
-                  disabled={!capabilities.agenticResponseSynthesis}
+                  value={canConfigureReasoningAndOutput ? formData.outputMode || 'answerSynthesis' : 'extractiveData'}
+                  disabled={!canConfigureReasoningAndOutput}
                   onChange={(e) => setFormData({ ...formData, outputMode: e.target.value })}
                 >
                   <option value="answerSynthesis">Answer Synthesis</option>
@@ -420,12 +546,12 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                 </span>
                 <select
                   className="field__input"
-                  value={!capabilities.agenticResponseSynthesis
+                  value={!canConfigureReasoningAndOutput
                     ? 'minimal'
                     : formData.retrievalReasoningEffort?.kind === 'auto' && !capabilities.reasoningAuto
                       ? 'low'
                       : formData.retrievalReasoningEffort?.kind || 'low'}
-                  disabled={!capabilities.agenticResponseSynthesis}
+                  disabled={!canConfigureReasoningAndOutput}
                   onChange={(e) => setFormData({ ...formData, retrievalReasoningEffort: { kind: e.target.value } })}
                 >
                   <option value="minimal">{t('minimal')}</option>
@@ -434,6 +560,77 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                   <option value="auto" disabled={!capabilities.reasoningAuto}>auto</option>
                 </select>
               </label>
+              {(capabilities.novemberAgentic || compatible) && <label className="field field--full">
+                <span className="field__label">
+                  {t('knowledgeBaseModelProvider')}
+                  <InfoTooltip tooltipKey="knowledgeBaseModelProvider" language={language} />
+                </span>
+                <select className="field__input" value={compatible ? 'compatible' : 'azure'} disabled={!capabilities.novemberAgentic}
+                  onChange={(event) => switchCompatibleModel(event.target.value === 'compatible')}>
+                  <option value="azure">Azure OpenAI</option>
+                  <option value="compatible">{t('openAICompatibleModel')}</option>
+                </select>
+              </label>}
+              {compatible ? <>
+                <label className="field">
+                  <span className="field__label">
+                    {t('compatibleModelProfile')}
+                    <InfoTooltip tooltipKey="compatibleModelProfile" language={language} />
+                  </span>
+                  <select className="field__input" value={compatibleModelName} disabled={!capabilities.novemberAgentic}
+                    onChange={(event) => {
+                      setCompatibleHeaders('')
+                      updateCompatibleModel({ modelName: event.target.value })
+                    }}>
+                    {compatibleModelNames.map((name) => <option key={name}>{name}</option>)}
+                    {!compatibleModelNames.includes(compatibleModelName) && <option value={compatibleModelName}>{compatibleModelName}</option>}
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="field__label">
+                    uri
+                    <InfoTooltip tooltipKey="compatibleModelUri" language={language} />
+                  </span>
+                  <input className="field__input" type="url" value={readString(compatibleParams.uri)} disabled={!capabilities.novemberAgentic}
+                    onChange={(event) => {
+                      setCompatibleHeaders('')
+                      updateCompatibleModel({ uri: event.target.value })
+                    }} placeholder="https://gateway.example.com/v1/responses" />
+                  <span className="field__hint">{t(NOVEMBER_KB_MODELS.some((name) => name === compatibleModelName) ? 'compatibleResponsesHint' : 'compatibleChatHint')}</span>
+                </label>
+                <label className="field">
+                  <span className="field__label">
+                    managedIdentityAudience
+                    <InfoTooltip tooltipKey="compatibleManagedIdentityAudience" language={language} />
+                  </span>
+                  <input className="field__input" value={audience} disabled={!capabilities.novemberAgentic}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setCompatibleHeaders('')
+                      updateCompatibleModel({ managedIdentityAudience: value, ...(value ? {} : { authIdentity: null }) })
+                    }} />
+                </label>
+                <label className="field">
+                  <span className="field__label">
+                    userAssignedIdentity
+                    <InfoTooltip tooltipKey="compatibleUserAssignedIdentity" language={language} />
+                  </span>
+                  <input className="field__input" value={readString(identity?.userAssignedIdentity)} disabled={!capabilities.novemberAgentic || !audience.trim()}
+                    onChange={(event) => updateCompatibleModel({ authIdentity: event.target.value ? {
+                      '@odata.type': '#Microsoft.Azure.Search.DataUserAssignedIdentity',
+                      userAssignedIdentity: event.target.value,
+                    } : null })} />
+                </label>
+                <label className="field field--full">
+                  <span className="field__label">
+                    {t('compatibleAuthenticationHeaders')}
+                    <InfoTooltip tooltipKey="compatibleAuthenticationHeaders" language={language} />
+                  </span>
+                  <input className="field__input" type="password" autoComplete="off" spellCheck={false} value={compatibleHeaders}
+                    disabled={!capabilities.novemberAgentic || !!audience.trim()} onChange={(event) => setCompatibleHeaders(event.target.value)} />
+                  <span className="field__hint">{t('compatibleHeadersHint')}</span>
+                </label>
+              </> : <>
               <label className="field">
                 <span className="field__label">
                   {t('knowledgeBaseModelName')}
@@ -445,18 +642,18 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                   disabled={!capabilities.retrieveDefaults}
                   onChange={(e) => {
                     if (!e.target.value) {
-                      setFormData({ ...formData, models: [] })
+                      updateAzureOpenAIModel(null)
                       return
                     }
-                    updateFirstModel({
+                    updateAzureOpenAIModel({
                       modelName: e.target.value,
                       deploymentId: deploymentId || e.target.value,
                     })
                   }}
                 >
                   <option value="">{t('optionNone')}</option>
-                  {SUPPORTED_MODEL_NAMES.map((name) => <option key={name} value={name}>{name}</option>)}
-                  {modelName && !SUPPORTED_MODEL_NAMES.includes(modelName as typeof SUPPORTED_MODEL_NAMES[number]) && (
+                  {modelNames.map((name) => <option key={name} value={name}>{name}</option>)}
+                  {modelName && !modelNames.includes(modelName) && (
                     <option value={modelName}>{modelName}</option>
                   )}
                 </select>
@@ -470,7 +667,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                   className="field__input"
                   value={resourceUri}
                   disabled={!capabilities.retrieveDefaults || !modelName}
-                  onChange={(e) => updateFirstModel({ resourceUri: e.target.value })}
+                  onChange={(e) => updateAzureOpenAIModel({ resourceUri: e.target.value })}
                   placeholder="https://{resource}.openai.azure.com"
                 />
               </label>
@@ -483,9 +680,14 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                   className="field__input"
                   value={deploymentId}
                   disabled={!capabilities.retrieveDefaults || !modelName}
-                  onChange={(e) => updateFirstModel({ deploymentId: e.target.value })}
+                  onChange={(e) => updateAzureOpenAIModel({ deploymentId: e.target.value })}
                 />
               </label>
+              </>}
+              {capabilities.novemberAgentic && <KnowledgeBaseToolFields
+                tools={formData.tools ?? []} sources={(formData.knowledgeSources ?? []).map(({ name }) => name)} t={t} language={language}
+                onChange={(tools) => setFormData((previous) => ({ ...previous, tools }))}
+              />}
               <div className="field field--full">
                 <span className="field__label">
                   {t('retrieveDefaults')}
@@ -494,7 +696,10 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                 <div className="form">
                   {(['maxRuntimeInSeconds', 'maxOutputDocuments', 'maxOutputSizeInTokens'] as const).map((key) => (
                     <label className="field" key={key}>
-                      <span className="field__label">{key}</span>
+                      <span className="field__label">
+                        {key}
+                        <InfoTooltip tooltipKey={key === 'maxOutputDocuments' ? 'retrieveMaxOutputDocuments' : key} language={language} />
+                      </span>
                       <input
                         className="field__input"
                         type="number"
@@ -519,11 +724,11 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
             </div>
             <div className="actions builder__actions" data-guide-target="knowledge-base-actions">
               {selectedBase ? (
-                <button type="button" className="btn" onClick={handleUpdate} disabled={loading}>
+                <button type="button" className="btn" onClick={handleUpdate} disabled={loading || requiresRetrieverPreview}>
                   <i className="bi bi-pencil icon--mr6"></i> {t('update')}
                 </button>
               ) : (
-                <button type="button" className="btn" onClick={handleCreate} disabled={loading}>
+                <button type="button" className="btn" onClick={handleCreate} disabled={loading || requiresRetrieverPreview}>
                   <i className="bi bi-pencil icon--mr6"></i> {t('create')}
                 </button>
               )}
@@ -532,6 +737,7 @@ export function KnowledgeBaseBuilder({ profile, language }: KnowledgeBaseBuilder
                 className="btn"
                 onClick={() => {
                   setSelectedBase(null)
+                  setCompatibleHeaders('')
                   setFormData({
                     name: '',
                     description: null,

@@ -1,4 +1,6 @@
-export type IndexSchemaTemplateKind = 'semantic' | 'suggester' | 'scoringProfile' | 'cors' | 'vectorSearch'
+import { addTopicGraphProfile, applyGraphIndexTemplate, collectVectorFieldLinks } from '../../lib/indexGraphProfiles'
+
+export type IndexSchemaTemplateKind = 'semantic' | 'suggester' | 'scoringProfile' | 'cors' | 'vectorSearch' | 'graphProfile' | 'topicGraph'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -119,6 +121,13 @@ export function applyIndexSchemaTemplate(index: Record<string, unknown>, kind: I
   if (kind === 'cors') {
     next.corsOptions = { allowedOrigins: ['*'], maxAgeInSeconds: 300 }
     return next
+  }
+
+  if (kind === 'graphProfile') return applyGraphIndexTemplate(next)
+
+  if (kind === 'topicGraph') {
+    const unlinkedField = collectVectorFieldLinks(next).find((link) => !link.topicGraphProfile)
+    return addTopicGraphProfile(next, unlinkedField?.pathParts)
   }
 
   const vectorSearch = getVectorSearchSection(next)

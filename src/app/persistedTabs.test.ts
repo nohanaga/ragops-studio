@@ -15,6 +15,8 @@ describe('app/persistedTabs', () => {
     expect(normalizeCenterTab('synonym-map-builder', [])).toBe('synonym-map-builder')
     expect(normalizeCenterTab('knowledge-base-builder', [])).toBe('knowledge-base-builder')
     expect(normalizeCenterTab('qps-tester', [])).toBe('qps-tester')
+    expect(normalizeCenterTab('knowledge-graph-playground', [])).toBe('knowledge-graph-playground')
+    expect(normalizeCenterTab('ontology-editor', [])).toBe('ontology-editor')
   })
 
   it('normalizeCenterTab validates run tabs against selected ids', () => {
