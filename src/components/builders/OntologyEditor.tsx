@@ -56,8 +56,8 @@ export function OntologyEditor({ value, onChange, onOpenPlayground, language, th
           <h2 className="section__title"><i className="bi bi-bezier2 icon--mr6" />{t('ontologyEditor')}</h2>
           <div className="app__hint">{t('kgOntologyHint')}</div>
         </div>
-        <div className="actions">
-        <button className="btn btn--secondary" onClick={onOpenPlayground}><i className="bi bi-diagram-3 icon--mr6" />{t('knowledgeGraphPlayground')}</button>
+        <div className="actions" data-guide-target="oe-actions">
+        <button className="btn btn--secondary" onClick={onOpenPlayground} data-guide-target="oe-open-playground"><i className="bi bi-diagram-3 icon--mr6" />{t('knowledgeGraphPlayground')}</button>
         <label className="btn btn--secondary"><i className="bi bi-upload icon--mr6" />{t('kgImport')}
           <input type="file" accept=".json,.jsonld,application/json" hidden onChange={(event) => {
             const file = event.target.files?.[0]
@@ -76,7 +76,7 @@ export function OntologyEditor({ value, onChange, onOpenPlayground, language, th
         <p className="field__hint">{t('kgOntologyRelationsGuide')} <InfoTooltip tooltipKey="ontologyRelationships" language={language} /></p>
         <p className="field__hint"><code>Person &rarr; worksFor &rarr; Organization</code> · {t('kgOntologyExampleHint')}</p>
         {!graph.nodes.length && <p className="field__hint">{t('kgOntologyAddTypesFirst')}</p>}
-        <div className="form">
+        <div className="form" data-guide-target="oe-relation-form">
         <label className="field"><span className="field__label">{t('kgDomain')} <InfoTooltip tooltipKey="ontologyDomain" language={language} /></span><select className="field__input" aria-label={t('kgDomain')} value={domain} onChange={(e) => setDomain(e.target.value)}>
           <option value="">{t('kgSelect')}</option>
           {graph.nodes.map((node) => <option key={node.id} value={String(node.raw['@id'])}>{node.label}{node.label !== node.raw['@id'] ? ` (${String(node.raw['@id'])})` : ''}</option>)}
@@ -86,7 +86,7 @@ export function OntologyEditor({ value, onChange, onOpenPlayground, language, th
           {graph.nodes.map((node) => <option key={node.id} value={String(node.raw['@id'])}>{node.label}{node.label !== node.raw['@id'] ? ` (${String(node.raw['@id'])})` : ''}</option>)}
         </select><span className="field__hint">{t('kgRangeHint')}</span></label>
         </div>
-        <div className="actions">
+        <div className="actions" data-guide-target="oe-structure-actions">
         <button className="btn btn--primary" disabled={!parsed.ontology} onClick={() => edit(() => {
           const entry = { '@id': `https://example.org/ontology#Class-${uuidv4()}`, '@type': 'http://www.w3.org/2002/07/owl#Class' }
           commit([...(parsed.ontology?.entries ?? []), entry])
@@ -104,7 +104,7 @@ export function OntologyEditor({ value, onChange, onOpenPlayground, language, th
         </div>
       </section>
       <GraphWorkspace language={language}>
-        <section className="section kgPanel kgCanvasPanel">
+        <section className="section kgPanel kgCanvasPanel" data-guide-target="oe-map">
           <div className="kgPanel__header"><h3 className="section__title"><i className="bi bi-diagram-2 icon--mr6" />{t('kgOntologyMap')}</h3><span className="kgBadge">JSON-LD</span></div>
           <KnowledgeGraphCanvas graph={graph} selectedId={[...graph.nodes, ...graph.edges].find((item) => item.raw['@id'] === selectedId)?.id ?? null} language={language} theme={theme} onClearSelection={() => setSelectedId(null)} onSelect={(kind, id) => {
             const item = (kind === 'node' ? graph.nodes : graph.edges).find((item) => item.id === id)
@@ -118,7 +118,7 @@ export function OntologyEditor({ value, onChange, onOpenPlayground, language, th
             </div>
           </details>
         </section>
-        <aside className="section kgPanel kgInspector">
+        <aside className="section kgPanel kgInspector" data-guide-target="oe-inspector">
           <div className="kgPanel__header"><h3 className="section__title"><i className="bi bi-braces icon--mr6" />{t('kgInspector')}</h3><span className="kgBadge">{t('kgLocalDraft')}</span></div>
           <div className="actions kgInspector__tabs">
             <button className={`btn btn--tab${inspectorTab === 'selection' ? ' btn--active' : ''}`} onClick={() => setInspectorTab('selection')} aria-pressed={inspectorTab === 'selection'}>{t('kgSelectionTab')}</button>

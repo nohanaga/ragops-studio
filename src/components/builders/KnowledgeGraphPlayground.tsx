@@ -489,7 +489,7 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
         <div className="kgPanel__header"><h3 className="section__title"><i className="bi bi-sliders icon--mr6" />{t('kgResourceSettings')}</h3>
           <a className="kgDocsLink" href="https://learn.microsoft.com/azure/search/knowledge-graph-features-overview" target="_blank" rel="noreferrer"><i className="bi bi-box-arrow-up-right" /> {t('kgDocs')}</a>
         </div>
-      <div className="form">
+      <div className="form" data-guide-target="kgp-settings">
         <label className="field"><span className="field__label">{t('kgKind')} <InfoTooltip tooltipKey="graphIndexKind" language={language} /></span>
           <select className="field__input" aria-label={t('kgKind')} value={kind} disabled={busy} onChange={(e) => {
             const value: GraphIndexKind = e.target.value === 'topic' ? 'topic' : e.target.value === 'unclassified' ? 'unclassified' : 'entity'
@@ -525,10 +525,10 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
         </label>
         <label className="field"><span className="field__label">{t('kgLimit')}</span><input className="field__input" type="number" min={1} max={1000} value={limit} onChange={(e) => setLimit(Number(e.target.value))} /></label>
       </div>
-        <div className="actions">
+        <div className="actions" data-guide-target="kgp-load">
           <button className="btn btn--primary" disabled={busy || !indexName} onClick={() => void loadGraph()}><i className="bi bi-play-fill icon--mr6" />{t('kgLoad')}</button>
         </div>
-        <details className="kgAdvanced">
+        <details className="kgAdvanced" data-guide-target="kgp-ontology">
           <summary className="section__subtitle"><i className="bi bi-bezier2 icon--mr6" />{t('kgOntologyConnection')}</summary>
           <p className="field__hint">{t('kgOntologyConnectionHint')} <a href="https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-entity-graph#prepare-content-and-an-ontology" target="_blank" rel="noreferrer">{t('kgDocs')}</a></p>
           {loadedKind === 'topic' && loadedIndexName && <p className="field__hint">{t('kgTopicOntologyHint')}</p>}
@@ -552,7 +552,7 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
       </section>
       {parsed.error && <div className="notice notice--error" role="alert">{parsed.error}</div>}
       <GraphWorkspace language={language} showInspector={showInspector}>
-        <section className="section kgPanel kgCanvasPanel" ref={visualizationPanelRef}>
+        <section className="section kgPanel kgCanvasPanel" ref={visualizationPanelRef} data-guide-target="kgp-visualization">
           <div className="kgPanel__header">
             <h3 className="section__title"><i className="bi bi-diagram-2 icon--mr6" />{t('kgVisualization')}</h3>
             <span className="kgBadge">{loadedIndexName ? `${loadedIndexName} · ${kindLabel(loadedKind)}` : kindLabel(kind)}</span>
@@ -560,7 +560,7 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
               <i className="bi bi-layout-sidebar-reverse icon--mr6" aria-hidden="true" />{t(showInspector ? 'kgHideInspector' : 'kgShowInspector')}
             </button>
           </div>
-          <div className="kgGraphEditBar">
+          <div className="kgGraphEditBar" data-guide-target="kgp-edit">
             <p id={editHintId} className="field__hint">
               {dirty && <strong className="kgBadge">{t('kgDocumentPreviewActive')}</strong>}
               {owner ? t('kgSaveManagedHint') : dirty ? t('kgEditLocalOnly')
@@ -607,7 +607,7 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
             </div>
           </details>
         </section>
-        <aside id={inspectorId} hidden={!showInspector} className="section kgPanel kgInspector kgInspector--matched" style={{ height: inspectorHeight }}>
+        <aside id={inspectorId} hidden={!showInspector} className="section kgPanel kgInspector kgInspector--matched" style={{ height: inspectorHeight }} data-guide-target="kgp-inspector">
           <div className="kgPanel__header"><h3 className="section__title"><i className="bi bi-list-ul icon--mr6" />{t('kgInspector')}</h3><span className="kgBadge">{t('kgReadOnly')}</span></div>
           {selectedItem && definition
             ? <GraphSelectionDetails key={selectedItem.id} record={selectedItem.raw} definition={definition} language={language} theme={theme} />
@@ -647,7 +647,7 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
       </section>}
       <section className="section kgPanel kgQuerySection">
         <div className="kgPanel__header"><h3 className="section__title"><i className="bi bi-terminal icon--mr6" />{t('kgQuery')}</h3><span className="kgBadge">GQL</span>
-          <button type="button" className="btn btn--secondary btn--sm" aria-expanded={guideOpen} aria-controls={guideId} onClick={toggleGuide}>
+          <button type="button" className="btn btn--secondary btn--sm" aria-expanded={guideOpen} aria-controls={guideId} onClick={toggleGuide} data-guide-target="kgp-gql-guide">
             <i className="bi bi-mortarboard icon--mr6" aria-hidden="true" />{t(guideOpen ? 'kgGqlGuideHide' : 'kgGqlGuideShow')}
           </button>
         </div>
@@ -664,7 +664,7 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
           </button></div>
         </div>}
         <div className="field__label kgGqlLabel">GQL <span aria-hidden="true">*</span> <InfoTooltip tooltipKey="graphGql" language={language} /></div>
-        <textarea ref={queryTextareaRef} className="field__textarea" aria-label="GQL" required spellCheck={false} rows={6} value={query.text} placeholder={t('kgQueryPlaceholder')}
+        <textarea ref={queryTextareaRef} className="field__textarea" aria-label="GQL" data-guide-target="kgp-gql-input" required spellCheck={false} rows={6} value={query.text} placeholder={t('kgQueryPlaceholder')}
           onChange={(e) => { setQuery({ text: e.target.value, automatic: false }); setCaret(e.target.selectionStart); setApplied(null); setQueryError(null) }}
           onSelect={(e) => setCaret(e.currentTarget.selectionStart)} />
         <GqlQueryCheck text={query.text} caret={caret} vocabulary={gqlVocabulary} language={language} onComplete={applyCompletion} />
@@ -676,7 +676,7 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
             <GraphJsonEditor value={JSON.stringify(queryError.response, null, 2)} language={language} theme={theme} readOnly height="240px" />
           </details>}
         </div>}
-        <div className="kgQueryActions">
+        <div className="kgQueryActions" data-guide-target="kgp-gql-run">
           <label className="field"><span className="field__label">{t('kgProvenance')} <InfoTooltip tooltipKey="graphProvenance" language={language} /></span><select className="field__input" value={provenance} onChange={(e) => setProvenance(e.target.value === 'hydrate' ? 'hydrate' : e.target.value === 'ids' ? 'ids' : 'none')}>
             <option value="none">none</option><option value="ids">ids</option><option value="hydrate">hydrate</option>
           </select></label>

@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getIndexDefinition, indexDocuments, listIndexes, listKnowledgeSources, queryKnowledgeGraph, searchDocuments, type JsonValue, type RestResult } from '../../lib/aiSearchRest'
 import { EMPTY_ONTOLOGY } from '../../lib/knowledgeGraph'
 import { paramTooltips } from '../../lib/translations'
+import { PORTAL_CARDS } from '../../app/featurePortalCards'
+import { BASIC_GUIDES } from '../../app/featurePortalGuides.basic'
 import { KnowledgeGraphPlayground } from './KnowledgeGraphPlayground'
 
 vi.mock('../../lib/aiSearchRest')
@@ -328,6 +330,17 @@ describe('KnowledgeGraphPlayground controls', () => {
     expect(alert.closest('.kgQuerySection')).toBe(screen.getByRole('textbox', { name: 'GQL' }).closest('.kgQuerySection'))
     fireEvent.change(screen.getByRole('textbox', { name: 'GQL' }), { target: { value: 'MATCH (a) RETURN a.name LIMIT 5' } })
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('renders every element that the Feature Portal guides highlight', async () => {
+    await openGraph()
+    vi.mocked(queryKnowledgeGraph).mockResolvedValue(success({ value: [{ subject: 'A', predicate: 'knows', object: 'B' }] }))
+    fireEvent.click(screen.getByRole('button', { name: /Run query/ }))
+    await screen.findByRole('heading', { name: 'Response / provenance / diagnostics' })
+    const guides = [PORTAL_CARDS.find((card) => card.id === 'knowledge-graph-playground')?.guide, BASIC_GUIDES['knowledge-graph-playground']]
+    const selectors = new Set(guides.flatMap((guide) => guide?.steps ?? []).flatMap((step) => step.targetSelector ?? []).filter((selector) => selector.includes('"kgp-')))
+    expect(selectors.size).toBeGreaterThan(0)
+    for (const selector of selectors) expect(globalThis.document.querySelector(selector), selector).not.toBeNull()
   })
 
   it('opens relationship results as a graph and offers a themed JSON view instead of a raw tree', async () => {

@@ -55,7 +55,7 @@ export function KnowledgeGraphResultPanel({ data, definition, evidence, evidence
     ['graph', 'kgResultGraph', 'bi-diagram-3'], ['table', 'kgResultTable', 'bi-table'],
     ['evidence', 'kgResultEvidence', 'bi-file-earmark-text'], ['diagnostics', 'kgResultDiagnostics', 'bi-activity'], ['json', 'JSON', 'bi-braces'],
   ]
-  return <section className="kgResult">
+  return <section className="kgResult" data-guide-target="kgp-result">
     <div className="kgPanel__header"><h3 className="section__title">{t('kgResult')}</h3>
       <div className="actions"><span className="kgBadge">{rows.length} {t('kgResultRows')}</span><span className="kgBadge">{graph.nodes.length} {t('kgNodes')} / {graph.edges.length} {t('kgEdges')}</span></div>
     </div>
