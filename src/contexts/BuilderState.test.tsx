@@ -7,7 +7,9 @@ import { http, HttpResponse } from 'msw'
 import { addArtifact, createExperiment, createRun } from '../lib/db'
 import type { ConnectionProfile } from '../lib/model'
 import { translations } from '../lib/translations'
+import { useApiOperations } from '../hooks/useApiOperations'
 import { useKnowledgeBaseData } from '../hooks/useKnowledgeBaseData'
+import { useRequestJsonSync } from '../hooks/useRequestJsonSync'
 import { useRunRestore } from '../hooks/useRunRestore'
 import { useSelectedRunsArtifacts } from '../hooks/useSelectedRunsArtifacts'
 import { server } from '../test/mswServer'
@@ -77,35 +79,86 @@ it('clears old overrides on history selection and preserves saved overrides on e
   expect(outgoingRequest()).toMatchObject({ toolName: 'policy-tool', knowledgeSourceParams: [{ filterAddOn: "region eq 'CA'" }] })
 })
 
-it('applies standalone Retriever 1 defaults without constraining a KB with an external model', async () => {
+it('previews and sends a single intent for Auto on a KB with both model kinds', async () => {
   const profile: ConnectionProfile = {
     endpoint: 'https://example.search.windows.net', apiVersion: '2026-11-01-preview', authType: 'apiKey', apiKey: 'test-key',
+  }
+  const { experimentId } = await createExperiment({ name: 'Retriever 1 form test' })
+  const requests: unknown[] = []
+  const recordRequest = async ({ request }: { request: Request }) => {
+    requests.push(await request.json())
+    return HttpResponse.json({ response: [], activity: [], references: [] })
   }
   server.use(
     http.get('/api-proxy/knowledgebases', () => HttpResponse.json({ value: [] })),
     http.get('/api-proxy/knowledgesources', () => HttpResponse.json({ value: [] })),
     http.get('/api-proxy/knowledgebases/:name', ({ params }) => HttpResponse.json({
       knowledgeSources: [{ name: 'policies', kind: 'searchIndex' }],
-      models: [{ kind: 'microsoftRetriever1' }, ...(params.name === 'mixed' ? [{ kind: 'azureOpenAI' }] : [])],
+      models: [
+        ...(params.name !== 'standalone' ? [{ kind: 'azureOpenAI' }] : []),
+        ...(params.name !== 'external-only' ? [{ kind: 'microsoftRetriever1' }] : []),
+      ],
     })),
+    http.post('/api-proxy/knowledgebases/mixed/retrieve', recordRequest),
+    http.post('https://example.search.windows.net/knowledgebases/mixed/retrieve', recordRequest),
   )
+  const noop = () => {}
   const { result } = renderHook(() => {
     const builder = useBuilderState()
     const knowledgeBase = useKnowledgeBaseData({
       ...builder, labMode: 'agentic', activeProfile: profile, editingKnowledgeBase: false, language: 'en',
     })
-    return { ...builder, ...knowledgeBase }
+    const { retriever1Mode } = knowledgeBase
+    useRequestJsonSync({
+      ...builder, labMode: 'agentic', retriever1Mode, language: 'en',
+      isPreviewApiVersion: true, effectiveApiVersion: profile.apiVersion, setUiError: noop,
+    })
+    const { onExecute } = useApiOperations({
+      ...builder, labMode: 'agentic', retriever1Mode, activeProfile: profile, selectedExperimentId: experimentId,
+      language: 'en', t: (key) => translations.en[key],
+      setUiError: noop, setUiLog: noop, setLatestResponse: noop,
+      setRunResultMap: noop, setResultPages: noop, setSelectedRunIds: noop, setCenterTab: noop, reloadRuns: async () => {},
+    })
+    return { ...builder, ...knowledgeBase, onExecute }
   }, { wrapper })
 
   act(() => result.current.setKnowledgeBaseName('standalone'))
-  await waitFor(() => expect(result.current.standaloneRetriever1).toBe(true))
+  await waitFor(() => expect(result.current.retriever1Mode).toBe('standalone'))
   expect(result.current.agenticForm).toMatchObject({ retrievalReasoningEffort: 'minimal', outputMode: 'extractiveData' })
 
+  const question = 'Which approvals are required when transferring operations?\nHow should the group prepare for a funding disruption?'
   act(() => {
     result.current.setKnowledgeBaseName('mixed')
-    result.current.setAgenticForm((form) => ({ ...form, retrievalReasoningEffort: 'auto', outputMode: 'answerSynthesis' }))
+    result.current.setAgenticForm((form) => ({
+      ...form, userMessage: question, retrievalReasoningEffort: 'auto', outputMode: 'extractiveData',
+    }))
+  })
+  await waitFor(() => expect(result.current.retriever1Mode).toBe('mixed'))
+  const preview = JSON.parse(result.current.requestJson)
+  expect(preview).toMatchObject({
+    retrievalReasoningEffort: { kind: 'auto' }, outputMode: 'extractiveData',
+    intents: [{ type: 'semantic', search: question }],
+  })
+  expect(preview).not.toHaveProperty('messages')
+  await act(() => result.current.onExecute())
+  expect(requests).toEqual([preview])
+
+  const manual = {
+    retrievalReasoningEffort: { kind: 'auto' }, outputMode: 'extractiveData',
+    messages: [{ role: 'user', content: [{ type: 'text', text: question }] }],
+  }
+  act(() => {
+    result.current.setBuilderMode('json')
+    result.current.setRequestJson(JSON.stringify(manual))
+  })
+  await act(() => result.current.onExecute())
+  expect(requests).toEqual([preview, manual])
+
+  act(() => {
+    result.current.setBuilderMode('form')
+    result.current.setKnowledgeBaseName('external-only')
   })
   await waitFor(() => expect(result.current.availableKnowledgeSources).toHaveLength(1))
-  expect(result.current.standaloneRetriever1).toBe(false)
-  expect(result.current.agenticForm).toMatchObject({ retrievalReasoningEffort: 'auto', outputMode: 'answerSynthesis' })
+  expect(result.current.retriever1Mode).toBeUndefined()
+  expect(JSON.parse(result.current.requestJson)).toMatchObject({ messages: manual.messages })
 })

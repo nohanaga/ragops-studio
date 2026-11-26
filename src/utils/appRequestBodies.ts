@@ -186,9 +186,13 @@ export function validateAgenticSourceFilter(kind: JsonValue | undefined, filter:
   if (kind !== 'searchIndex') throw new Error(translations[language].sourceFilterSearchIndexOnly)
 }
 
-export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: SearchApiVersion, language: Language = 'en', standaloneRetriever1 = false): JsonValue {
+export type Retriever1Mode = 'standalone' | 'mixed'
+
+export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: SearchApiVersion, language: Language = 'en', retriever1Mode?: Retriever1Mode): JsonValue {
   const capabilities = getSearchApiCapabilities(apiVersion)
+  const standaloneRetriever1 = capabilities.microsoftRetriever1 && retriever1Mode === 'standalone'
   const reasoningEffort = standaloneRetriever1 ? 'minimal' : s.retrievalReasoningEffort
+  const useRetriever1Auto = capabilities.microsoftRetriever1 && retriever1Mode === 'mixed' && reasoningEffort === 'auto'
   const toolName = s.toolName?.trim()
   const useToolDefaults = !!toolName && s.useToolDefaults !== false
   if (!capabilities.novemberAgentic && (toolName || s.knowledgeSourceParams.some((source) => source.topicGraph || source.graphParameters))) {
@@ -257,7 +261,7 @@ export function buildAgenticBodyFromForm(s: AgenticFormState, apiVersion?: Searc
   if (!useToolDefaults) body.maxRuntimeInSeconds = s.maxRuntimeInSeconds
   if (knowledgeSourceParams.length > 0) body.knowledgeSourceParams = knowledgeSourceParams
 
-  if (!capabilities.agenticResponseSynthesis || reasoningEffort === 'minimal') {
+  if (!capabilities.agenticResponseSynthesis || reasoningEffort === 'minimal' || useRetriever1Auto) {
     body.intents = [{ type: 'semantic', search: s.userMessage }]
   } else {
     body.messages = [{

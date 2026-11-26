@@ -13,7 +13,7 @@ import type { JsonValue } from '../lib/aiSearchRest'
 import { addArtifact, createRun, updateRun } from '../lib/db'
 import { agenticRetrieve, agenticRetrieveStream, analyzeIndex, autocompleteDocuments, resolveSearchApiVersion, searchDocuments, suggestDocuments } from '../lib/aiSearchRest'
 import type { AgenticStreamEvent } from '../lib/aiSearchRest'
-import { buildAgenticBodyFromForm, buildSearchBodyFromForm, validateAgenticSourceFilter } from '../utils/appRequestBodies'
+import { buildAgenticBodyFromForm, buildSearchBodyFromForm, validateAgenticSourceFilter, type Retriever1Mode } from '../utils/appRequestBodies'
 import { inferRunType, parseJsonStrict, validateRequest } from '../utils'
 import { getSearchApiCapabilities } from '../lib/searchApiCapabilities'
 
@@ -72,7 +72,7 @@ export function useApiOperations(args: {
   builderMode: BuilderMode
   searchForm: SearchFormState
   agenticForm: AgenticFormState
-  standaloneRetriever1?: boolean
+  retriever1Mode?: Retriever1Mode
   runNote: string
   language: Language
   t: (key: TranslationKey) => string
@@ -95,7 +95,7 @@ export function useApiOperations(args: {
     builderMode,
     searchForm,
     agenticForm,
-    standaloneRetriever1,
+    retriever1Mode,
     runNote,
     language,
     t,
@@ -153,7 +153,7 @@ export function useApiOperations(args: {
     try {
       // Parse + validate request JSON early so we can fail fast before persisting a run.
       if (builderMode === 'form' && labMode === 'agentic') {
-        body = buildAgenticBodyFromForm(agenticForm, ctxApiVersion, language, standaloneRetriever1)
+        body = buildAgenticBodyFromForm(agenticForm, ctxApiVersion, language, retriever1Mode)
       } else if (builderMode === 'form' && (labMode === 'query' || labMode === 'semantic-vector')) {
         body = buildSearchBodyFromForm(labMode, searchForm, language, ctxApiVersion.includes('preview'), ctxApiVersion)
       } else {
