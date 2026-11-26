@@ -3,14 +3,14 @@ import { useEffect, useRef } from 'react'
 import type { AgenticFormState, AnalyzeFormState, AutocompleteFormState, BuilderMode, LabMode, SearchFormState, SuggestFormState } from '../types'
 import type { SearchApiVersion } from '../lib/model'
 import type { Language } from '../lib/translations'
-import { buildAgenticBodyFromForm, buildAnalyzeBodyFromForm, buildAutocompleteBodyFromForm, buildSearchBodyFromForm, buildSuggestBodyFromForm } from '../utils/appRequestBodies'
+import { buildAgenticBodyFromForm, buildAnalyzeBodyFromForm, buildAutocompleteBodyFromForm, buildSearchBodyFromForm, buildSuggestBodyFromForm, type Retriever1Mode } from '../utils/appRequestBodies'
 
 export function useRequestJsonSync(params: {
   builderMode: BuilderMode
   labMode: LabMode
   searchForm: SearchFormState
   agenticForm: AgenticFormState
-  standaloneRetriever1?: boolean
+  retriever1Mode?: Retriever1Mode
   analyzeForm: AnalyzeFormState
   autocompleteForm: AutocompleteFormState
   suggestForm: SuggestFormState
@@ -27,7 +27,7 @@ export function useRequestJsonSync(params: {
     labMode,
     searchForm,
     agenticForm,
-    standaloneRetriever1,
+    retriever1Mode,
     analyzeForm,
     autocompleteForm,
     suggestForm,
@@ -45,7 +45,7 @@ export function useRequestJsonSync(params: {
     if (builderMode !== 'form') return
     try {
       if (labMode === 'agentic') {
-        const body = buildAgenticBodyFromForm(agenticForm, effectiveApiVersion, language, standaloneRetriever1)
+        const body = buildAgenticBodyFromForm(agenticForm, effectiveApiVersion, language, retriever1Mode)
         setRequestJson(JSON.stringify(body ?? {}, null, 2))
       } else if (labMode === 'analyze') {
         const body = buildAnalyzeBodyFromForm(analyzeForm)
@@ -83,7 +83,7 @@ export function useRequestJsonSync(params: {
     searchForm,
     setRequestJson,
     setUiError,
-    standaloneRetriever1,
+    retriever1Mode,
     suggestForm,
   ])
 

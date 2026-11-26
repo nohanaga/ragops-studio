@@ -144,12 +144,38 @@ describe('utils/appRequestBodies', () => {
 
   it('uses a single semantic intent and extractive output for a standalone Retriever 1 base', () => {
     const form = makeAgenticForm('searchIndex')
-    const body = buildAgenticBodyFromForm(form, '2026-11-01-preview', 'en', true)
+    const body = buildAgenticBodyFromForm(form, '2026-11-01-preview', 'en', 'standalone')
     expect(body).toMatchObject({
       retrievalReasoningEffort: { kind: 'minimal' }, outputMode: 'extractiveData',
       intents: [{ type: 'semantic', search: form.userMessage }],
     })
     expect(body).not.toHaveProperty('messages')
+  })
+
+  it('uses one intent for an inherited Auto tool without overriding the tool defaults', () => {
+    const form: AgenticFormState = {
+      ...makeAgenticForm('searchIndex'), toolName: 'hr-tool', useToolDefaults: true,
+      retrievalReasoningEffort: 'auto', knowledgeSourceParams: [],
+    }
+    expect(buildAgenticBodyFromForm(form, '2026-11-01-preview', 'en', 'mixed')).toEqual({
+      toolName: 'hr-tool', includeActivity: true,
+      intents: [{ type: 'semantic', search: form.userMessage }],
+    })
+  })
+
+  it.each([
+    ['2026-11-01-preview', 'auto', undefined],
+    ['2026-11-01-preview', 'low', 'mixed'],
+    ['2026-11-01-preview', 'medium', 'mixed'],
+    ['2026-08-01-preview', 'auto', 'mixed'],
+  ] as const)('keeps messages on %s for %s when Retriever 1 Auto does not apply (mode %s)', (apiVersion, effort, mode) => {
+    const form = { ...makeAgenticForm('searchIndex'), retrievalReasoningEffort: effort }
+    const body = buildAgenticBodyFromForm(form, apiVersion, 'en', mode)
+    expect(body).toMatchObject({
+      retrievalReasoningEffort: { kind: effort },
+      messages: [{ role: 'user', content: [{ type: 'text', text: form.userMessage }] }],
+    })
+    expect(body).not.toHaveProperty('intents')
   })
 
   it('serializes independent topic sampling and entity graph settings', () => {

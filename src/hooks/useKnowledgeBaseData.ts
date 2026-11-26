@@ -8,7 +8,7 @@ import { getKnowledgeBase, listKnowledgeBases, listKnowledgeSources } from '../l
 import { getKnowledgeBaseTools } from '../utils/agenticPreview'
 import { isJsonObject } from '../app/json'
 import { getSearchApiCapabilities } from '../lib/searchApiCapabilities'
-import { isMicrosoftRetriever1Only } from '../utils/appRequestBodies'
+import { isKnowledgeBaseModelKind, isMicrosoftRetriever1Only, type Retriever1Mode } from '../utils/appRequestBodies'
 
 export function useKnowledgeBaseData(params: {
   labMode: LabMode
@@ -25,12 +25,12 @@ export function useKnowledgeBaseData(params: {
   const [knowledgeBaseNamesError, setKnowledgeBaseNamesError] = useState<string | null>(null)
   const [availableKnowledgeSources, setAvailableKnowledgeSources] = useState<KnowledgeSourceInfo[]>([])
   const [availableKnowledgeTools, setAvailableKnowledgeTools] = useState<ReturnType<typeof getKnowledgeBaseTools>>([])
-  const [standaloneRetriever, setStandaloneRetriever] = useState<{ profile: ConnectionProfile; name: string } | null>(null)
+  const [retrieverConfig, setRetrieverConfig] = useState<{ profile: ConnectionProfile; name: string; mode: Retriever1Mode } | null>(null)
 
   useEffect(() => {
     setAvailableKnowledgeSources([])
     setAvailableKnowledgeTools([])
-    setStandaloneRetriever(null)
+    setRetrieverConfig(null)
     if (labMode !== 'agentic' || editingKnowledgeBase || !knowledgeBaseName.trim() || !activeProfile) {
       return
     }
@@ -53,8 +53,11 @@ export function useKnowledgeBaseData(params: {
         if (result.ok && isJsonObject(result.response)) {
           const capabilities = getSearchApiCapabilities(activeProfile.apiVersion)
           const models = result.response.models
-          const standalone = capabilities.microsoftRetriever1 && Array.isArray(models) && isMicrosoftRetriever1Only(models)
-          if (standalone) setStandaloneRetriever({ profile: activeProfile, name: knowledgeBaseName })
+          const retriever1Mode = capabilities.microsoftRetriever1 && Array.isArray(models)
+            && models.some((model) => isKnowledgeBaseModelKind(model, 'microsoftRetriever1'))
+            ? (isMicrosoftRetriever1Only(models) ? 'standalone' : 'mixed')
+            : undefined
+          if (retriever1Mode) setRetrieverConfig({ profile: activeProfile, name: knowledgeBaseName, mode: retriever1Mode })
           const tools = getKnowledgeBaseTools(result.response.tools, result.response.retrievalReasoningEffort)
           setAvailableKnowledgeTools(tools)
           const kb = result.response as { knowledgeSources?: Array<{ name: string; kind?: string }> }
@@ -99,7 +102,7 @@ export function useKnowledgeBaseData(params: {
             const tool = tools.find(({ name }) => name === prev.toolName)
             return {
               ...prev,
-              ...(standalone ? { retrievalReasoningEffort: 'minimal', outputMode: 'extractiveData' } as const
+              ...(retriever1Mode === 'standalone' ? { retrievalReasoningEffort: 'minimal', outputMode: 'extractiveData' } as const
                 : tool && prev.useToolDefaults !== false ? { retrievalReasoningEffort: tool.reasoningEffort } : {}),
               knowledgeSourceParams: prev.knowledgeSourceParams.map((param) => ({
                 ...param,
@@ -180,6 +183,8 @@ export function useKnowledgeBaseData(params: {
     knowledgeBaseNameOptions,
     availableKnowledgeSources,
     availableKnowledgeTools,
-    standaloneRetriever1: standaloneRetriever?.profile === activeProfile && standaloneRetriever?.name === knowledgeBaseName,
+    retriever1Mode: retrieverConfig?.profile === activeProfile && retrieverConfig?.name === knowledgeBaseName
+      ? retrieverConfig.mode
+      : undefined,
   }
 }

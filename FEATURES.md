@@ -61,6 +61,7 @@ A comprehensive guide to all features available in RAGOps Studio — for Azure A
 - **Per-request source filters**: `filterAddOn` is supported only for search index knowledge sources on `2026-11-01-preview`. The app rejects nonempty filters on unsupported API versions or source types rather than silently dropping them.
 - **Retrieve output limits**: On `2026-11-01-preview`, the app sends byte and token limits independently when provided.
 - **Standalone Microsoft Retriever 1 knowledge bases**: The form uses `minimal` reasoning and `extractiveData` output, sending the question as one semantic intent.
+- **Auto with Microsoft Retriever 1 and an external model**: With `2026-11-01-preview`, the form sends the full question as one semantic intent so the service can use the [Auto initial pass](https://learn.microsoft.com/en-us/azure/search/agentic-retrieval-how-to-use-microsoft-retriever#auto-retrieval-reasoning-effort). The service still decides whether to escalate to the external model.
 - **Entity graph retrieval**: Configure generated GQL and evidence retrieval for graph-enabled Blob sources
 - **Topic graph retrieval**: Inherit or override topic retrieval settings for supported sources
 - **API version**: `2025-11-01-preview` minimum; named tool selection and graph retrieval settings require `2026-11-01-preview`

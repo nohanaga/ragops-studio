@@ -64,6 +64,7 @@ Azure AI Search の高度な機能を学習・実験できる Web ベースの�
 - **要求単位のソースフィルター**: `filterAddOn` は `2026-11-01-preview` の検索インデックス型ナレッジソースにのみ対応します。未対応の API バージョンやソース種別では、フィルターを無視せず、送信前にエラーを表示します。
 - **Retrieve の出力上限**: `2026-11-01-preview` では、指定したバイト数とトークン数の上限をそれぞれ送信します。
 - **Microsoft Retriever 1 単体のナレッジベース**: フォームは `minimal` と `extractiveData` を使用し、質問を一つの意味的インテントとして送信します。
+- **Microsoft Retriever 1 と外部モデルを併用した `auto`**: `2026-11-01-preview` では、[Auto の初期パス](https://learn.microsoft.com/ja-jp/azure/search/agentic-retrieval-how-to-use-microsoft-retriever#auto-retrieval-reasoning-effort)を使えるように、フォームから質問全文を一つの意味的インテントとして送信します。外部モデルに切り替えるかどうかはサービスが判断します。
 - **エンティティグラフ検索**: グラフ対応の Blob ソースで生成 GQL と根拠文書の取得を設定
 - **トピックグラフ検索**: 対応ソースでトピック取得方式を継承または上書き
 - **API バージョン**: 最低 `2025-11-01-preview`。ツール選択とグラフ取得設定には `2026-11-01-preview` が必要
