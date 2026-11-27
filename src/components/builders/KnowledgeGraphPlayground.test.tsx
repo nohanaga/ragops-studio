@@ -12,6 +12,9 @@ import { KnowledgeGraphPlayground } from './KnowledgeGraphPlayground'
 
 vi.mock('../../lib/aiSearchRest')
 vi.mock('../viewers/KnowledgeGraphCanvas', () => ({ KnowledgeGraphCanvas: () => null }))
+vi.mock('../viewers/TopicWheel', () => ({
+  TopicWheel: ({ indexName }: { indexName: string }) => <div role="group" aria-label="Wheel stub">{indexName}</div>,
+}))
 vi.mock('./GraphJsonEditor', () => ({
   GraphJsonEditor: ({ value, onChange, readOnly }: { value: string; onChange?: (value: string) => void; readOnly?: boolean }) =>
     <textarea aria-label="Graph draft" value={value} readOnly={readOnly ?? !onChange} onChange={(event) => onChange?.(event.target.value)} />,
@@ -243,6 +246,42 @@ describe('KnowledgeGraphPlayground controls', () => {
     expect(screen.queryByRole('cell', { name: 'parentTopic' })).not.toBeInTheDocument()
     fireEvent.change(screen.getByRole('combobox', { name: 'Title predicate' }), { target: { value: 'topicTitle' } })
     expect(screen.getByRole('cell', { name: 'Custom topic title' })).toBeInTheDocument()
+  })
+
+  it('offers a wheel tab only for topic indexes and keeps the graph view mounted while the wheel is shown', async () => {
+    vi.mocked(listIndexes).mockResolvedValue(success({ value: [
+      { name: 'graph-a', ...definition },
+      { name: 'graph-b', ...definition },
+      { name: 'content', vectorSearch: { topicGraphProfiles: [{ name: 'topics', indexName: 'graph-a' }] } },
+    ] }))
+    vi.mocked(listKnowledgeSources).mockResolvedValue(success({ value: [
+      { name: 'source-b', kind: 'azureBlob', azureBlobParameters: { createdResources: { graphIndex: 'graph-b' } } },
+    ] }))
+    render(playground())
+    await screen.findByRole('option', { name: 'graph-b' })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Graph index' }), { target: { value: 'graph-b' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: /Run query/ })).toBeEnabled())
+    expect(screen.queryByRole('tab', { name: 'Wheel' })).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Graph kind' }), { target: { value: 'topic' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Graph index' }), { target: { value: 'graph-a' } })
+    await waitFor(() => expect(searchDocuments).toHaveBeenLastCalledWith(expect.objectContaining({ indexName: 'graph-a' })))
+    const graphTab = await screen.findByRole('tab', { name: 'Graph' })
+    const wheelTab = screen.getByRole('tab', { name: 'Wheel' })
+    expect(graphTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('group', { name: 'Wheel stub' })).not.toBeInTheDocument()
+
+    fireEvent.click(wheelTab)
+    expect(wheelTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('button', { name: 'Hide inspector' })).not.toBeInTheDocument()
+    expect(screen.getByRole('complementary', { hidden: true })).not.toBeVisible()
+    expect(screen.getByRole('button', { name: 'Edit graph documents', hidden: true })).not.toBeVisible()
+    expect(screen.getByRole('group', { name: 'Wheel stub' })).toHaveTextContent('graph-a')
+
+    fireEvent.click(graphTab)
+    expect(screen.getByRole('button', { name: 'Hide inspector' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Edit graph documents' })).toBeVisible()
+    expect(screen.getByRole('group', { name: 'Wheel stub', hidden: true })).not.toBeVisible()
   })
 
   it('loads the selected index immediately and places resource refresh beside the dropdown', async () => {

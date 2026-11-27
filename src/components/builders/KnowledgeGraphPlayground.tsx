@@ -22,6 +22,7 @@ import { GqlQueryCheck, GqlQueryExplain } from './GqlQueryHelper'
 import { GraphWorkspace } from './GraphWorkspace'
 import { KnowledgeGraphCanvas } from '../viewers/KnowledgeGraphCanvas'
 import { KnowledgeGraphResultPanel, ResultTable } from '../viewers/KnowledgeGraphResultPanel'
+import { TopicWheel } from '../viewers/TopicWheel'
 import { JsonViewer } from '../viewers/JsonViewer'
 import { serializeODataFilter, type ODataFilterExpr } from '../../lib/odataFilter'
 import { InfoTooltip } from '../InfoTooltip'
@@ -99,6 +100,8 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
   const [draft, setDraft] = useState('[]')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showInspector, setShowInspector] = useState(true)
+  const [view, setView] = useState<'graph' | 'wheel'>('graph')
+  const [wheelOpenedFor, setWheelOpenedFor] = useState('')
   const inspectorId = useId()
   const editHintId = useId()
   const [editingDocuments, setEditingDocuments] = useState(false)
@@ -195,6 +198,14 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
   }, [definition, baseline, documentReview, language])
   const filteredIndexes = indexes.filter((index) => index.kind === kind)
   const loadedKind = indexes.find((index) => index.name === loadedIndexName)?.kind ?? 'unclassified'
+  const wheelDefinition = loadedKind === 'topic' && isJsonObject(definition) ? definition : null
+  const activeView = wheelDefinition ? view : 'graph'
+  const wheelMounted = wheelDefinition !== null && (activeView === 'wheel' || wheelOpenedFor === loadedIndexName)
+  const inspectorVisible = showInspector && activeView === 'graph'
+  function selectView(next: 'graph' | 'wheel') {
+    setView(next)
+    if (next === 'wheel') setWheelOpenedFor(loadedIndexName)
+  }
   const predicates = [...new Set(parsed.graph.edges.map((edge) => edge.label))]
   const selectedTitlePredicate = predicates.includes(titlePredicate)
     ? titlePredicate : predicates.find((predicate) => predicate.toLowerCase() === 'title') ?? ''
@@ -551,15 +562,27 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
         </details>
       </section>
       {parsed.error && <div className="notice notice--error" role="alert">{parsed.error}</div>}
-      <GraphWorkspace language={language} showInspector={showInspector}>
+      <GraphWorkspace language={language} showInspector={inspectorVisible}>
         <section className="section kgPanel kgCanvasPanel" ref={visualizationPanelRef} data-guide-target="kgp-visualization">
           <div className="kgPanel__header">
             <h3 className="section__title"><i className="bi bi-diagram-2 icon--mr6" />{t('kgVisualization')}</h3>
             <span className="kgBadge">{loadedIndexName ? `${loadedIndexName} · ${kindLabel(loadedKind)}` : kindLabel(kind)}</span>
-            <button type="button" className="btn btn--secondary btn--sm" aria-controls={inspectorId} aria-expanded={showInspector} onClick={() => setShowInspector((visible) => !visible)}>
+            {activeView === 'graph' && <button type="button" className="btn btn--secondary btn--sm" aria-controls={inspectorId} aria-expanded={showInspector} onClick={() => setShowInspector((visible) => !visible)}>
               <i className="bi bi-layout-sidebar-reverse icon--mr6" aria-hidden="true" />{t(showInspector ? 'kgHideInspector' : 'kgShowInspector')}
-            </button>
+            </button>}
           </div>
+          {wheelDefinition && <div className="tabs kgGqlTabs" role="tablist" aria-label={t('kgViewTabs')}>
+            {([
+              { id: 'graph', icon: 'bi-diagram-3', label: t('kgViewGraph') },
+              { id: 'wheel', icon: 'bi-pie-chart', label: t('kgViewWheel') },
+            ] as const).map((item) => <button key={item.id} type="button" role="tab" id={`${inspectorId}-view-${item.id}`}
+              aria-selected={activeView === item.id} aria-controls={`${inspectorId}-view-panel-${item.id}`}
+              className={`btn btn--tab${activeView === item.id ? ' btn--active' : ''}`} onClick={() => selectView(item.id)}>
+              <i className={`bi ${item.icon} icon--mr6`} aria-hidden="true" />{item.label}
+            </button>)}
+          </div>}
+          <div id={`${inspectorId}-view-panel-graph`} role={wheelDefinition ? 'tabpanel' : undefined}
+            aria-labelledby={wheelDefinition ? `${inspectorId}-view-graph` : undefined} hidden={activeView !== 'graph'}>
           <div className="kgGraphEditBar" data-guide-target="kgp-edit">
             <p id={editHintId} className="field__hint">
               {dirty && <strong className="kgBadge">{t('kgDocumentPreviewActive')}</strong>}
@@ -585,6 +608,10 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
           <KnowledgeGraphCanvas graph={parsed.graph} selectedId={selectedId} language={language} theme={theme}
             onClearSelection={() => setSelectedId(null)} onSelect={(_, id) => setSelectedId(id)} />
           <div className="kgCanvasHint"><i className="bi bi-info-circle" /><span>{loadedKind === 'topic' ? t('kgTopicHint') : t('kgPartial')}</span></div>
+          </div>
+          {wheelMounted && wheelDefinition && <div id={`${inspectorId}-view-panel-wheel`} role="tabpanel" aria-labelledby={`${inspectorId}-view-wheel`} hidden={activeView !== 'wheel'}>
+            <TopicWheel key={loadedIndexName} profile={profile} indexName={loadedIndexName} definition={wheelDefinition} language={language} />
+          </div>}
           {loadedKind === 'topic' && <section className="kgAdvanced kgTopics">
             <h4 className="section__subtitle">{t('kgTopicList')} <span className="kgCount">{topicTitles.rows.length}</span></h4>
             <p className="field__hint">{t('kgTopicListHint')}</p>
@@ -598,7 +625,7 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
             <ResultTable rows={topicTitles.rows.map((row) => ({ [t('kgTopicTitle')]: row.title, [t('kgTopicId')]: row.id, [t('kgGraphName')]: row.graph }))}
               language={language} theme={theme} />
           </section>}
-          <details className="kgAdvanced kgRelations">
+          <details className="kgAdvanced kgRelations" hidden={activeView !== 'graph'}>
             <summary className="section__subtitle">{t('kgRelationships')} <span className="kgCount">{parsed.graph.edges.length}</span></summary>
             <div className="kgList">
               {parsed.graph.edges.map((edge) => <button key={edge.id} className={`kgListItem${selectedId === edge.id ? ' kgListItem--active' : ''}`} aria-pressed={selectedId === edge.id} onClick={() => setSelectedId(edge.id)}>
@@ -607,7 +634,7 @@ export function KnowledgeGraphPlayground({ active = true, profile, language, the
             </div>
           </details>
         </section>
-        <aside id={inspectorId} hidden={!showInspector} className="section kgPanel kgInspector kgInspector--matched" style={{ height: inspectorHeight }} data-guide-target="kgp-inspector">
+        <aside id={inspectorId} hidden={!inspectorVisible} className="section kgPanel kgInspector kgInspector--matched" style={{ height: inspectorHeight }} data-guide-target="kgp-inspector">
           <div className="kgPanel__header"><h3 className="section__title"><i className="bi bi-list-ul icon--mr6" />{t('kgInspector')}</h3><span className="kgBadge">{t('kgReadOnly')}</span></div>
           {selectedItem && definition
             ? <GraphSelectionDetails key={selectedItem.id} record={selectedItem.raw} definition={definition} language={language} theme={theme} />

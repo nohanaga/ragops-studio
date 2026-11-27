@@ -270,6 +270,7 @@ A browser-integrated Python development environment for building, testing, and d
 
 ### Knowledge Graph Playground / Ontology Editor
 - **Graph exploration**: Visualize [entity graphs](https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-entity-graph) and [topic graphs](https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-topic-graph) and inspect properties and topic titles (`2026-11-01-preview`)
+- **Topic wheel**: For topic indexes, switch the visualization from the "Graph" tab to the "Wheel" tab to see the topic hierarchy as a sunburst. Segment width is the corpus share, clicking a topic zooms into it, and the center returns one level up. "Overlay chunks" reads the chunks of the linked content index (up to 500, read-only) and places each one in the leaf topic with the nearest centroid, so every chunk gets the same width. The placement is an estimate and can differ from the classification made at build time
 - **GQL queries**: Run queries and inspect result graphs, tables, evidence documents, and diagnostics
 - **GQL input guide for beginners**: Start from templates generated with the node types, predicates, and names of the loaded graph (with a "Graph map" of existing patterns and a guided builder), get suggestions while typing, see pre-run hints for common mistakes (full-width symbols, `==`, unknown labels), and read each clause of your query in plain language
   - The browser remembers whether the guide is shown or hidden across page reloads.
