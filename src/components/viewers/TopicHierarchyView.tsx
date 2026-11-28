@@ -13,6 +13,7 @@ import {
 } from '../../lib/topicCharts'
 import { translations, type Language, type TranslationKey } from '../../lib/translations'
 import type { ThemePreference } from '../../types'
+import { TopicOutline } from './TopicOutline'
 
 const TopicEChart = lazy(() => import('./TopicEChart'))
 
@@ -92,6 +93,18 @@ export function TopicHierarchyView({ profile, indexName, definition, language, t
   const chunkControllerRef = useRef<AbortController | null>(null)
   const textControllersRef = useRef(new Set<AbortController>())
 
+  // Reading the hierarchy again (the graph was loaded again, for example after an index rebuild) makes everything that
+  // was derived from the old one stale, so it starts over: no chunks, no chunk texts, no zoom and no selection.
+  const [readFor, setReadFor] = useState(definition)
+  if (readFor !== definition) {
+    setReadFor(definition)
+    setChunkState({ status: 'idle' })
+    setChunkTexts(new Map())
+    setShowChunks(true)
+    setFocusId(undefined)
+    setSelected(null)
+  }
+
   const readHierarchy = useEffectEvent(async (signal: AbortSignal) => {
     if (!profile || profile.apiVersion !== KNOWLEDGE_GRAPH_API_VERSION) {
       setLoaded({ definition, failure: { code: 'needVersion', detail: '' } })
@@ -106,16 +119,14 @@ export function TopicHierarchyView({ profile, indexName, definition, language, t
   })
   useEffect(() => {
     const controller = new AbortController()
-    void readHierarchy(controller.signal)
-    return () => controller.abort()
-  }, [definition, indexName])
-  useEffect(() => {
     const textControllers = textControllersRef.current
+    void readHierarchy(controller.signal)
     return () => {
+      controller.abort()
       chunkControllerRef.current?.abort()
-      textControllers.forEach((controller) => controller.abort())
+      textControllers.forEach((pending) => pending.abort())
     }
-  }, [])
+  }, [definition, indexName])
 
   const loading = loaded?.definition !== definition
   const hierarchy = loading ? undefined : loaded?.hierarchy
@@ -234,6 +245,17 @@ export function TopicHierarchyView({ profile, indexName, definition, language, t
     else if (data.id === TREE_ROOT_ID) setSelected(null)
   }
 
+  /** Does what clicking the topic in the chart does, for the outline that the keyboard can reach. */
+  function activateTopic(id: string) {
+    const node = hierarchy?.topics.get(id)
+    if (!hierarchy || !node) return
+    const zoomable = view === 'wheel' && (wheelChunks ? countChunks(hierarchy, wheelChunks, id) > 0 : node.children.length > 0)
+    if (zoomable) {
+      setFocusId(id)
+      setSelected(null)
+    } else setSelected({ kind: 'topic', id })
+  }
+
   // The chart rebinds its event handlers whenever the object changes, so hand it handlers that never change.
   const clickHandlers = useRef({ wheel: onWheelClick, tree: onTreeClick })
   useEffect(() => { clickHandlers.current = { wheel: onWheelClick, tree: onTreeClick } })
@@ -291,12 +313,14 @@ export function TopicHierarchyView({ profile, indexName, definition, language, t
     {loading && <div className="field__hint" role="status"><i className="bi bi-arrow-repeat spin icon--mr6" aria-hidden="true" />{t('kgWheelLoading')}</div>}
     {failure && <div className="notice notice--error" role="alert">{describe(failure)}</div>}
     {chunkState.status === 'error' && <div className="notice notice--error" role="alert">{describe(chunkState.failure)}</div>}
-    {chunkData?.truncated && <div className="notice notice--info" role="status">{fill(t('kgWheelChunksTruncated'), { max: MAX_WHEEL_CHUNKS })}</div>}
+    {chunkData?.truncated && <div className="notice notice--info" role="status">{fill(t(chunkData.keyOrdered ? 'kgWheelChunksTruncated' : 'kgWheelChunksTruncatedUnordered'), { max: MAX_WHEEL_CHUNKS })}</div>}
     {chunkData && chunkData.unassigned > 0 && <div className="notice notice--info" role="status">{fill(t('kgWheelChunksUnassigned'), { count: chunkData.unassigned })}</div>}
     {hierarchy && (view === 'wheel' && wheel?.items.length === 0
       ? <div className="field__hint">{t('kgWheelEmpty')}</div>
       : <div className="topicWheel__body">
         <div className="topicWheel__stage topicWheel__stage--chart">
+          <TopicOutline hierarchy={hierarchy} label={t('kgWheelOutline')} onActivate={activateTopic}
+            activeId={selected?.kind === 'topic' ? selected.id : view === 'wheel' ? focus?.id : undefined} />
           <Suspense fallback={chartFallback}>
             {wheel && <TopicEChart key="wheel" option={wheel.option} style={WHEEL_STYLE} onEvents={wheelEvents} />}
             {tree && <TopicEChart key={`tree-${treeLayout}`} option={tree.option} style={treeStyle(treeLayout, tree.visibleLeaves)} onEvents={treeEvents} />}

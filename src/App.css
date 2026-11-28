@@ -674,6 +674,7 @@
 }
 
 .topicWheel__stage--chart {
+  position: relative;
   padding: 4px;
   background:
     radial-gradient(ellipse at 50% 45%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
@@ -685,6 +686,48 @@
   align-items: center;
   justify-content: center;
   min-height: 220px;
+}
+
+/* Out of sight until a button in it has focus, so that it only appears for keyboard users. */
+.topicWheel__outline {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 3;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.topicWheel__outline:focus-within {
+  width: auto;
+  height: auto;
+  max-width: min(320px, calc(100% - 16px));
+  max-height: calc(100% - 16px);
+  padding: 6px;
+  overflow: auto;
+  clip-path: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.topicWheel__outline ul {
+  margin: 0;
+  padding: 0 0 0 14px;
+  list-style: none;
+}
+
+.topicWheel__outline > ul {
+  padding-left: 0;
+}
+
+.topicWheel__outline [aria-current='true'] {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .topicWheel__treeControls {

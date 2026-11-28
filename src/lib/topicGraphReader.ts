@@ -43,6 +43,8 @@ export type TopicGraphBinding = {
   vectorField: string
   /** String field that holds the chunk body, when the content index has a recognizable one. */
   textField?: string
+  /** False when the key field is not sortable, so chunk keys cannot be requested in key order. Missing means sortable. */
+  keySortable?: boolean
   profileName: string
   topicIndex: string
   topicDefinition: JsonObject
@@ -133,11 +135,15 @@ async function bindContentIndex(
   if (!topicIndex) throw new TopicGraphReadError('noTopicProfile', `${contentIndex}.${vectorField} -> ${profileName}`)
   const keyField = getIndexKeyFieldName(content)
   if (!keyField) throw new TopicGraphReadError('noContentIndex', `${contentIndex}: no key field`)
+  const keySortable = topLevelFields(content).find((field) => text(field.name) === keyField)?.sortable !== false
 
   const topicDefinition = asObject(unwrap(await getIndexDefinition({
     profile, indexName: topicIndex, apiVersion: KNOWLEDGE_GRAPH_API_VERSION, language, signal,
   })), 'Topic index')
-  return { sourceName, contentIndex, keyField, vectorField, textField: pickChunkTextField(content, keyField, vectorField), profileName, topicIndex, topicDefinition }
+  return {
+    sourceName, contentIndex, keyField, vectorField, textField: pickChunkTextField(content, keyField, vectorField), keySortable,
+    profileName, topicIndex, topicDefinition,
+  }
 }
 
 export async function resolveTopicGraphBinding(connection: TopicGraphConnection, sourceName: string): Promise<TopicGraphBinding> {
@@ -155,12 +161,18 @@ export async function resolveTopicGraphBinding(connection: TopicGraphConnection,
 
 /**
  * Finds the content index whose vector field links to `topicIndexName` through `vectorSearch.topicGraphProfiles`.
+ * An index counts only when a vector field actually references such a profile: unlinking a field leaves the profile
+ * definition behind, and that unused profile must not make a second index look like a candidate.
  * The binding has an empty `sourceName` because no knowledge source is involved.
  */
 export async function resolveTopicGraphBindingForTopicIndex(connection: TopicGraphConnection, topicIndexName: string): Promise<TopicGraphBinding> {
   const { profile, language, signal } = connection
   const indexes = documents(unwrap(await listIndexes({ profile, apiVersion: KNOWLEDGE_GRAPH_API_VERSION, language, signal })))
-  const candidates = indexes.filter((index) => topicGraphProfiles(index).some((item) => text(item.indexName) === topicIndexName))
+  const linksToTopicIndex = (index: JsonObject) => {
+    const profileNames = topicGraphProfiles(index).filter((item) => text(item.indexName) === topicIndexName).map((item) => text(item.name))
+    return topLevelFields(index).some((field) => profileNames.includes(text(field.topicGraphProfile)))
+  }
+  const candidates = indexes.filter(linksToTopicIndex)
   if (candidates.length === 0) throw new TopicGraphReadError('noContentIndex', topicIndexName)
   if (candidates.length > 1) throw new TopicGraphReadError('ambiguousVector', candidates.map((index) => text(index.name)).join(', '))
   return bindContentIndex(connection, '', text(candidates[0].name), candidates[0], topicIndexName)
@@ -280,19 +292,25 @@ export async function loadChunkVectors(
   return vectors
 }
 
-/** Reads up to `limit` chunk keys in key order and reports whether the content index holds more. */
+/**
+ * Reads up to `limit` chunk keys and reports whether the content index holds more. The keys come in key order. When the
+ * key field is not sortable, `$orderby` would be rejected, so the first keys the service returns are used instead
+ * (`ordered` is false) and are sorted afterwards only to number them stably.
+ */
 export async function loadChunkKeys(
   connection: TopicGraphConnection,
   binding: TopicGraphBinding,
   limit: number,
-): Promise<{ keys: string[]; truncated: boolean }> {
+): Promise<{ keys: string[]; truncated: boolean; ordered: boolean }> {
+  const ordered = binding.keySortable !== false
   const page = documents(unwrap(await searchDocuments({
     profile: connection.profile, indexName: binding.contentIndex, apiVersion: KNOWLEDGE_GRAPH_API_VERSION,
     language: connection.language, signal: connection.signal,
-    body: { search: '*', orderby: `${binding.keyField} asc`, select: binding.keyField, top: limit + 1 },
+    body: { search: '*', ...(ordered ? { orderby: `${binding.keyField} asc` } : {}), select: binding.keyField, top: limit + 1 },
   })))
   const keys = page.map((item) => text(item[binding.keyField])).filter((key) => key !== '')
-  return { keys: keys.slice(0, limit), truncated: keys.length > limit }
+  const kept = keys.slice(0, limit)
+  return { keys: ordered ? kept : kept.sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)), truncated: keys.length > limit, ordered }
 }
 
 export const MAX_WHEEL_CHUNKS = 500
@@ -308,6 +326,8 @@ export type TopicWheelChunks = {
   unassigned: number
   /** True when the content index holds more than `MAX_WHEEL_CHUNKS` chunks. */
   truncated: boolean
+  /** False when the key field is not sortable: the chunks that were read are then the first ones the service returned. */
+  keyOrdered: boolean
 }
 
 /** Places the chunks of the content index linked to the topic index into the leaf topics of `hierarchy`. Nothing is written. */
@@ -317,7 +337,7 @@ export async function loadWheelChunks(
   hierarchy: TopicHierarchy,
 ): Promise<TopicWheelChunks> {
   const binding = await resolveTopicGraphBindingForTopicIndex(connection, topicIndexName)
-  const { keys, truncated } = await loadChunkKeys(connection, binding, MAX_WHEEL_CHUNKS)
+  const { keys, truncated, ordered } = await loadChunkKeys(connection, binding, MAX_WHEEL_CHUNKS)
   const vectors = await loadChunkVectors(connection, binding, keys)
   const nearest = await findNearestLeafTopics(connection, binding, vectors)
   connection.signal?.throwIfAborted()
@@ -328,7 +348,7 @@ export async function loadWheelChunks(
   }
   return {
     contentIndex: binding.contentIndex, keyField: binding.keyField, textField: binding.textField,
-    assignments, unassigned: keys.length - assignments.size, truncated,
+    assignments, unassigned: keys.length - assignments.size, truncated, keyOrdered: ordered,
   }
 }
 

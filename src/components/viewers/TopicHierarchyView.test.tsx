@@ -3,6 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { CSSProperties } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { JsonObject } from '../../app/json'
 import type { ConnectionProfile } from '../../lib/model'
 import { buildTopicHierarchy, TOPIC_GRAPH_NAME, type TopicGraphRow } from '../../lib/topicGraphCoverage'
 import { loadChunkText, loadTopicHierarchy, loadWheelChunks, TopicGraphReadError, type TopicWheelChunks } from '../../lib/topicGraphReader'
@@ -58,8 +59,8 @@ const hierarchy = buildTopicHierarchy([
 const profile = { endpoint: 'https://example.search.windows.net', apiVersion: '2026-11-01-preview', authType: 'apiKey', apiKey: 'test-key' } as ConnectionProfile
 const definition = { name: 'topic-index' }
 
-function view(kind: 'wheel' | 'tree' = 'wheel') {
-  return <TopicHierarchyView profile={profile} indexName="topic-index" definition={definition} language="en" theme="dark" view={kind} />
+function view(kind: 'wheel' | 'tree' = 'wheel', topicDefinition: JsonObject = definition) {
+  return <TopicHierarchyView profile={profile} indexName="topic-index" definition={topicDefinition} language="en" theme="dark" view={kind} />
 }
 
 function chunksResult(overrides: Partial<TopicWheelChunks> = {}): TopicWheelChunks {
@@ -70,6 +71,7 @@ function chunksResult(overrides: Partial<TopicWheelChunks> = {}): TopicWheelChun
     assignments: new Map([['doc-a', { leafId: 'topic:2', score: 1 }], ['doc-b', { leafId: 'topic:2', score: 1 }], ['doc-c', { leafId: 'topic:1', score: 1 }]]),
     unassigned: 2,
     truncated: false,
+    keyOrdered: true,
     ...overrides,
   }
 }
@@ -114,7 +116,7 @@ describe('TopicHierarchyView', () => {
       expect(ids(latest().option.series[0].data)).toEqual(['topic:2', 'topic:3'])
       expect(latest().option.title).toMatchObject({ text: '0: 寺院', subtext: '2 topics' })
       expect(screen.getByRole('complementary', { name: 'Selection details' })).toHaveTextContent('0: 寺院')
-      expect(screen.getByRole('button', { name: '0: 寺院' })).toBeDisabled()
+      expect(within(screen.getByRole('navigation', { name: 'Wheel of the topic hierarchy' })).getByRole('button', { name: '0: 寺院' })).toBeDisabled()
 
       click({ componentType: 'title' })
       expect(ids(latest().option.series[0].data)).toEqual(['topic:0', 'topic:1'])
@@ -153,6 +155,16 @@ describe('TopicHierarchyView', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Show chunks' }))
       expect(latest().option.title).toMatchObject({ subtext: '3 chunks' })
       expect(loadWheelChunks).toHaveBeenCalledTimes(1)
+    })
+
+    it('says which chunks were left out: the last ones in key order, or whatever the service did not return when the key is not sortable', async () => {
+      const { unmount } = await overlayChunks('wheel', chunksResult({ truncated: true }))
+      expect(screen.getByText('The content index has more than 500 chunks, so only the first 500 in key order are shown.')).toBeInTheDocument()
+      unmount()
+
+      await overlayChunks('wheel', chunksResult({ truncated: true, keyOrdered: false }))
+      expect(screen.getByText(/The key field is not sortable, so which chunks are included depends on the order in which the service returns them/)).toBeInTheDocument()
+      expect(screen.queryByText(/in key order are shown/)).not.toBeInTheDocument()
     })
 
     it('explains why the hierarchy or the chunks could not be read', async () => {
@@ -286,6 +298,89 @@ describe('TopicHierarchyView', () => {
 
       click({ componentType: 'series', data: { id: 'root', kind: 'root' } })
       expect(screen.getByText('Select a topic or a chunk to see its details.')).toBeInTheDocument()
+    })
+  })
+
+  describe('when the hierarchy is read again', () => {
+    it('starts over without the chunks, texts, selection and zoom of the old hierarchy', async () => {
+      vi.mocked(loadChunkText).mockResolvedValue('伽藍の由来')
+      const { rerender } = await overlayChunks('wheel')
+      chunkClick('doc-c')
+      await screen.findByText('伽藍の由来')
+      topicClick('topic:0', true)
+
+      rerender(view('wheel', { name: 'topic-index' }))
+
+      await waitFor(() => expect(loadTopicHierarchy).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Overlay chunks' })).toBeEnabled())
+      expect(screen.queryByText('伽藍の由来')).not.toBeInTheDocument()
+      expect(screen.getByText('Select a topic or a chunk to see its details.')).toBeInTheDocument()
+      expect(latest().option.title).toMatchObject({ text: 'Collection', subtext: '3 topics' })
+      expect(loadWheelChunks).toHaveBeenCalledTimes(1)
+    })
+
+    it('aborts a chunk request that is still running and lets the user overlay the chunks again', async () => {
+      let signal: AbortSignal | undefined
+      vi.mocked(loadWheelChunks).mockImplementation((connection) => {
+        signal = connection.signal
+        return new Promise(() => {})
+      })
+      const { rerender } = render(view())
+      await screen.findByRole('img', { name: 'Topic chart' })
+      fireEvent.click(screen.getByRole('button', { name: 'Overlay chunks' }))
+      expect(await screen.findByRole('button', { name: 'Loading chunks…' })).toBeDisabled()
+
+      rerender(view('wheel', { name: 'topic-index' }))
+
+      expect(signal?.aborted).toBe(true)
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Overlay chunks' })).toBeEnabled())
+    })
+  })
+
+  describe('the topic list for the keyboard', () => {
+    const outline = () => within(screen.getByRole('navigation', { name: 'Topic list for keyboard navigation' }))
+    const details = () => screen.getByRole('complementary', { name: 'Selection details' })
+
+    it('lists every topic as a button and zooms the wheel or selects a leaf like a click on the chart', async () => {
+      render(view())
+      await screen.findByRole('img', { name: 'Topic chart' })
+      expect(outline().getAllByRole('button').map((button) => button.textContent)).toEqual(['0: 寺院', '2: 木造建築', '3', '1: 自然'])
+
+      fireEvent.click(outline().getByRole('button', { name: '0: 寺院' }))
+      expect(ids(latest().option.series[0].data)).toEqual(['topic:2', 'topic:3'])
+      expect(outline().getByRole('button', { name: '0: 寺院' })).toHaveAttribute('aria-current', 'true')
+
+      fireEvent.click(outline().getByRole('button', { name: '3' }))
+      expect(details()).toHaveTextContent('10%')
+      expect(latest().option.title).toMatchObject({ text: '0: 寺院' })
+    })
+
+    it('zooms into a leaf topic that holds chunks, leaves one without chunks alone and reaches the chunk buttons', async () => {
+      vi.mocked(loadChunkText).mockResolvedValue('伽藍の由来')
+      await overlayChunks('wheel')
+
+      fireEvent.click(outline().getByRole('button', { name: '1: 自然' }))
+      expect(ids(latest().option.series[0].data)).toEqual(['doc-c'])
+
+      fireEvent.click(outline().getByRole('button', { name: '3' }))
+      expect(latest().option.title).toMatchObject({ text: '1: 自然' })
+      expect(details()).toHaveTextContent('10%')
+
+      fireEvent.click(outline().getByRole('button', { name: '2: 木造建築' }))
+      fireEvent.click(within(details()).getByRole('button', { name: 'C2' }))
+      expect(await within(details()).findByText('伽藍の由来')).toBeInTheDocument()
+      expect(loadChunkText).toHaveBeenCalledWith(expect.objectContaining({ profile }), expect.anything(), 'doc-b')
+    })
+
+    it('only selects a topic in the tree, where there is nothing to zoom into', async () => {
+      render(view('tree'))
+      await screen.findByRole('img', { name: 'Topic chart' })
+
+      fireEvent.click(outline().getByRole('button', { name: '0: 寺院' }))
+
+      expect(details()).toHaveTextContent('0: 寺院')
+      expect(latest().option.series[0].type).toBe('tree')
+      expect(outline().getByRole('button', { name: '0: 寺院' })).toHaveAttribute('aria-current', 'true')
     })
   })
 

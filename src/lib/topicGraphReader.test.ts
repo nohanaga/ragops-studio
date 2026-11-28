@@ -70,6 +70,14 @@ describe('resolveTopicGraphBinding', () => {
     await expect(resolveTopicGraphBinding(connection, 'ks')).resolves.toMatchObject({ contentIndex: 'content' })
   })
 
+  it('notes that the key field cannot be sorted, so that the chunks are not requested in key order', async () => {
+    serve(contentIndex({ fields: [{ name: 'id', type: 'Edm.String', key: true, sortable: false }, { name: 'vec', type: 'Collection(Edm.Single)', dimensions: 3, topicGraphProfile: 'topics' }] }))
+
+    await expect(resolveTopicGraphBinding(connection, 'ks')).resolves.toMatchObject({ keySortable: false })
+    serve(contentIndex())
+    await expect(resolveTopicGraphBinding(connection, 'ks')).resolves.toMatchObject({ keySortable: true })
+  })
+
   it.each([
     ['noTopicProfile', contentIndex({ fields: [{ name: 'id', key: true }, { name: 'vec', type: 'Collection(Edm.Single)' }] })],
     ['noTopicProfile', contentIndex({ vectorSearch: { topicGraphProfiles: [] } })],
@@ -111,6 +119,18 @@ describe('resolveTopicGraphBindingForTopicIndex', () => {
       sourceName: '', contentIndex: 'content', keyField: 'id', vectorField: 'vec', profileName: 'topics', topicIndex: 'topic-index',
     })
     expect(rest.listIndexes).toHaveBeenCalledWith(expect.objectContaining({ apiVersion: '2026-11-01-preview' }))
+  })
+
+  it('ignores an index that keeps a profile for the topic index after its vector field was unlinked', async () => {
+    serve([
+      contentIndex({ name: 'rebuilt', fields: [{ name: 'id', type: 'Edm.String', key: true }, { name: 'vec', type: 'Collection(Edm.Single)' }] }),
+      contentIndex({ name: 'linked' }),
+    ])
+
+    await expect(resolveTopicGraphBindingForTopicIndex(connection, 'topic-index')).resolves.toMatchObject({ contentIndex: 'linked' })
+
+    serve([contentIndex({ name: 'rebuilt', fields: [{ name: 'id', type: 'Edm.String', key: true }, { name: 'vec', type: 'Collection(Edm.Single)' }] })])
+    await expect(resolveTopicGraphBindingForTopicIndex(connection, 'topic-index')).rejects.toMatchObject({ code: 'noContentIndex' })
   })
 
   it('reports a missing or ambiguous content index instead of guessing one', async () => {
@@ -203,10 +223,17 @@ describe('loadChunkKeys', () => {
   it('reads one more key than the limit to tell whether the content index holds more chunks', async () => {
     rest.searchDocuments.mockResolvedValue(ok({ value: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }))
 
-    await expect(loadChunkKeys(connection, binding(), 2)).resolves.toEqual({ keys: ['a', 'b'], truncated: true })
+    await expect(loadChunkKeys(connection, binding(), 2)).resolves.toEqual({ keys: ['a', 'b'], truncated: true, ordered: true })
     expect(rest.searchDocuments.mock.calls[0][0]).toMatchObject({ indexName: 'content', body: { search: '*', orderby: 'id asc', select: 'id', top: 3 } })
 
-    await expect(loadChunkKeys(connection, binding(), 3)).resolves.toEqual({ keys: ['a', 'b', 'c'], truncated: false })
+    await expect(loadChunkKeys(connection, binding(), 3)).resolves.toEqual({ keys: ['a', 'b', 'c'], truncated: false, ordered: true })
+  })
+
+  it('does not ask for key order when the key field is not sortable and numbers the chunks it got in key order', async () => {
+    rest.searchDocuments.mockResolvedValue(ok({ value: [{ id: 'c' }, { id: 'a' }, { id: 'd' }, { id: 'b' }] }))
+
+    await expect(loadChunkKeys(connection, binding({ keySortable: false }), 3)).resolves.toEqual({ keys: ['a', 'c', 'd'], truncated: true, ordered: false })
+    expect(rest.searchDocuments.mock.calls[0][0].body).toEqual({ search: '*', select: 'id', top: 4 })
   })
 })
 
@@ -237,8 +264,21 @@ describe('loadWheelChunks', () => {
     const chunks = await loadWheelChunks(connection, 'topic-index', hierarchy)
 
     expect([...chunks.assignments]).toEqual([['a', { leafId: 'topic:1', score: 0.8 }], ['b', { leafId: 'topic:2', score: 0.8 }]])
-    expect(chunks).toMatchObject({ contentIndex: 'content', keyField: 'id', unassigned: 1, truncated: false })
+    expect(chunks).toMatchObject({ contentIndex: 'content', keyField: 'id', unassigned: 1, truncated: false, keyOrdered: true })
     expect(chunks.textField).toBeUndefined()
+  })
+
+  it('falls back to the keys in the order the service returns them when the key field is not sortable', async () => {
+    serve(['b', 'a'], contentIndex({
+      fields: [{ name: 'id', type: 'Edm.String', key: true, sortable: false }, { name: 'vec', type: 'Collection(Edm.Single)', dimensions: 3, topicGraphProfile: 'topics' }],
+    }))
+
+    const chunks = await loadWheelChunks(connection, 'topic-index', hierarchy)
+
+    expect(chunks.keyOrdered).toBe(false)
+    expect([...chunks.assignments.keys()]).toEqual(['a', 'b'])
+    const keyRequest = rest.searchDocuments.mock.calls.find(([request]) => request.indexName === 'content' && request.body.select === 'id')
+    expect(keyRequest?.[0].body).not.toHaveProperty('orderby')
   })
 
   it('reports which field holds the chunk text so that a chunk can be read later', async () => {
