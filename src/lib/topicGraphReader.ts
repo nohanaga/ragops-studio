@@ -9,7 +9,7 @@
 
 import { isJsonObject, type JsonObject } from '../app/json'
 import { getIndexKeyFieldName } from '../utils/indexClone'
-import { getIndexDefinition, getKnowledgeSource, searchDocuments, type JsonValue, type RestResult } from './aiSearchRest'
+import { getIndexDefinition, getKnowledgeSource, listIndexes, searchDocuments, type JsonValue, type RestResult } from './aiSearchRest'
 import { KNOWLEDGE_GRAPH_API_VERSION, graphMappings } from './knowledgeGraph'
 import type { ConnectionProfile } from './model'
 import { buildTopicHierarchy, TOPIC_PREDICATES, TopicGraphFormatError, type LeafAssignment, type TopicGraphRow, type TopicHierarchy } from './topicGraphCoverage'
@@ -41,6 +41,10 @@ export type TopicGraphBinding = {
   contentIndex: string
   keyField: string
   vectorField: string
+  /** String field that holds the chunk body, when the content index has a recognizable one. */
+  textField?: string
+  /** False when the key field is not sortable, so chunk keys cannot be requested in key order. Missing means sortable. */
+  keySortable?: boolean
   profileName: string
   topicIndex: string
   topicDefinition: JsonObject
@@ -81,6 +85,67 @@ function topLevelFields(definition: JsonObject): JsonObject[] {
   return Array.isArray(definition.fields) ? definition.fields.filter((field): field is JsonObject => isJsonObject(field)) : []
 }
 
+const CHUNK_TEXT_FIELD_NAMES = ['snippet', 'chunk', 'content', 'text', 'chunk_text', 'merged_content', 'body']
+const NON_TEXT_FIELD_NAME = /(^|_)(id|uid|url|uri|path|key|name|parent)(_|$)/i
+
+/**
+ * Picks the string field that holds the chunk body. Foundry IQ indexes use `snippet`; other names are tried next.
+ * Without a known name, the first searchable string field that does not look like an identifier or a location is used.
+ */
+export function pickChunkTextField(content: JsonObject, keyField: string, vectorField: string): string | undefined {
+  const candidates = topLevelFields(content).filter((field) =>
+    field.type === 'Edm.String' && field.retrievable !== false && text(field.name) !== '' && text(field.name) !== keyField && text(field.name) !== vectorField)
+  for (const name of CHUNK_TEXT_FIELD_NAMES) {
+    const known = candidates.find((field) => text(field.name).toLowerCase() === name)
+    if (known) return text(known.name)
+  }
+  const guess = candidates.find((field) => field.searchable !== false && !NON_TEXT_FIELD_NAME.test(text(field.name)))
+  return guess ? text(guess.name) : undefined
+}
+
+function topicGraphProfiles(index: JsonObject): JsonObject[] {
+  const vectorSearch = index.vectorSearch ?? null
+  return isJsonObject(vectorSearch) && Array.isArray(vectorSearch.topicGraphProfiles)
+    ? vectorSearch.topicGraphProfiles.filter((item): item is JsonObject => isJsonObject(item)) : []
+}
+
+/** `onlyTopicIndex` limits the linked vector fields to the ones whose profile points at that topic index. */
+async function bindContentIndex(
+  connection: TopicGraphConnection,
+  sourceName: string,
+  contentIndex: string,
+  content: JsonObject,
+  onlyTopicIndex?: string,
+): Promise<TopicGraphBinding> {
+  const { profile, language, signal } = connection
+  const profiles = topicGraphProfiles(content)
+  const indexNameOf = (profileName: string) => text(profiles.find((item) => text(item.name) === profileName)?.indexName)
+  const linked = topLevelFields(content).filter((field) => {
+    const profileName = text(field.topicGraphProfile)
+    return profileName !== '' && (onlyTopicIndex === undefined || indexNameOf(profileName) === onlyTopicIndex)
+  })
+  if (linked.length === 0) throw new TopicGraphReadError('noTopicProfile', contentIndex)
+  if (linked.length > 1) throw new TopicGraphReadError('ambiguousVector', linked.map((field) => text(field.name)).join(', '))
+  const vector = linked[0]
+  const vectorField = text(vector.name)
+  if (vector.retrievable === false || vector.stored === false) throw new TopicGraphReadError('vectorNotRetrievable', `${contentIndex}.${vectorField}`)
+
+  const profileName = text(vector.topicGraphProfile)
+  const topicIndex = indexNameOf(profileName)
+  if (!topicIndex) throw new TopicGraphReadError('noTopicProfile', `${contentIndex}.${vectorField} -> ${profileName}`)
+  const keyField = getIndexKeyFieldName(content)
+  if (!keyField) throw new TopicGraphReadError('noContentIndex', `${contentIndex}: no key field`)
+  const keySortable = topLevelFields(content).find((field) => text(field.name) === keyField)?.sortable !== false
+
+  const topicDefinition = asObject(unwrap(await getIndexDefinition({
+    profile, indexName: topicIndex, apiVersion: KNOWLEDGE_GRAPH_API_VERSION, language, signal,
+  })), 'Topic index')
+  return {
+    sourceName, contentIndex, keyField, vectorField, textField: pickChunkTextField(content, keyField, vectorField), keySortable,
+    profileName, topicIndex, topicDefinition,
+  }
+}
+
 export async function resolveTopicGraphBinding(connection: TopicGraphConnection, sourceName: string): Promise<TopicGraphBinding> {
   const { profile, language, signal } = connection
   const source = asObject(unwrap(await getKnowledgeSource({ profile, knowledgeSourceName: sourceName, language, signal })), 'Knowledge source')
@@ -91,26 +156,26 @@ export async function resolveTopicGraphBinding(connection: TopicGraphConnection,
   const content = asObject(unwrap(await getIndexDefinition({
     profile, indexName: contentIndex, apiVersion: KNOWLEDGE_GRAPH_API_VERSION, language, signal,
   })), 'Content index')
-  const linked = topLevelFields(content).filter((field) => text(field.topicGraphProfile))
-  if (linked.length === 0) throw new TopicGraphReadError('noTopicProfile', contentIndex)
-  if (linked.length > 1) throw new TopicGraphReadError('ambiguousVector', linked.map((field) => text(field.name)).join(', '))
-  const vector = linked[0]
-  const vectorField = text(vector.name)
-  if (vector.retrievable === false || vector.stored === false) throw new TopicGraphReadError('vectorNotRetrievable', `${contentIndex}.${vectorField}`)
+  return bindContentIndex(connection, sourceName, contentIndex, content)
+}
 
-  const profileName = text(vector.topicGraphProfile)
-  const profiles = isJsonObject(content.vectorSearch ?? null) && Array.isArray((content.vectorSearch as JsonObject).topicGraphProfiles)
-    ? ((content.vectorSearch as JsonObject).topicGraphProfiles as JsonValue[]) : []
-  const profileDefinition = profiles.find((item): item is JsonObject => isJsonObject(item) && text(item.name) === profileName)
-  const topicIndex = text(profileDefinition?.indexName)
-  if (!topicIndex) throw new TopicGraphReadError('noTopicProfile', `${contentIndex}.${vectorField} -> ${profileName}`)
-  const keyField = getIndexKeyFieldName(content)
-  if (!keyField) throw new TopicGraphReadError('noContentIndex', `${contentIndex}: no key field`)
-
-  const topicDefinition = asObject(unwrap(await getIndexDefinition({
-    profile, indexName: topicIndex, apiVersion: KNOWLEDGE_GRAPH_API_VERSION, language, signal,
-  })), 'Topic index')
-  return { sourceName, contentIndex, keyField, vectorField, profileName, topicIndex, topicDefinition }
+/**
+ * Finds the content index whose vector field links to `topicIndexName` through `vectorSearch.topicGraphProfiles`.
+ * An index counts only when a vector field actually references such a profile: unlinking a field leaves the profile
+ * definition behind, and that unused profile must not make a second index look like a candidate.
+ * The binding has an empty `sourceName` because no knowledge source is involved.
+ */
+export async function resolveTopicGraphBindingForTopicIndex(connection: TopicGraphConnection, topicIndexName: string): Promise<TopicGraphBinding> {
+  const { profile, language, signal } = connection
+  const indexes = documents(unwrap(await listIndexes({ profile, apiVersion: KNOWLEDGE_GRAPH_API_VERSION, language, signal })))
+  const linksToTopicIndex = (index: JsonObject) => {
+    const profileNames = topicGraphProfiles(index).filter((item) => text(item.indexName) === topicIndexName).map((item) => text(item.name))
+    return topLevelFields(index).some((field) => profileNames.includes(text(field.topicGraphProfile)))
+  }
+  const candidates = indexes.filter(linksToTopicIndex)
+  if (candidates.length === 0) throw new TopicGraphReadError('noContentIndex', topicIndexName)
+  if (candidates.length > 1) throw new TopicGraphReadError('ambiguousVector', candidates.map((index) => text(index.name)).join(', '))
+  return bindContentIndex(connection, '', text(candidates[0].name), candidates[0], topicIndexName)
 }
 
 function topicFields(definition: JsonObject) {
@@ -160,7 +225,10 @@ async function* pages(connection: TopicGraphConnection, indexName: string, body:
 }
 
 /** Reads every topic document and rebuilds the hierarchy. The centroid vectors are not read: they may not be retrievable. */
-export async function loadTopicHierarchy(connection: TopicGraphConnection, binding: TopicGraphBinding): Promise<TopicHierarchy> {
+export async function loadTopicHierarchy(
+  connection: TopicGraphConnection,
+  binding: Pick<TopicGraphBinding, 'topicIndex' | 'topicDefinition'>,
+): Promise<TopicHierarchy> {
   const fields = topicFields(binding.topicDefinition)
   const rows: TopicGraphRow[] = []
 
@@ -222,6 +290,81 @@ export async function loadChunkVectors(
   }
   if (found > 0 && vectors.size === 0) throw new TopicGraphReadError('vectorNotRetrievable', `${binding.contentIndex}.${binding.vectorField}`)
   return vectors
+}
+
+/**
+ * Reads up to `limit` chunk keys and reports whether the content index holds more. The keys come in key order. When the
+ * key field is not sortable, `$orderby` would be rejected, so the first keys the service returns are used instead
+ * (`ordered` is false) and are sorted afterwards only to number them stably.
+ */
+export async function loadChunkKeys(
+  connection: TopicGraphConnection,
+  binding: TopicGraphBinding,
+  limit: number,
+): Promise<{ keys: string[]; truncated: boolean; ordered: boolean }> {
+  const ordered = binding.keySortable !== false
+  const page = documents(unwrap(await searchDocuments({
+    profile: connection.profile, indexName: binding.contentIndex, apiVersion: KNOWLEDGE_GRAPH_API_VERSION,
+    language: connection.language, signal: connection.signal,
+    body: { search: '*', ...(ordered ? { orderby: `${binding.keyField} asc` } : {}), select: binding.keyField, top: limit + 1 },
+  })))
+  const keys = page.map((item) => text(item[binding.keyField])).filter((key) => key !== '')
+  const kept = keys.slice(0, limit)
+  return { keys: ordered ? kept : kept.sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)), truncated: keys.length > limit, ordered }
+}
+
+export const MAX_WHEEL_CHUNKS = 500
+
+export type TopicWheelChunks = {
+  contentIndex: string
+  keyField: string
+  /** Field that holds the chunk body, or undefined when the content index has no recognizable one. */
+  textField?: string
+  /** Leaf topic of every chunk that could be placed, by chunk key, in key order. */
+  assignments: ReadonlyMap<string, LeafAssignment>
+  /** Chunks that were read but could not be placed in a leaf topic. */
+  unassigned: number
+  /** True when the content index holds more than `MAX_WHEEL_CHUNKS` chunks. */
+  truncated: boolean
+  /** False when the key field is not sortable: the chunks that were read are then the first ones the service returned. */
+  keyOrdered: boolean
+}
+
+/** Places the chunks of the content index linked to the topic index into the leaf topics of `hierarchy`. Nothing is written. */
+export async function loadWheelChunks(
+  connection: TopicGraphConnection,
+  topicIndexName: string,
+  hierarchy: TopicHierarchy,
+): Promise<TopicWheelChunks> {
+  const binding = await resolveTopicGraphBindingForTopicIndex(connection, topicIndexName)
+  const { keys, truncated, ordered } = await loadChunkKeys(connection, binding, MAX_WHEEL_CHUNKS)
+  const vectors = await loadChunkVectors(connection, binding, keys)
+  const nearest = await findNearestLeafTopics(connection, binding, vectors)
+  connection.signal?.throwIfAborted()
+  const assignments = new Map<string, LeafAssignment>()
+  for (const key of keys) {
+    const assignment = nearest.get(key)
+    if (assignment && hierarchy.topics.get(assignment.leafId)?.children.length === 0) assignments.set(key, assignment)
+  }
+  return {
+    contentIndex: binding.contentIndex, keyField: binding.keyField, textField: binding.textField,
+    assignments, unassigned: keys.length - assignments.size, truncated, keyOrdered: ordered,
+  }
+}
+
+/** Reads the body of one chunk. Returns undefined when the chunk is missing or its body is empty. */
+export async function loadChunkText(
+  connection: TopicGraphConnection,
+  source: { contentIndex: string; keyField: string; textField: string },
+  key: string,
+): Promise<string | undefined> {
+  const [chunk] = documents(unwrap(await searchDocuments({
+    profile: connection.profile, indexName: source.contentIndex, apiVersion: KNOWLEDGE_GRAPH_API_VERSION,
+    language: connection.language, signal: connection.signal,
+    body: { search: '*', filter: `${source.keyField} eq ${literal(key)}`, select: source.textField, top: 1 },
+  })))
+  const body = chunk?.[source.textField]
+  return typeof body === 'string' && body.trim() !== '' ? body : undefined
 }
 
 /**

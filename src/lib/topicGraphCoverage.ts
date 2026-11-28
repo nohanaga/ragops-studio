@@ -194,9 +194,14 @@ export function describeTopicPath(hierarchy: TopicHierarchy, topicId: string): s
   return path.join(' › ')
 }
 
-/** A distinct color for the n-th top-level topic (golden-angle hue steps stay apart for any number of branches). */
-export function topicBranchColor(index: number): string {
-  return `hsl(${Math.round(((index * 137.508) % 360 + 360) % 360)} 62% 52%)`
+/**
+ * A distinct color for the n-th top-level topic (golden-angle hue steps stay apart for any number of branches).
+ * The commas matter: ECharts parses colors itself to derive the highlight color, and it does not understand the
+ * space-separated `hsl(0 62% 52%)` form. Such a color loses its fill on hover, which makes the segment transparent
+ * and unclickable for the moment, so the hover state flips on and off with every pixel the pointer moves.
+ */
+export function topicBranchColor(index: number, lightness = 52, saturation = 62): string {
+  return `hsl(${Math.round(((index * 137.508) % 360 + 360) % 360)}, ${saturation}%, ${lightness}%)`
 }
 
 export type TopicTreemapCell = {
