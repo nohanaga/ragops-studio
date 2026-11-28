@@ -41,6 +41,8 @@ export type TopicGraphBinding = {
   contentIndex: string
   keyField: string
   vectorField: string
+  /** String field that holds the chunk body, when the content index has a recognizable one. */
+  textField?: string
   profileName: string
   topicIndex: string
   topicDefinition: JsonObject
@@ -81,6 +83,24 @@ function topLevelFields(definition: JsonObject): JsonObject[] {
   return Array.isArray(definition.fields) ? definition.fields.filter((field): field is JsonObject => isJsonObject(field)) : []
 }
 
+const CHUNK_TEXT_FIELD_NAMES = ['snippet', 'chunk', 'content', 'text', 'chunk_text', 'merged_content', 'body']
+const NON_TEXT_FIELD_NAME = /(^|_)(id|uid|url|uri|path|key|name|parent)(_|$)/i
+
+/**
+ * Picks the string field that holds the chunk body. Foundry IQ indexes use `snippet`; other names are tried next.
+ * Without a known name, the first searchable string field that does not look like an identifier or a location is used.
+ */
+export function pickChunkTextField(content: JsonObject, keyField: string, vectorField: string): string | undefined {
+  const candidates = topLevelFields(content).filter((field) =>
+    field.type === 'Edm.String' && field.retrievable !== false && text(field.name) !== '' && text(field.name) !== keyField && text(field.name) !== vectorField)
+  for (const name of CHUNK_TEXT_FIELD_NAMES) {
+    const known = candidates.find((field) => text(field.name).toLowerCase() === name)
+    if (known) return text(known.name)
+  }
+  const guess = candidates.find((field) => field.searchable !== false && !NON_TEXT_FIELD_NAME.test(text(field.name)))
+  return guess ? text(guess.name) : undefined
+}
+
 function topicGraphProfiles(index: JsonObject): JsonObject[] {
   const vectorSearch = index.vectorSearch ?? null
   return isJsonObject(vectorSearch) && Array.isArray(vectorSearch.topicGraphProfiles)
@@ -117,7 +137,7 @@ async function bindContentIndex(
   const topicDefinition = asObject(unwrap(await getIndexDefinition({
     profile, indexName: topicIndex, apiVersion: KNOWLEDGE_GRAPH_API_VERSION, language, signal,
   })), 'Topic index')
-  return { sourceName, contentIndex, keyField, vectorField, profileName, topicIndex, topicDefinition }
+  return { sourceName, contentIndex, keyField, vectorField, textField: pickChunkTextField(content, keyField, vectorField), profileName, topicIndex, topicDefinition }
 }
 
 export async function resolveTopicGraphBinding(connection: TopicGraphConnection, sourceName: string): Promise<TopicGraphBinding> {
@@ -279,6 +299,9 @@ export const MAX_WHEEL_CHUNKS = 500
 
 export type TopicWheelChunks = {
   contentIndex: string
+  keyField: string
+  /** Field that holds the chunk body, or undefined when the content index has no recognizable one. */
+  textField?: string
   /** Leaf topic of every chunk that could be placed, by chunk key, in key order. */
   assignments: ReadonlyMap<string, LeafAssignment>
   /** Chunks that were read but could not be placed in a leaf topic. */
@@ -303,7 +326,25 @@ export async function loadWheelChunks(
     const assignment = nearest.get(key)
     if (assignment && hierarchy.topics.get(assignment.leafId)?.children.length === 0) assignments.set(key, assignment)
   }
-  return { contentIndex: binding.contentIndex, assignments, unassigned: keys.length - assignments.size, truncated }
+  return {
+    contentIndex: binding.contentIndex, keyField: binding.keyField, textField: binding.textField,
+    assignments, unassigned: keys.length - assignments.size, truncated,
+  }
+}
+
+/** Reads the body of one chunk. Returns undefined when the chunk is missing or its body is empty. */
+export async function loadChunkText(
+  connection: TopicGraphConnection,
+  source: { contentIndex: string; keyField: string; textField: string },
+  key: string,
+): Promise<string | undefined> {
+  const [chunk] = documents(unwrap(await searchDocuments({
+    profile: connection.profile, indexName: source.contentIndex, apiVersion: KNOWLEDGE_GRAPH_API_VERSION,
+    language: connection.language, signal: connection.signal,
+    body: { search: '*', filter: `${source.keyField} eq ${literal(key)}`, select: source.textField, top: 1 },
+  })))
+  const body = chunk?.[source.textField]
+  return typeof body === 'string' && body.trim() !== '' ? body : undefined
 }
 
 /**

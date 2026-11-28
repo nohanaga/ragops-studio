@@ -11,8 +11,8 @@ const rest = vi.hoisted(() => ({
 vi.mock('./aiSearchRest', () => rest)
 
 import {
-  findNearestLeafTopics, loadChunkKeys, loadChunkVectors, loadTopicHierarchy, loadWheelChunks, MAX_WHEEL_CHUNKS, resolveTopicGraphBinding,
-  resolveTopicGraphBindingForTopicIndex, TopicGraphReadError, type TopicGraphBinding,
+  findNearestLeafTopics, loadChunkKeys, loadChunkText, loadChunkVectors, loadTopicHierarchy, loadWheelChunks, MAX_WHEEL_CHUNKS, pickChunkTextField,
+  resolveTopicGraphBinding, resolveTopicGraphBindingForTopicIndex, TopicGraphReadError, type TopicGraphBinding,
 } from './topicGraphReader'
 import { buildTopicHierarchy, TOPIC_GRAPH_NAME } from './topicGraphCoverage'
 
@@ -218,8 +218,8 @@ describe('loadWheelChunks', () => {
     { graphName: TOPIC_GRAPH_NAME, predicate: 'prop:proportion', subjectId: 'topic:2', objectDouble: 0.5 },
   ])
 
-  function serve(keys: string[]) {
-    rest.listIndexes.mockResolvedValue(ok({ value: [contentIndex()] }))
+  function serve(keys: string[], content: JsonValue = contentIndex()) {
+    rest.listIndexes.mockResolvedValue(ok({ value: [content] }))
     rest.getIndexDefinition.mockResolvedValue(ok(topicIndex))
     rest.searchDocuments.mockImplementation(async ({ indexName, body }: { indexName: string; body: { select: string; vectorQueries?: Array<{ vector: number[] }> } }) => {
       if (indexName === 'topic-index') {
@@ -237,7 +237,20 @@ describe('loadWheelChunks', () => {
     const chunks = await loadWheelChunks(connection, 'topic-index', hierarchy)
 
     expect([...chunks.assignments]).toEqual([['a', { leafId: 'topic:1', score: 0.8 }], ['b', { leafId: 'topic:2', score: 0.8 }]])
-    expect(chunks).toMatchObject({ contentIndex: 'content', unassigned: 1, truncated: false })
+    expect(chunks).toMatchObject({ contentIndex: 'content', keyField: 'id', unassigned: 1, truncated: false })
+    expect(chunks.textField).toBeUndefined()
+  })
+
+  it('reports which field holds the chunk text so that a chunk can be read later', async () => {
+    serve(['a'], contentIndex({
+      fields: [
+        { name: 'id', type: 'Edm.String', key: true },
+        { name: 'snippet', type: 'Edm.String', searchable: true },
+        { name: 'vec', type: 'Collection(Edm.Single)', dimensions: 3, topicGraphProfile: 'topics' },
+      ],
+    }))
+
+    await expect(loadWheelChunks(connection, 'topic-index', hierarchy)).resolves.toMatchObject({ keyField: 'id', textField: 'snippet' })
   })
 
   it('reads at most the wheel limit of chunks and reports that the rest was left out', async () => {
@@ -247,5 +260,46 @@ describe('loadWheelChunks', () => {
 
     expect(chunks.truncated).toBe(true)
     expect(chunks.assignments.size + chunks.unassigned).toBe(MAX_WHEEL_CHUNKS)
+  })
+})
+
+describe('pickChunkTextField', () => {
+  const content = (...fields: Array<Record<string, JsonValue>>) => ({ name: 'content', fields }) as TopicGraphBinding['topicDefinition']
+  const string = (name: string, extra: Record<string, JsonValue> = {}) => ({ name, type: 'Edm.String', ...extra })
+
+  it('prefers the Foundry IQ snippet field, then other well-known body names', () => {
+    expect(pickChunkTextField(content(string('uid', { key: true }), string('title'), string('snippet'), string('content')), 'uid', 'v')).toBe('snippet')
+    expect(pickChunkTextField(content(string('id', { key: true }), string('title'), string('Chunk')), 'id', 'v')).toBe('Chunk')
+  })
+
+  it('guesses a searchable string field that is not an identifier or a location and otherwise gives up', () => {
+    expect(pickChunkTextField(content(string('id', { key: true }), string('blob_url'), string('parent_id'), string('description')), 'id', 'v')).toBe('description')
+    expect(pickChunkTextField(content(string('id', { key: true }), string('blob_url'), string('hidden', { retrievable: false }), string('tag', { searchable: false })), 'id', 'v')).toBeUndefined()
+    expect(pickChunkTextField(content({ name: 'id', type: 'Edm.String', key: true }, { name: 'vec', type: 'Collection(Edm.Single)' }), 'id', 'vec')).toBeUndefined()
+  })
+})
+
+describe('loadChunkText', () => {
+  const source = { contentIndex: 'content', keyField: 'id', textField: 'snippet' }
+
+  it('reads only the text field of the chunk with an escaped key filter', async () => {
+    rest.searchDocuments.mockResolvedValue(ok({ value: [{ snippet: '本堂は江戸時代に再建されました。' }] }))
+
+    await expect(loadChunkText(connection, source, "o'k")).resolves.toBe('本堂は江戸時代に再建されました。')
+    expect(rest.searchDocuments.mock.calls[0][0]).toMatchObject({
+      indexName: 'content', apiVersion: '2026-11-01-preview',
+      body: { search: '*', filter: "id eq 'o''k'", select: 'snippet', top: 1 },
+    })
+  })
+
+  it('returns undefined for a missing chunk or an empty body and reports request failures', async () => {
+    rest.searchDocuments.mockResolvedValueOnce(ok({ value: [] }))
+    await expect(loadChunkText(connection, source, 'a')).resolves.toBeUndefined()
+
+    rest.searchDocuments.mockResolvedValueOnce(ok({ value: [{ snippet: '  ' }] }))
+    await expect(loadChunkText(connection, source, 'a')).resolves.toBeUndefined()
+
+    rest.searchDocuments.mockResolvedValueOnce(failure('Forbidden'))
+    await expect(loadChunkText(connection, source, 'a')).rejects.toMatchObject({ code: 'request', detail: 'Forbidden (r-1)' })
   })
 })

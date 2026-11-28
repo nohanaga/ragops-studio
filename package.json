@@ -22,6 +22,8 @@
     "dagre": "^0.8.5",
     "diff": "^8.0.2",
     "dompurify": "^3.3.1",
+    "echarts": "^6.1.0",
+    "echarts-for-react": "^3.1.0",
     "force-graph": "^1.51.4",
     "gpt-tokenizer": "^3.4.0",
     "idb": "^8.0.3",

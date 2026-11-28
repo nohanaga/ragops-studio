@@ -673,86 +673,25 @@
   background: var(--panel-2);
 }
 
-.topicWheel__svg {
-  display: block;
-  width: 100%;
-  max-width: 760px;
-  height: auto;
-  margin: 0 auto;
+.topicWheel__stage--chart {
+  padding: 4px;
+  background:
+    radial-gradient(ellipse at 50% 45%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
+    var(--panel-2);
 }
 
-.topicWheel__arc {
-  cursor: pointer;
-  outline: none;
+.topicWheel__chartLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
 }
 
-.topicWheel__arc path {
-  stroke: var(--panel);
-  stroke-width: 1.5;
-  transition: filter 0.12s ease;
-}
-
-.topicWheel__arc:hover path,
-.topicWheel__arc:focus-visible path {
-  filter: brightness(1.15);
-}
-
-.topicWheel__arc:focus-visible path {
-  stroke: var(--focus);
-  stroke-width: 3;
-}
-
-.topicWheel__arc--selected path {
-  stroke: var(--fg);
-  stroke-width: 2.5;
-}
-
-.topicWheel__label {
-  fill: #fff;
-  stroke: rgba(0, 0, 0, 0.45);
-  stroke-width: 2.5;
-  paint-order: stroke;
-  text-anchor: middle;
-  dominant-baseline: central;
-  pointer-events: none;
-}
-
-.topicWheel__center {
-  cursor: pointer;
-  outline: none;
-}
-
-.topicWheel__center--root {
-  cursor: default;
-}
-
-.topicWheel__center circle {
-  fill: var(--panel);
-  stroke: var(--border);
-  stroke-width: 1.5;
-}
-
-.topicWheel__center:not(.topicWheel__center--root):hover circle,
-.topicWheel__center:focus-visible circle {
-  stroke: var(--accent);
-  stroke-width: 2.5;
-}
-
-.topicWheel__center text {
-  text-anchor: middle;
-  dominant-baseline: central;
-  pointer-events: none;
-}
-
-.topicWheel__centerTitle {
-  fill: var(--fg);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.topicWheel__centerCount {
-  fill: var(--muted);
-  font-size: 11px;
+.topicWheel__treeControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
 }
 
 .topicWheel__details {
@@ -798,6 +737,21 @@
   margin: 6px 0 0;
   padding: 0;
   list-style: none;
+}
+
+.topicWheel__chunkText {
+  max-height: 320px;
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 @container kg-workbench (max-width: 850px) {

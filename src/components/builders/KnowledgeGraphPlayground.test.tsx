@@ -12,8 +12,8 @@ import { KnowledgeGraphPlayground } from './KnowledgeGraphPlayground'
 
 vi.mock('../../lib/aiSearchRest')
 vi.mock('../viewers/KnowledgeGraphCanvas', () => ({ KnowledgeGraphCanvas: () => null }))
-vi.mock('../viewers/TopicWheel', () => ({
-  TopicWheel: ({ indexName }: { indexName: string }) => <div role="group" aria-label="Wheel stub">{indexName}</div>,
+vi.mock('../viewers/TopicHierarchyView', () => ({
+  TopicHierarchyView: ({ indexName, view }: { indexName: string; view: string }) => <div role="group" aria-label="Topic view stub">{indexName}:{view}</div>,
 }))
 vi.mock('./GraphJsonEditor', () => ({
   GraphJsonEditor: ({ value, onChange, readOnly }: { value: string; onChange?: (value: string) => void; readOnly?: boolean }) =>
@@ -248,7 +248,7 @@ describe('KnowledgeGraphPlayground controls', () => {
     expect(screen.getByRole('cell', { name: 'Custom topic title' })).toBeInTheDocument()
   })
 
-  it('offers a wheel tab only for topic indexes and keeps the graph view mounted while the wheel is shown', async () => {
+  it('offers wheel and tree tabs only for topic indexes and keeps the graph view mounted while they are shown', async () => {
     vi.mocked(listIndexes).mockResolvedValue(success({ value: [
       { name: 'graph-a', ...definition },
       { name: 'graph-b', ...definition },
@@ -268,20 +268,28 @@ describe('KnowledgeGraphPlayground controls', () => {
     await waitFor(() => expect(searchDocuments).toHaveBeenLastCalledWith(expect.objectContaining({ indexName: 'graph-a' })))
     const graphTab = await screen.findByRole('tab', { name: 'Graph' })
     const wheelTab = screen.getByRole('tab', { name: 'Wheel' })
+    const treeTab = screen.getByRole('tab', { name: 'Tree' })
     expect(graphTab).toHaveAttribute('aria-selected', 'true')
-    expect(screen.queryByRole('group', { name: 'Wheel stub' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Topic view stub' })).not.toBeInTheDocument()
 
     fireEvent.click(wheelTab)
     expect(wheelTab).toHaveAttribute('aria-selected', 'true')
     expect(screen.queryByRole('button', { name: 'Hide inspector' })).not.toBeInTheDocument()
     expect(screen.getByRole('complementary', { hidden: true })).not.toBeVisible()
     expect(screen.getByRole('button', { name: 'Edit graph documents', hidden: true })).not.toBeVisible()
-    expect(screen.getByRole('group', { name: 'Wheel stub' })).toHaveTextContent('graph-a')
+    expect(screen.getByRole('group', { name: 'Topic view stub' })).toHaveTextContent('graph-a:wheel')
+
+    const topicView = screen.getByRole('group', { name: 'Topic view stub' })
+    fireEvent.click(treeTab)
+    expect(treeTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('group', { name: 'Topic view stub' })).toBe(topicView)
+    expect(topicView).toHaveTextContent('graph-a:tree')
+    expect(screen.queryByRole('button', { name: 'Hide inspector' })).not.toBeInTheDocument()
 
     fireEvent.click(graphTab)
     expect(screen.getByRole('button', { name: 'Hide inspector' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Edit graph documents' })).toBeVisible()
-    expect(screen.getByRole('group', { name: 'Wheel stub', hidden: true })).not.toBeVisible()
+    expect(screen.getByRole('group', { name: 'Topic view stub', hidden: true })).not.toBeVisible()
   })
 
   it('loads the selected index immediately and places resource refresh beside the dropdown', async () => {
