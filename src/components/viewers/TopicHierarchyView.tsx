@@ -87,8 +87,10 @@ export function TopicHierarchyView({ profile, indexName, definition, language, t
   const [focusId, setFocusId] = useState<string>()
   const [selected, setSelected] = useState<Selection | null>(null)
   const [treeLayout, setTreeLayout] = useState<TreeLayout>('LR')
-  // A new object on every click, so that choosing the same mode again folds or opens what the user changed by hand.
-  const [treeMode, setTreeMode] = useState<{ mode: TreeMode }>({ mode: 'default' })
+  // The revision grows on every click. The chart skips an option that equals the previous one, which would leave a node
+  // that the user folded or opened by hand as it is, so the revision also remounts the chart to apply the mode again.
+  const [treeMode, setTreeMode] = useState<{ mode: TreeMode; revision: number }>({ mode: 'default', revision: 0 })
+  const applyTreeMode = (mode: TreeMode) => setTreeMode((current) => ({ mode, revision: current.revision + 1 }))
   const [chunkTexts, setChunkTexts] = useState<ReadonlyMap<string, ChunkTextState>>(new Map())
   const chunkControllerRef = useRef<AbortController | null>(null)
   const textControllersRef = useRef(new Set<AbortController>())
@@ -291,10 +293,10 @@ export function TopicHierarchyView({ profile, indexName, definition, language, t
             </button>)}
           </div>
           <div className="actions actions--tight">
-            <button type="button" className="btn btn--ghost btn--sm" disabled={!hierarchy} onClick={() => setTreeMode({ mode: 'expanded' })}>
+            <button type="button" className="btn btn--ghost btn--sm" disabled={!hierarchy} onClick={() => applyTreeMode('expanded')}>
               <i className="bi bi-arrows-expand icon--mr6" aria-hidden="true" />{t('kgTreeExpandAll')}
             </button>
-            <button type="button" className="btn btn--ghost btn--sm" disabled={!hierarchy} onClick={() => setTreeMode({ mode: 'collapsed' })}>
+            <button type="button" className="btn btn--ghost btn--sm" disabled={!hierarchy} onClick={() => applyTreeMode('collapsed')}>
               <i className="bi bi-arrows-collapse icon--mr6" aria-hidden="true" />{t('kgTreeCollapseAll')}
             </button>
           </div>
@@ -315,16 +317,16 @@ export function TopicHierarchyView({ profile, indexName, definition, language, t
     {chunkState.status === 'error' && <div className="notice notice--error" role="alert">{describe(chunkState.failure)}</div>}
     {chunkData?.truncated && <div className="notice notice--info" role="status">{fill(t(chunkData.keyOrdered ? 'kgWheelChunksTruncated' : 'kgWheelChunksTruncatedUnordered'), { max: MAX_WHEEL_CHUNKS })}</div>}
     {chunkData && chunkData.unassigned > 0 && <div className="notice notice--info" role="status">{fill(t('kgWheelChunksUnassigned'), { count: chunkData.unassigned })}</div>}
-    {hierarchy && (view === 'wheel' && wheel?.items.length === 0
-      ? <div className="field__hint">{t('kgWheelEmpty')}</div>
-      : <div className="topicWheel__body">
+    {hierarchy && <div className="topicWheel__body">
         <div className="topicWheel__stage topicWheel__stage--chart">
           <TopicOutline hierarchy={hierarchy} label={t('kgWheelOutline')} onActivate={activateTopic}
             activeId={selected?.kind === 'topic' ? selected.id : view === 'wheel' ? focus?.id : undefined} />
-          <Suspense fallback={chartFallback}>
-            {wheel && <TopicEChart key="wheel" option={wheel.option} style={WHEEL_STYLE} onEvents={wheelEvents} />}
-            {tree && <TopicEChart key={`tree-${treeLayout}`} option={tree.option} style={treeStyle(treeLayout, tree.visibleLeaves)} onEvents={treeEvents} />}
-          </Suspense>
+          {wheel?.items.length === 0
+            ? <div className="field__hint topicWheel__chartLoading">{t('kgWheelEmpty')}</div>
+            : <Suspense fallback={chartFallback}>
+              {wheel && <TopicEChart key="wheel" option={wheel.option} style={WHEEL_STYLE} onEvents={wheelEvents} />}
+              {tree && <TopicEChart key={`tree-${treeLayout}-${treeMode.revision}`} option={tree.option} style={treeStyle(treeLayout, tree.visibleLeaves)} onEvents={treeEvents} />}
+            </Suspense>}
         </div>
         <aside className="topicWheel__details" aria-label={t('kgWheelDetails')}>
           <h4 className="kgInspector__caption">{t('kgWheelDetails')}</h4>
@@ -365,7 +367,7 @@ export function TopicHierarchyView({ profile, indexName, definition, language, t
                     : <p className="field__hint">{t('kgWheelChunkTextEmpty')}</p>}
           </>}
         </aside>
-      </div>)}
+      </div>}
     <p className="field__hint">{t(view === 'tree' ? 'kgTreeHint' : 'kgWheelHint')}</p>
     {chunkState.status !== 'ready' && <p className="field__hint">{fill(t('kgWheelChunksHint'), { max: MAX_WHEEL_CHUNKS })}</p>}
   </div>

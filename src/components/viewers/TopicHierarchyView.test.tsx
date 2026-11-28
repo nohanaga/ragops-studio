@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import type { CSSProperties } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { JsonObject } from '../../app/json'
 import type { ConnectionProfile } from '../../lib/model'
@@ -22,13 +22,15 @@ type ChartProps = {
   onEvents: { click: (params: unknown) => void }
 }
 
-const chart = vi.hoisted(() => ({ calls: [] as unknown[] }))
-vi.mock('./TopicEChart', () => ({
-  default: (props: unknown) => {
+const chart = vi.hoisted(() => ({ calls: [] as unknown[], mounted: 0 }))
+vi.mock('./TopicEChart', () => {
+  function TopicEChartStub(props: unknown) {
+    const [instance] = useState(() => ++chart.mounted)
     chart.calls.push(props)
-    return <div role="img" aria-label="Topic chart" />
-  },
-}))
+    return <div role="img" aria-label="Topic chart" data-instance={instance} />
+  }
+  return { default: TopicEChartStub }
+})
 vi.mock('../../lib/topicGraphReader', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../lib/topicGraphReader')>(),
   loadChunkText: vi.fn(),
@@ -88,6 +90,7 @@ async function overlayChunks(kind: 'wheel' | 'tree' = 'wheel', result = chunksRe
 describe('TopicHierarchyView', () => {
   beforeEach(() => {
     chart.calls.length = 0
+    chart.mounted = 0
     vi.mocked(loadTopicHierarchy).mockResolvedValue(hierarchy)
   })
   afterEach(() => {
@@ -284,6 +287,20 @@ describe('TopicHierarchyView', () => {
       expect(rootOf().children?.every((child) => child.collapsed)).toBe(true)
     })
 
+    it('applies "Expand all" and "Collapse all" again with a new chart each time, so that nodes changed by hand are reset', async () => {
+      render(view('tree'))
+      const instance = () => screen.getByRole('img', { name: 'Topic chart' }).getAttribute('data-instance')
+      await screen.findByRole('img', { name: 'Topic chart' })
+      const seen = [instance()]
+
+      for (const name of ['Expand all', 'Expand all', 'Collapse all', 'Collapse all']) {
+        fireEvent.click(screen.getByRole('button', { name }))
+        seen.push(instance())
+      }
+
+      expect(new Set(seen).size).toBe(seen.length)
+    })
+
     it('selects a clicked topic or chunk, reads the chunk text and ignores the collection node', async () => {
       vi.mocked(loadChunkText).mockResolvedValue('伽藍の由来')
       await overlayChunks('tree')
@@ -382,6 +399,18 @@ describe('TopicHierarchyView', () => {
       expect(latest().option.series[0].type).toBe('tree')
       expect(outline().getByRole('button', { name: '0: 寺院' })).toHaveAttribute('aria-current', 'true')
     })
+  })
+
+  it('keeps the topic list and the details when no chunk is assigned, and shows the empty state only in place of the chart', async () => {
+    await overlayChunks('wheel', chunksResult({ assignments: new Map(), unassigned: 5 }))
+
+    expect(screen.getByText('There are no topics to show.')).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'Topic chart' })).not.toBeInTheDocument()
+    const outline = within(screen.getByRole('navigation', { name: 'Topic list for keyboard navigation' }))
+    fireEvent.click(outline.getByRole('button', { name: '1: 自然' }))
+    const details = screen.getByRole('complementary', { name: 'Selection details' })
+    expect(details).toHaveTextContent('1: 自然')
+    expect(within(details).getByText('Chunks').nextElementSibling).toHaveTextContent('0')
   })
 
   it('hands the chart the same event handlers on every render, so that it does not rebind them while the user hovers', async () => {
